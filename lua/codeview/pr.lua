@@ -411,11 +411,11 @@ function M.fetch(root, info, opts, cb)
   end
 
   ---Error of a fetch that failed.
-  ---@param name string Name of the git remote.
+  ---@param _name string Name of the git remote. The message of the caller holds it.
   ---@param message string
   ---@param result codeview.ExecResult
   ---@return codeview.Error
-  local function fetch_error(name, message, result)
+  local function fetch_error(_name, message, result)
     local text = (result.stderr or ""):lower()
     local code = errors.codes.COMMAND_FAILED
     if text:find("could not read from remote", 1, true) or text:find("could not resolve host", 1, true) then

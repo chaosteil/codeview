@@ -653,7 +653,7 @@ describe("codeview.sidebar", function()
 
     it("opens no file", function()
       local bar = open_sidebar()
-      local view = require("codeview.view")
+      local view_mod = require("codeview.view")
       local row = nil
       for index = 1, #bar.panel:lines() do
         local data = bar.panel:data(index)
@@ -664,7 +664,7 @@ describe("codeview.sidebar", function()
       api.nvim_set_current_win(bar.panel:window())
       api.nvim_win_set_cursor(bar.panel:window(), { row, 0 })
       bar:open_cursor()
-      assert.is_nil(view.current())
+      assert.is_nil(view_mod.current())
       require("codeview.overview").close()
     end)
   end)

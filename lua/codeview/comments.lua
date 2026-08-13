@@ -64,10 +64,10 @@ M.editing = nil
 local stores = {}
 
 ---Report a message of the comment flow.
----@param message string
+---@param text string
 ---@param level integer? A `vim.log.levels` value. INFO by default.
-local function notify(message, level)
-  vim.notify("codeview: " .. message, level or vim.log.levels.INFO)
+local function notify(text, level)
+  vim.notify("codeview: " .. text, level or vim.log.levels.INFO)
 end
 
 --- Store ------------------------------------------------------------------------
