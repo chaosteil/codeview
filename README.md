@@ -486,6 +486,8 @@ The defaults are:
     border = "rounded",
     width = 72,
     height = 10,
+    editor = "inline", -- "inline" | "float"
+    start_insert = true,
   },
   export = {
     register = "+",

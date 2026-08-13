@@ -22,11 +22,17 @@ local M = {}
 ---@type string
 M.filetype = "markdown"
 
+---@class codeview.editor.Anchor
+---@field win integer Window that shows the diff.
+---@field buf integer Buffer of the diff.
+---@field row integer Row of the buffer, from 1. The editor opens under this row.
+
 ---@class codeview.editor.Opts
 ---@field title string? Text of the window border. "Comment" by default.
 ---@field text string? Body to edit. Empty for a new comment.
 ---@field on_save fun(body: string) Handler of a save. The body is trimmed.
 ---@field on_cancel fun()? Handler of a discard.
+---@field anchor codeview.editor.Anchor? Row that the inline style opens under.
 
 ---@class codeview.editor.State
 ---@field buf integer Buffer of the editor.
@@ -35,6 +41,16 @@ M.filetype = "markdown"
 ---@field on_save fun(body: string)
 ---@field on_cancel fun()?
 ---@field done boolean True after a save or a discard.
+---@field style codeview.editor.Style Style that the editor opened with.
+---@field anchor codeview.editor.Anchor? Anchor of the inline style.
+---@field spacer integer? Extmark that holds the space of the inline editor.
+---@field insert boolean True when the editor asked for insert mode.
+
+---@alias codeview.editor.Style "inline"|"float"
+
+---Namespace of the spacer of the inline editor.
+---@type integer
+local ns = api.nvim_create_namespace("codeview.editor")
 
 ---Editor that is open.
 ---@type codeview.editor.State?
@@ -83,6 +99,7 @@ local function unmount(editor)
     pcall(api.nvim_del_augroup_by_id, editor.group)
     editor.group = nil
   end
+  M.clear_spacer(editor)
   if api.nvim_win_is_valid(editor.win) then
     pcall(api.nvim_win_close, editor.win, true)
   end
@@ -130,12 +147,83 @@ function M.submit()
   return true
 end
 
----Size and position of the editor window.
----@return vim.api.keyset.win_config
-local function window_config()
+---Remove the space that the inline editor holds in the diff buffer.
+---
+--- The spacer is an extmark with virtual lines. It adds no line to the buffer,
+--- so the line count and the line map of the diff stay as they were.
+---@param editor codeview.editor.State
+function M.clear_spacer(editor)
+  if not editor.spacer or not editor.anchor then
+    return
+  end
+  if api.nvim_buf_is_valid(editor.anchor.buf) then
+    pcall(api.nvim_buf_del_extmark, editor.anchor.buf, ns, editor.spacer)
+  end
+  editor.spacer = nil
+end
+
+---Report whether an anchor still points at a live window and buffer.
+---@param anchor codeview.editor.Anchor?
+---@return boolean
+local function anchored(anchor)
+  return anchor ~= nil
+    and api.nvim_win_is_valid(anchor.win)
+    and api.nvim_buf_is_valid(anchor.buf)
+    and anchor.row >= 1
+    and anchor.row <= api.nvim_buf_line_count(anchor.buf)
+end
+
+---Height of the editor window.
+---@return integer
+local function editor_height()
   local cfg = config.get().comments
+  return math.max(math.min(cfg.height, vim.o.lines - 6), 3)
+end
+
+---Open the space that the inline editor sits in.
+---
+--- Without the spacer the window covers the lines under the anchor. The
+--- virtual lines push them down instead, so the reviewer keeps the whole diff
+--- in sight while the editor is open.
+---@param anchor codeview.editor.Anchor
+---@param height integer
+---@return integer? id Extmark of the spacer.
+local function open_spacer(anchor, height)
+  local lines = {}
+  for _ = 1, height do
+    lines[#lines + 1] = { { "", "NormalFloat" } }
+  end
+  local ok, id = pcall(api.nvim_buf_set_extmark, anchor.buf, ns, anchor.row - 1, 0, {
+    virt_lines = lines,
+  })
+  return ok and id or nil
+end
+
+---Size and position of the editor window.
+---@param style codeview.editor.Style
+---@param anchor codeview.editor.Anchor? Anchor of the inline style.
+---@return vim.api.keyset.win_config
+local function window_config(style, anchor)
+  local cfg = config.get().comments
+  local height = editor_height()
+  if style == "inline" and anchor then
+    -- The window sits on the virtual lines of the spacer, which start one
+    -- screen row under the anchor row.
+    local width = math.max(api.nvim_win_get_width(anchor.win) - 1, 20)
+    return {
+      relative = "win",
+      win = anchor.win,
+      bufpos = { anchor.row - 1, 0 },
+      row = 1,
+      col = 0,
+      width = width,
+      height = height,
+      style = "minimal",
+      border = "none",
+      zindex = 45,
+    }
+  end
   local width = math.max(math.min(cfg.width, vim.o.columns - 4), 20)
-  local height = math.max(math.min(cfg.height, vim.o.lines - 6), 3)
   return {
     relative = "editor",
     width = width,
@@ -176,9 +264,16 @@ function M.open(opts)
   vim.validate("opts.on_cancel", opts.on_cancel, "callable", true)
   vim.validate("opts.title", opts.title, "string", true)
   vim.validate("opts.text", opts.text, "string", true)
+  vim.validate("opts.anchor", opts.anchor, "table", true)
 
   M.cancel()
   counter = counter + 1
+
+  local cfg = config.get().comments
+  -- The inline style needs a row to sit under. An editor that opens from the
+  -- overview has no diff row, so it falls back to the float.
+  local anchor = anchored(opts.anchor) and opts.anchor or nil
+  local style = (cfg.editor == "inline" and anchor) and "inline" or "float"
 
   local buf = api.nvim_create_buf(false, true)
   vim.bo[buf].buftype = "acwrite"
@@ -191,11 +286,20 @@ function M.open(opts)
   api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(opts.text or "", "\n", { plain = true }))
   vim.bo[buf].modified = false
 
-  local win_config = window_config()
+  local spacer = nil
+  if style == "inline" then
+    spacer = open_spacer(anchor, editor_height())
+  end
+
+  local win_config = window_config(style, anchor)
   local cancel = config.keys(config.get().keymaps.editor_cancel)[1]
-  win_config.title = " " .. (opts.title or "Comment") .. " "
-  win_config.footer = cancel and (" :w saves · " .. cancel .. " discards ") or " :w saves "
-  win_config.footer_pos = "right"
+  if style == "float" then
+    -- A border carries the title. The inline style has none, so its hint goes
+    -- into the winbar, where it reads as part of the row.
+    win_config.title = " " .. (opts.title or "Comment") .. " "
+    win_config.footer = cancel and (" :w saves · " .. cancel .. " discards ") or " :w saves "
+    win_config.footer_pos = "right"
+  end
   local ok, win = pcall(api.nvim_open_win, buf, true, win_config)
   if not ok then
     -- The border, the title, or the footer is not available. Try without them.
@@ -209,6 +313,12 @@ function M.open(opts)
   vim.wo[win][0].signcolumn = "no"
   vim.wo[win][0].spell = false
   vim.wo[win][0].cursorline = false
+  if style == "inline" then
+    vim.wo[win][0].winhighlight = "Normal:NormalFloat"
+    local hint = cancel and (" " .. (opts.title or "Comment") .. " · :w saves · " .. cancel .. " discards")
+      or (" " .. (opts.title or "Comment") .. " · :w saves")
+    vim.wo[win][0].winbar = "%#Comment#" .. hint:gsub("%%", "%%%%")
+  end
 
   ---@type codeview.editor.State
   local editor = {
@@ -217,6 +327,10 @@ function M.open(opts)
     on_save = opts.on_save,
     on_cancel = opts.on_cancel,
     done = false,
+    style = style,
+    anchor = anchor,
+    spacer = spacer,
+    insert = cfg.start_insert,
   }
   state = editor
 
@@ -261,6 +375,12 @@ function M.open(opts)
   -- The cursor starts at the end of the text, so a reopen continues the note.
   local last = api.nvim_buf_line_count(buf)
   pcall(api.nvim_win_set_cursor, win, { last, #(api.nvim_buf_get_lines(buf, last - 1, last, false)[1] or "") })
+
+  -- The reviewer opened the editor to type, so the editor starts in insert
+  -- mode, after the last character of the text.
+  if cfg.start_insert then
+    vim.cmd("startinsert!")
+  end
   return buf, win
 end
 

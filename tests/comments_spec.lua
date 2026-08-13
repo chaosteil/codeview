@@ -346,6 +346,97 @@ describe("codeview.comments", function()
       assert.are.equal("markdown", vim.bo[ed.buf].filetype)
       assert.are.equal("acwrite", vim.bo[ed.buf].buftype)
       assert.is_false(vim.bo[state.buf].modifiable)
+      editor.cancel()
+    end)
+
+    it("opens under the line of the diff", function()
+      local state = open_diff()
+      local rows = api.nvim_buf_line_count(state.buf)
+      api.nvim_win_set_cursor(state.win, { 2, 0 })
+      comments.add()
+
+      local ed = assert(editor.current())
+      local win_config = api.nvim_win_get_config(ed.win)
+      assert.are.equal("inline", ed.style)
+      assert.are.equal("win", win_config.relative)
+      assert.are.equal(state.win, win_config.win)
+      -- The window sits on the virtual lines that the spacer holds, one screen
+      -- row under the commented row.
+      assert.are.same({ 1, 0 }, win_config.bufpos)
+      assert.are.equal(1, win_config.row)
+
+      -- The space comes from an extmark, so the diff keeps its rows.
+      local ns = api.nvim_create_namespace("codeview.editor")
+      assert.are.equal(1, #api.nvim_buf_get_extmarks(state.buf, ns, 0, -1, {}))
+      assert.are.equal(rows, api.nvim_buf_line_count(state.buf))
+      assert.is_false(vim.bo[state.buf].modifiable)
+      editor.cancel()
+    end)
+
+    it("takes the space back after a discard", function()
+      local state = open_diff()
+      local ns = api.nvim_create_namespace("codeview.editor")
+      api.nvim_win_set_cursor(state.win, { 2, 0 })
+      comments.add()
+      assert.are.equal(1, #api.nvim_buf_get_extmarks(state.buf, ns, 0, -1, {}))
+
+      editor.cancel()
+      assert.are.equal(0, #api.nvim_buf_get_extmarks(state.buf, ns, 0, -1, {}))
+    end)
+
+    it("takes the space back after a save", function()
+      local state = open_diff()
+      local ns = api.nvim_create_namespace("codeview.editor")
+      local rows = api.nvim_buf_line_count(state.buf)
+      api.nvim_win_set_cursor(state.win, { 2, 0 })
+      comments.add()
+      api.nvim_buf_set_lines(assert(editor.current()).buf, 0, -1, false, { "saved" })
+      assert.is_true(editor.submit())
+
+      assert.are.equal(0, #api.nvim_buf_get_extmarks(state.buf, ns, 0, -1, {}))
+      assert.are.equal(rows, api.nvim_buf_line_count(state.buf))
+    end)
+
+    it("starts in insert mode", function()
+      -- The test reads the request, not the mode. A headless Neovim runs no
+      -- input loop, so `startinsert` reaches no mode change until the loop
+      -- runs, and `vim.api.nvim_get_mode()` answers "n" through the test.
+      local state = open_diff()
+      api.nvim_win_set_cursor(state.win, { 2, 0 })
+      comments.add()
+      assert.is_true(assert(editor.current()).insert)
+      editor.cancel()
+    end)
+
+    it("keeps normal mode when the option says so", function()
+      assert(config.setup({ comments = { dir = dir, start_insert = false } }))
+      local state = open_diff()
+      api.nvim_win_set_cursor(state.win, { 2, 0 })
+      comments.add()
+      assert.is_false(assert(editor.current()).insert)
+      editor.cancel()
+    end)
+
+    it("opens a float when the option asks for one", function()
+      assert(config.setup({ comments = { dir = dir, editor = "float" } }))
+      local state = open_diff()
+      api.nvim_win_set_cursor(state.win, { 2, 0 })
+      comments.add()
+
+      local ed = assert(editor.current())
+      assert.are.equal("float", ed.style)
+      assert.are.equal("editor", api.nvim_win_get_config(ed.win).relative)
+      editor.cancel()
+    end)
+
+    it("falls back to a float without a row to sit under", function()
+      open_diff()
+      -- An editor that opens without an anchor has no diff row, which is the
+      -- case of the comment overview.
+      editor.open({ on_save = function() end })
+
+      local ed = assert(editor.current())
+      assert.are.equal("float", ed.style)
       assert.are.equal("editor", api.nvim_win_get_config(ed.win).relative)
       editor.cancel()
     end)

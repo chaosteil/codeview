@@ -51,8 +51,10 @@ local M = {}
 ---@field resolved_sign string Sign text for a line with a resolved comment.
 ---@field remote_sign string Sign text for a line with a comment from GitHub.
 ---@field border string Border of the comment editor and of the comment float.
----@field width integer Width of the comment editor, in columns.
+---@field width integer Width of the comment editor, in columns. The float style only.
 ---@field height integer Height of the comment editor, in lines.
+---@field editor "inline"|"float" Where the comment editor opens. Inline opens it under the line.
+---@field start_insert boolean Start the comment editor in insert mode.
 
 ---@class codeview.Config.Export
 ---@field register string Register that receives the exported markdown. An empty text writes no register.
@@ -99,6 +101,8 @@ M.defaults = {
     border = "rounded",
     width = 72,
     height = 10,
+    editor = "inline",
+    start_insert = true,
   },
   export = {
     register = "+",
@@ -242,6 +246,8 @@ function M.validate(opts)
     vim.validate("comments.border", opts.comments.border, "string")
     vim.validate("comments.width", opts.comments.width, positive_integer, "positive integer")
     vim.validate("comments.height", opts.comments.height, positive_integer, "positive integer")
+    vim.validate("comments.editor", opts.comments.editor, one_of({ "inline", "float" }))
+    vim.validate("comments.start_insert", opts.comments.start_insert, "boolean")
 
     vim.validate("export", opts.export, "table")
     vim.validate("export.register", opts.export.register, "string")

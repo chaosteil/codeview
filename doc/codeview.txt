@@ -529,6 +529,21 @@ section. A section at the start of the file has no row above it, so the sign
 goes on the row of the section itself. The row of the sign also answers for
 the edit key and for the delete key. Press `za` to show the lines again.
 
+                                                    *codeview-comments-editor*
+The `comments.editor` option selects where the editor opens: >
+
+    inline    under the commented row, in the width of the diff (default)
+    float     in the middle of the screen, with a border
+<
+The inline editor opens the diff at the commented row. The space comes from
+virtual lines, so the diff keeps its rows, keeps its line map, and stays
+read-only. The lines under the comment move down while you type, and they move
+back when you save or discard. A window that shows no diff row, for example an
+edit from the comment overview, opens the float instead.
+
+The editor starts in insert mode, after the last character of the text. Set
+`comments.start_insert` to false to start in normal mode.
+
                                                    *codeview-comments-display*
 The `comments.display` option selects the display: >
 
@@ -1218,6 +1233,8 @@ Defaults: >lua
         border = "rounded",          -- border of the editor and of the float
         width = 72,                  -- width of the editor, in columns
         height = 10,                 -- height of the editor, in lines
+        editor = "inline",           -- "inline" | "float"
+        start_insert = true,         -- start the editor in insert mode
       },
       export = {
         register = "+",

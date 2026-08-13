@@ -48,6 +48,8 @@ M.ns = api.nvim_create_namespace("codeview.comments")
 ---@field start_line integer First line of the file, from 1.
 ---@field end_line integer Last line of the file.
 ---@field commit string Revision of the side.
+---@field win integer Window that the reviewer marked the lines in.
+---@field row integer Last marked row of that window. The inline editor opens under it.
 
 ---Store of each open session, by session id.
 ---@type table<integer, codeview.store.Store>
@@ -204,6 +206,8 @@ function M.target(view, opts)
         start_line = anchor.start_line,
         end_line = anchor.end_line,
         commit = commit_of(view, anchor.side),
+        win = win,
+        row = last,
       }
     end
   end
@@ -606,6 +610,20 @@ local function title_of(target, action)
   )
 end
 
+---Anchor of the inline editor for one target.
+---
+--- The editor opens under the last marked row, in the window that the reviewer
+--- marked it in. A window that closed in the meantime gives no anchor, and the
+--- editor falls back to the float.
+---@param target codeview.comments.Target
+---@return codeview.editor.Anchor? anchor
+local function anchor_of(target)
+  if not target.win or not vim.api.nvim_win_is_valid(target.win) then
+    return nil
+  end
+  return { win = target.win, buf = vim.api.nvim_win_get_buf(target.win), row = target.row }
+end
+
 ---Open the editor for a new comment.
 ---
 --- In normal mode the comment covers the line under the cursor. In visual mode
@@ -633,6 +651,7 @@ function M.add(opts)
 
   require("codeview.editor").open({
     title = title_of(target, "Comment on"),
+    anchor = anchor_of(target),
     on_save = function(body)
       -- The store comes again from the session, because a session that closes
       -- while the editor is open drops its store.
@@ -694,6 +713,30 @@ local function nothing_here(ctx)
   return "no comment on this line"
 end
 
+---Anchor of the inline editor for a comment that a view shows.
+---
+--- The editor opens under the last row of the comment. A comment that the
+--- render hides, or an action from the overview without a diff view, gives no
+--- anchor, and the editor falls back to the float.
+---@param view codeview.view.State?
+---@param comment codeview.store.Comment
+---@return codeview.editor.Anchor? anchor
+local function comment_anchor(view, comment)
+  if not view then
+    return nil
+  end
+  local rows, buf = M.rows(view, comment)
+  local row = rows[#rows]
+  if not row then
+    return nil
+  end
+  local win = buf == view.buf and view.win or view.old_win
+  if not win or not vim.api.nvim_win_is_valid(win) then
+    return nil
+  end
+  return { win = win, buf = buf, row = row }
+end
+
 ---Open the editor for the comment under the cursor.
 ---@param opts? { id?: string, view?: codeview.view.State, session?: codeview.Session }
 ---@return boolean opened False when no comment covers the cursor.
@@ -720,6 +763,7 @@ function M.edit(opts)
       comment.side
     ),
     text = comment.body,
+    anchor = comment_anchor(ctx.view, comment),
     on_save = function(body)
       -- The store comes again from the session, because a session that closes
       -- while the editor is open drops its store.
