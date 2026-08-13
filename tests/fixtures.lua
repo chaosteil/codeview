@@ -225,6 +225,86 @@ function M.git_branched()
   }
 end
 
+---Text of a file with numbered lines.
+---@param count integer Number of lines.
+---@param mark? table<integer, string> Text to put after the number of one line.
+---@return string
+function M.numbered(count, mark)
+  mark = mark or {}
+  local lines = {}
+  for index = 1, count do
+    lines[index] = string.format("line %02d%s", index, mark[index] or "")
+  end
+  return table.concat(lines, "\n") .. "\n"
+end
+
+---Build a git repository for the diff tests.
+---
+--- The range `base..change` holds one file of every shape that the diff view
+--- must render:
+---
+---     long.txt        two hunks with 26 unchanged lines between them
+---     gone.txt        deleted
+---     new/name.txt    renamed, with the same content
+---     added.txt       added
+---     empty.txt       added, with no content
+---     bin.dat         binary, changed
+---@return tests.Fixture
+function M.git_diff()
+  local dir = M.tempdir("codeview-diff")
+  local env = git_env(dir)
+  git_init(dir, "main", env)
+
+  ---Commit every file of a table.
+  ---@param files table<string, string>
+  ---@param day integer
+  ---@param message string
+  ---@return string id
+  local function commit(files, day, message)
+    for path, content in pairs(files) do
+      write_file(vim.fs.joinpath(dir, path), content)
+      run({ "git", "add", "--", path }, dir, env)
+    end
+    run(
+      { "git", "commit", "--quiet", "--allow-empty", "-m", message },
+      dir,
+      at_date(env, string.format("2024-03-0%dT10:00:00+00:00", day))
+    )
+    return vim.trim(run({ "git", "rev-parse", "HEAD" }, dir, env))
+  end
+
+  local ids = {}
+  ids.base = commit({
+    ["long.txt"] = M.numbered(40),
+    ["gone.txt"] = "gone one\ngone two\n",
+    ["old/name.txt"] = "same one\nsame two\n",
+    ["bin.dat"] = "\0\1\2 binary \3\0",
+  }, 1, "base: add the files")
+
+  run({ "git", "rm", "--quiet", "gone.txt" }, dir, env)
+  vim.fn.mkdir(vim.fs.joinpath(dir, "new"), "p")
+  run({ "git", "mv", "old/name.txt", "new/name.txt" }, dir, env)
+  ids.change = commit({
+    ["long.txt"] = M.numbered(40, { [3] = " changed", [30] = " changed" }),
+    ["added.txt"] = "added one\nadded two\n",
+    ["empty.txt"] = "",
+    ["bin.dat"] = "\0\4\5 binary again \6\0",
+  }, 2, "change: edit, add, delete, and rename")
+
+  local root = vim.trim(run({ "git", "rev-parse", "--show-toplevel" }, dir, env))
+
+  return {
+    root = vim.fs.normalize(root),
+    dir = dir,
+    ids = ids,
+    names = { "base", "change" },
+    branch = "main",
+    cleanup = function()
+      vim.fn.delete(dir, "rf")
+    end,
+  }
+end
+
 ---Content of a file after a commit, as the history describes it.
 ---@param upto string Name of the last commit to apply.
 ---@param path string

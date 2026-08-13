@@ -5,8 +5,9 @@ or of a range of commits. You browse the changed files in a sidebar, read the
 diffs inline or side by side, and write comments on the lines. You can export
 the comments as markdown, and later send them to GitHub.
 
-> Status: early development. This release selects the revisions of a review.
-> The sidebar, the diff views, and the comments come with the next milestones.
+> Status: early development. This release selects the revisions of a review,
+> lists the changed files in a sidebar, and shows an inline diff of each file.
+> The side-by-side diff and the comments come with the next milestones.
 > See `MILESTONES.md`.
 
 ## Requirements
@@ -68,6 +69,37 @@ codeview.open("HEAD~1..HEAD", nil, function(session, err)
 end)
 ```
 
+## Diff view
+
+`<CR>` in the sidebar opens the diff of the file under the cursor. The diff
+view shows a unified diff of the two revisions:
+
+```diff
+@@ -1,6 +1,6 @@
+ line 01
+ line 02
+-line 03
++line 03 changed
+ line 04
+ line 05
+ line 06
+⋯ 20 unchanged lines
+```
+
+The status column shows the line number of the old file and the line number of
+the new file. These keys work in the diff buffer:
+
+| Key  | Action                                        |
+| ---- | --------------------------------------------- |
+| `]h` | jump to the next hunk                         |
+| `[h` | jump to the previous hunk                     |
+| `za` | show or hide the section under the cursor     |
+| `zR` | show every hidden line                        |
+| `zM` | hide every section again                      |
+| `]f` | open the next file                            |
+| `[f` | open the previous file                        |
+| `q`  | close the review session                      |
+
 ## Configuration
 
 The defaults are:
@@ -85,6 +117,13 @@ The defaults are:
     position = "left", -- "left" | "right"
     width = 40,
     auto_open = true,
+    icons = {
+      expanded = "▾",
+      collapsed = "▸",
+      file = " ",
+      guide = "│",
+      current = "▸",
+    },
   },
   comments = {
     dir = vim.fs.joinpath(vim.fn.stdpath("config"), "review"),
@@ -97,10 +136,14 @@ The defaults are:
   },
   keymaps = {
     open_file = "<CR>",
+    toggle_node = "<Tab>",
+    expand_all = "zR",
+    collapse_all = "zM",
     next_file = "]f",
     prev_file = "[f",
     next_hunk = "]h",
     prev_hunk = "[h",
+    expand_context = "za",
     toggle_style = "<leader>ct",
     comment = "<leader>cc",
     delete_comment = "<leader>cd",

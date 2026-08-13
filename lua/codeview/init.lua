@@ -97,6 +97,54 @@ function M.toggle_sidebar(opts)
   return require("codeview.sidebar").toggle(opts)
 end
 
+---Read the file view of the session that runs.
+---@return codeview.view.State? view Nil when no file is open.
+function M.view()
+  return require("codeview.view").current()
+end
+
+---Open one changed file of the session in the diff view.
+---@param index integer Position of the file in the file list of the session.
+---@param opts? { session?: codeview.Session }
+---@param cb? fun(view: codeview.view.State?, err: codeview.Error?) Callback for the async form.
+---@return codeview.view.State? view
+---@return codeview.Error? err
+function M.open_file(index, opts, cb)
+  local session = (opts or {}).session or require("codeview.session").current()
+  if not session then
+    local errors = require("codeview.error")
+    local err = errors.new(errors.codes.INVALID_ARG, "no review session")
+    if cb then
+      cb(nil, err)
+      return nil, nil
+    end
+    return nil, err
+  end
+  return require("codeview.view").open(session, index, cb)
+end
+
+---Move the cursor to the first row of the next hunk.
+---@param opts? { wrap?: boolean } `wrap = true` continues at the first hunk.
+---@return integer? row Nil when no hunk follows.
+function M.next_hunk(opts)
+  return require("codeview.view").next_hunk(opts)
+end
+
+---Move the cursor to the first row of the previous hunk.
+---@param opts? { wrap?: boolean } `wrap = true` continues at the last hunk.
+---@return integer? row Nil when no hunk is above the cursor.
+function M.prev_hunk(opts)
+  return require("codeview.view").prev_hunk(opts)
+end
+
+---Show or hide the lines of the collapsed section under the cursor.
+---@param id integer? Number of the section. The section under the cursor by default.
+---@param expanded boolean? State to set. The other state by default.
+---@return boolean changed False without a section.
+function M.toggle_context(id, expanded)
+  return require("codeview.view").toggle_context(id, expanded)
+end
+
 ---Run the health check of the plugin.
 ---
 --- The same report comes from `:checkhealth codeview`.

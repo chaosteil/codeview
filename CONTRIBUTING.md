@@ -66,6 +66,57 @@ them. Do not change a rule without a change to this file.
 - Add a new option to the defaults, to the validation, to the LuaCATS class, to
   the README, and to `doc/codeview.txt`, in the same commit.
 
+### The line map
+
+`lua/codeview/linemap.lua` holds the map between the rows of a diff buffer and
+the lines of the two file versions. It is the central data structure of the
+plugin. The diff renderer builds it, and every later feature reads it:
+
+- M5 builds one map per side of the side-by-side view.
+- M7 anchors a comment to a file, a side, a first line, and a last line.
+- M11 maps such an anchor to a position of the GitHub diff.
+
+A map holds one record per buffer row, from row 1:
+
+```lua
+---@class codeview.linemap.Row
+---@field kind codeview.linemap.Kind -- context | add | delete | header | filler | message
+---@field old integer?  -- line in the old file
+---@field new integer?  -- line in the new file
+---@field hunk integer? -- position of the hunk in the hunk list
+---@field gap integer?  -- number of the collapsed section
+```
+
+These rules apply to every renderer that builds a map:
+
+- A context row holds both line numbers. An added row holds the new number
+  only. A removed row holds the old number only.
+- A header row, a filler row, and a message row hold no file line.
+- The rows come in file order. The old numbers and the new numbers both grow
+  from the first row to the last row.
+- A row of a hunk holds the position of the hunk. The rows of the context of
+  the hunk hold it too. A row between two hunks holds no hunk.
+
+The map answers in both directions:
+
+```lua
+map:row(lnum)                -- record of one buffer row
+map:kind(lnum)               -- kind of one buffer row
+map:side(lnum)               -- "old", "new", or nil
+map:file_line(lnum, side)    -- buffer row to file line
+map:buf_row(line, side)      -- file line to buffer row
+map:nearest_row(line, side)  -- closest row at or above a hidden line
+map:hunk(lnum)               -- hunk of one row
+map:hunk_starts()            -- first row of every hunk
+map:next_hunk(lnum, opts)    -- row of the next hunk
+map:anchor(first, last)      -- side, first line, and last line of a row range
+```
+
+Build a map with `linemap.new()` and one `map:add(row)` call per buffer line,
+in buffer order. `linemap.from(rows)` builds a map from a full list, for the
+tests. Do not write to `map.rows` from outside the module, because the map
+keeps its own indexes.
+
 ### Errors
 
 - Backend and IO code returns errors as values. It does not throw them.

@@ -86,6 +86,7 @@ M.defaults = {
     prev_file = "[f",
     next_hunk = "]h",
     prev_hunk = "[h",
+    expand_context = "za",
     toggle_style = "<leader>ct",
     comment = "<leader>cc",
     delete_comment = "<leader>cd",

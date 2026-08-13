@@ -9,10 +9,11 @@ CONTENTS                                                     *codeview-contents*
   4. Commands ............................. |codeview-commands|
   5. Sessions ............................. |codeview-sessions|
   6. Sidebar .............................. |codeview-sidebar|
-  7. Lua API .............................. |codeview-api|
-  8. Configuration ........................ |codeview-config|
-  9. Highlights ........................... |codeview-highlights|
-  10. Health .............................. |codeview-health|
+  7. Diff view ............................ |codeview-diff|
+  8. Lua API .............................. |codeview-api|
+  9. Configuration ........................ |codeview-config|
+  10. Highlights .......................... |codeview-highlights|
+  11. Health .............................. |codeview-health|
 
 ==============================================================================
 1. INTRODUCTION                                          *codeview-introduction*
@@ -22,8 +23,9 @@ codeview shows the changes of a commit, or of a range of commits. You browse
 the changed files in a sidebar, read the diffs inline or side by side, and
 write comments on the lines. You can export the comments as markdown.
 
-This release selects the revisions of a review and lists the changed files in
-a sidebar. The diff views and the comments come with the next milestones.
+This release selects the revisions of a review, lists the changed files in a
+sidebar, and shows an inline diff of each file. The side-by-side diff and the
+comments come with the next milestones.
 
 ==============================================================================
 2. REQUIREMENTS                                          *codeview-requirements*
@@ -178,7 +180,7 @@ A rename line and a copy line also show the old path, after an arrow. A
 directory that hides its children shows the marks of the files below it.
 
 The marker "▸" and the highlight group |hl-CodeViewCurrent| mark the file that
-the file view shows. The marker moves with every file that you open. A
+the diff view shows. The marker moves with every file that you open. A
 directory that hides the marked file opens again.
 
                                                      *codeview-sidebar-keymaps*
@@ -196,7 +198,7 @@ The next-file key and the previous-file key follow the order of the tree.
 They step over the directory nodes, and they also reach a file in a directory
 that hides its children.
 
-The buffer of the file view holds the maps `]f`, `[f`, and `q`. You walk
+The buffer of the diff view holds the maps `]f`, `[f`, and `q`. You walk
 through the files without a move back to the sidebar. Each key press moves one
 file, also while the backend still reads the file of the last press.
 
@@ -218,11 +220,70 @@ icons, set plain characters: >lua
     })
 <
 
-This release shows the content of the file at the head revision of the range.
-For a file that the range deletes, it shows the content at the base revision.
-The diff view comes with the next milestone.
+==============================================================================
+7. DIFF VIEW                                                     *codeview-diff*
 
-The file view sends one event: >
+The diff view shows one changed file in the main window. It reads both sides
+of the file from the backend and compares them with |vim.diff()|. This release
+holds the inline style: one unified diff in one buffer.
+
+The buffer is read-only. Its filetype is `codeview-diff`. The buffer variable
+`b:codeview_filetype` holds the filetype of the file itself: >
+
+    @@ -1,6 +1,6 @@
+     line 01
+     line 02
+    -line 03
+    +line 03 changed
+     line 04
+     line 05
+     line 06
+    ⋯ 20 unchanged lines
+    @@ -27,7 +27,7 @@
+     line 27
+<
+The first character of a line is the marker. A space marks an unchanged line,
+`-` marks a removed line, and `+` marks an added line. The status column shows
+the line number of the old file and the line number of the new file.
+
+A line that only one side holds shows one number. The plugin highlights a
+removed line with |hl-CodeViewDiffDelete| and an added line with
+|hl-CodeViewDiffAdd|. With `diff.word_diff` the changed part of a line also
+gets |hl-CodeViewDiffText|.
+
+                                                        *codeview-diff-context*
+The view shows `diff.context` unchanged lines around each hunk. It hides a
+longer unchanged section behind one filler row: >
+
+    ⋯ 20 unchanged lines
+<
+A section that hides fewer than two lines stays open, because the filler row
+costs as many screen rows as the lines that it hides.
+
+Put the cursor on the row and press `za` to show the hidden lines. A second
+press hides them again. `zR` shows every hidden line of the file, and `zM`
+hides them all again. The hunk header keeps the line numbers of the collapsed
+form, because the header names the position of the hunk in the file.
+
+A file without a text diff shows one note instead of a diff: >
+
+    The file has no changes.    a rename or a copy without a content change
+    The file is empty.          both sides hold no line
+    Binary file. It has no text diff.
+<
+                                                        *codeview-diff-keymaps*
+The diff buffer holds these maps. |codeview-config| names the keys: >
+
+    ]h      jump to the next hunk
+    [h      jump to the previous hunk
+    za      show or hide the section under the cursor
+    zR      show every hidden line
+    zM      hide every section again
+    ]f      open the next file
+    [f      open the previous file
+    q       close the review session
+<
+The diff view sends one event: >
 
     User CodeViewFileOpened    a file opened in the view
 <
@@ -232,10 +293,20 @@ The `data` field of the event holds these values: >
     data.index      position of the file in the file list
     data.path       path of the file
     data.status     status of the file in the range
-    data.buf        buffer that holds the content
+    data.buf        buffer that holds the diff
+<
+                                                        *codeview-diff-linemap*
+The view keeps a line map. The map holds one record per buffer row, with the
+kind of the row, the line in the old file, the line in the new file, and the
+hunk of the row. Read the map with |codeview.view()|: >lua
+
+    local map = require("codeview").view().map
+    local row = vim.api.nvim_win_get_cursor(0)[1]
+    print(map:kind(row), map:file_line(row))   -- "add", 12, "new"
+    print(map:buf_row(12, "new"))              -- 5
 <
 ==============================================================================
-7. LUA API                                                        *codeview-api*
+8. LUA API                                                        *codeview-api*
 
                                                              *codeview.open()*
 codeview.open({spec}, {opts}, {cb})
@@ -285,6 +356,32 @@ codeview.toggle_sidebar({opts})
     Close the sidebar when it is open, and open it when it is closed. Return
     the state after the call.
 
+                                                             *codeview.view()*
+codeview.view()
+    Return the state of the diff view, or nil when no file is open. The state
+    holds the path, the status, the diff, the line map, the buffer, and the
+    window.
+
+                                                        *codeview.open_file()*
+codeview.open_file({index}, {opts}, {cb})
+    Open one changed file of the session in the diff view. {index} is the
+    position of the file in the file list. {opts} accepts a `session` field.
+
+                                                        *codeview.next_hunk()*
+codeview.next_hunk({opts})
+    Move the cursor to the first row of the next hunk. Set `opts.wrap` to true
+    to continue at the first hunk. Return the row, or nil.
+
+                                                        *codeview.prev_hunk()*
+codeview.prev_hunk({opts})
+    Move the cursor to the first row of the previous hunk. Set `opts.wrap` to
+    true to continue at the last hunk. Return the row, or nil.
+
+                                                   *codeview.toggle_context()*
+codeview.toggle_context({id}, {expanded})
+    Show or hide the lines of a collapsed section. Without {id} the call acts
+    on the section under the cursor. Return false without a section.
+
 A session answers these calls: >lua
 
     session:label()          -- text of the range
@@ -296,7 +393,7 @@ A session answers these calls: >lua
     session:close()          -- close the session
 <
 ==============================================================================
-8. CONFIGURATION                                               *codeview-config*
+9. CONFIGURATION                                               *codeview-config*
 
 Defaults: >lua
 
@@ -338,6 +435,7 @@ Defaults: >lua
         prev_file = "[f",
         next_hunk = "]h",
         prev_hunk = "[h",
+        expand_context = "za",
         toggle_style = "<leader>ct",
         comment = "<leader>cc",
         delete_comment = "<leader>cd",
@@ -350,7 +448,7 @@ Set a keymap to false to disable it. setup() rejects an unknown key, and
 reports the name of the key.
 
 ==============================================================================
-9. HIGHLIGHTS                                              *codeview-highlights*
+10. HIGHLIGHTS                                             *codeview-highlights*
 
 Every group of codeview links to a standard group. The link is a default
 link, so your own link or your own colors win. The plugin sets the links
@@ -361,6 +459,9 @@ again after a colorscheme change.
                                                         *hl-CodeViewModified*
                                                         *hl-CodeViewDeleted*
                                                         *hl-CodeViewRenamed*
+                                                        *hl-CodeViewDiffAdd*
+                                                        *hl-CodeViewDiffDelete*
+                                                        *hl-CodeViewDiffText*
 >
     CodeViewTitle          Title        range in the sidebar header
     CodeViewCount          Comment      counts in the sidebar header
@@ -377,13 +478,20 @@ again after a colorscheme change.
     CodeViewTypechanged    WarningMsg   status mark T
     CodeViewUnmerged       ErrorMsg     status mark U
     CodeViewUnknown        Comment      status mark ?
+    CodeViewDiffAdd        DiffAdd      added line of a diff
+    CodeViewDiffDelete     DiffDelete   removed line of a diff
+    CodeViewDiffText       DiffText     changed part of a line
+    CodeViewDiffHunk       Title        hunk header of a diff
+    CodeViewDiffFold       Folded       row of a collapsed section
+    CodeViewDiffNumber     LineNr       line numbers of the status column
+    CodeViewDiffMessage    Comment      note of a file without a text diff
 <
 To change a color, set the group after your colorscheme: >lua
 
     vim.api.nvim_set_hl(0, "CodeViewCurrent", { link = "Visual" })
 <
 ==============================================================================
-10. HEALTH                                                     *codeview-health*
+11. HEALTH                                                     *codeview-health*
 
 Run |:checkhealth| codeview. The report shows: >
 

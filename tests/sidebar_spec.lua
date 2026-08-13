@@ -467,7 +467,7 @@ describe("codeview.sidebar", function()
       local state = assert(view.current())
       assert.are.equal("added.txt", state.path)
       assert.are.equal(2, state.index)
-      assert.are.same({ "added" }, api.nvim_buf_get_lines(state.buf, 0, -1, false))
+      assert.are.same({ "@@ -0,0 +1 @@", "+added" }, api.nvim_buf_get_lines(state.buf, 0, -1, false))
       assert.is_false(panel.is_panel_win(state.win))
     end)
 
