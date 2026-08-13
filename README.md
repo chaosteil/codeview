@@ -297,6 +297,12 @@ child each becomes one node. Each file line ends with a status mark: `A` added,
 unmerged. A directory that hides its children shows the marks of the files
 below it.
 
+## Layout
+
+The sidebar keeps its width. A file that opens takes the window of the file
+that was open, so the windows of the tab page stay as they are. Resize the
+sidebar by hand and the next file keeps your width.
+
 ## Diff view
 
 `<CR>` in the sidebar opens the diff of the file under the cursor. The status

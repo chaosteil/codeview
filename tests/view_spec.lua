@@ -504,6 +504,61 @@ describe("codeview.view", function()
       assert.is_nil(view.diff())
     end)
 
+    describe("the layout", function()
+      it("keeps the width of the sidebar when a file opens", function()
+        local sidebar = require("codeview.sidebar")
+        local review = open_session()
+        local bar = assert(sidebar.open({ session = review }))
+        local win = bar.panel:window()
+        api.nvim_win_set_width(win, 28)
+
+        -- The second open is the one that moved the width before: it closes the
+        -- window of the first file, which gave its room to the sidebar.
+        assert(view.open(review, 1))
+        assert.are.equal(28, api.nvim_win_get_width(win))
+        assert(view.open(review, 2))
+        assert.are.equal(28, api.nvim_win_get_width(win))
+        assert(view.open(review, 3))
+        assert.are.equal(28, api.nvim_win_get_width(win))
+
+        sidebar.close()
+      end)
+
+      it("keeps the width of the sidebar through a style change", function()
+        local sidebar = require("codeview.sidebar")
+        local review = open_session()
+        local bar = assert(sidebar.open({ session = review }))
+        local win = bar.panel:window()
+        api.nvim_win_set_width(win, 26)
+
+        assert(view.open(review, 1))
+        view.set_style("split")
+        assert.are.equal(26, api.nvim_win_get_width(win))
+        assert(view.open(review, 2))
+        assert.are.equal(26, api.nvim_win_get_width(win))
+        view.set_style("inline")
+        assert.are.equal(26, api.nvim_win_get_width(win))
+
+        sidebar.close()
+      end)
+
+      it("opens the file in one window of its own", function()
+        local sidebar = require("codeview.sidebar")
+        local review = open_session()
+        sidebar.open({ session = review })
+        local before = #api.nvim_tabpage_list_wins(0)
+
+        assert(view.open(review, 1))
+        local after = #api.nvim_tabpage_list_wins(0)
+        assert(view.open(review, 2))
+        -- A second file takes the window of the first one, so the count holds.
+        assert.are.equal(after, #api.nvim_tabpage_list_wins(0))
+        assert.is_true(after <= before + 1, "the open added more than one window")
+
+        sidebar.close()
+      end)
+    end)
+
     it("removes the fixture", function()
       diff_fixture.cleanup()
       assert.are.equal(0, vim.fn.isdirectory(diff_fixture.dir))

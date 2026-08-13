@@ -253,11 +253,15 @@ function Panel:open(opts)
   if not self:buffer() then
     make_buf(self)
   end
-  self.win = api.nvim_open_win(self.buf --[[@as integer]], opts.focus == true, {
-    split = self.position,
-    win = -1, -- -1 splits the tab page, so the window keeps the full height.
-    width = self.width,
-  })
+  -- A new window makes Neovim equalize the tab page, which takes the width
+  -- that another panel holds. The call keeps every panel at its width.
+  self.win = require("codeview.layout").keep(function()
+    return api.nvim_open_win(self.buf --[[@as integer]], opts.focus == true, {
+      split = self.position,
+      win = -1, -- -1 splits the tab page, so the window keeps the full height.
+      width = self.width,
+    })
+  end)
   api.nvim_win_set_var(self.win, "codeview_panel", true)
   for name, value in pairs(WIN_OPTIONS) do
     vim.wo[self.win][0][name] = value
@@ -296,8 +300,10 @@ function Panel:close()
   self.rendered = {}
 
   if win and api.nvim_win_is_valid(win) then
-    -- The call fails on the last window of the last tab page. Keep that one.
-    pcall(api.nvim_win_close, win, true)
+    require("codeview.layout").keep(function()
+      -- The call fails on the last window of the last tab page. Keep that one.
+      pcall(api.nvim_win_close, win, true)
+    end)
   end
   if buf and api.nvim_buf_is_valid(buf) then
     pcall(api.nvim_buf_delete, buf, { force = true })

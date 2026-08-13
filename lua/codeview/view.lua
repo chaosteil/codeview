@@ -23,6 +23,7 @@
 
 local config = require("codeview.config")
 local diff_mod = require("codeview.diff")
+local layout = require("codeview.layout")
 local errors = require("codeview.error")
 local highlight = require("codeview.highlight")
 local inline = require("codeview.inline")
@@ -167,7 +168,13 @@ local function target_window(session, buf)
       return win
     end
   end
-  local win = api.nvim_open_win(buf, true, { split = "right", win = current })
+  -- Every window of the tab page is a panel. `win = -1` splits the tab page
+  -- itself, so the new window takes the room of the whole editor and not the
+  -- half of a sidebar.
+  local ok, win = pcall(api.nvim_open_win, buf, true, { split = "right", win = -1 })
+  if not ok then
+    win = api.nvim_open_win(buf, true, { split = "right", win = current })
+  end
   session:add_window(win)
   return win
 end
@@ -270,6 +277,23 @@ local function make_buf(session, path, side)
   set_keymaps(session, buf)
   session:add_buffer(buf)
   return buf
+end
+
+---Number of buffers that gave their name back.
+---@type integer
+local releases = 0
+
+---Take the name of a buffer that goes away.
+---
+--- The new buffer of a file wants the name of the buffer that it replaces,
+--- and two buffers cannot hold one name. The old buffer therefore takes a
+--- name of its own until its delete, which follows right after.
+---@param buf integer?
+local function release_name(buf)
+  if buf and api.nvim_buf_is_valid(buf) then
+    releases = releases + 1
+    pcall(api.nvim_buf_set_name, buf, string.format("codeview://released/%d", releases))
+  end
 end
 
 ---Windows of the view, while they show the buffers of the view.
@@ -748,10 +772,8 @@ function M.open(session, index, opts, cb)
   ---@param result codeview.diff.File
   ---@return codeview.view.State
   local function show(result)
-    local keep = state and state.win or nil
-    if state then
-      unmount(state)
-    end
+    local previous = state
+    local keep = previous and previous.win or nil
     highlight.setup()
 
     ---@type codeview.view.State
@@ -774,7 +796,20 @@ function M.open(session, index, opts, cb)
       win = -1,
       guards = {},
     }
-    mount(view, view.style, keep)
+    -- The new file takes the window of the file that was open, and the old
+    -- buffers go away after that. The other order closes the window first,
+    -- which gives its room to the sidebar and splits the sidebar on the next
+    -- open. See |codeview.layout.keep()|.
+    layout.keep(function()
+      if previous then
+        release_name(previous.buf)
+        release_name(previous.old_buf)
+      end
+      mount(view, view.style, keep)
+      if previous then
+        unmount(previous)
+      end
+    end)
     state = view
     rerender(view)
     announce(view)
@@ -1105,8 +1140,22 @@ function M.set_style(style)
 
   local anchor = anchor_of(view)
   local focused = has_focus(view)
-  unmount(view)
-  mount(view, style, view.win)
+  -- The window of the view holds the new buffer before the old one goes away.
+  -- A close first would give the room of the window to the sidebar.
+  local held = { buf = view.buf, old_buf = view.old_buf, old_win = view.old_win, guards = view.guards }
+  view.guards = {}
+  layout.keep(function()
+    release_name(held.buf)
+    release_name(held.old_buf)
+    mount(view, style, view.win)
+    unmount({
+      session = view.session,
+      guards = held.guards,
+      buf = held.buf ~= view.buf and held.buf or nil,
+      old_buf = held.old_buf ~= view.old_buf and held.old_buf or nil,
+      old_win = held.old_win ~= view.old_win and held.old_win or nil,
+    })
+  end)
   rerender(view, anchor)
 
   if focused then

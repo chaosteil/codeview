@@ -414,4 +414,56 @@ function M.statuscolumn(number)
   return "%#CodeViewDiffNumber#" .. number(buf, vim.v.lnum) .. "%*%s"
 end
 
+---Report whether a window is a panel of codeview.
+---
+--- The check reads the window variable that |codeview.panel| sets, so this
+--- module needs no reference to the panel module.
+---@param win integer
+---@return boolean
+local function is_panel(win)
+  local ok, value = pcall(vim.api.nvim_win_get_var, win, "codeview_panel")
+  return ok and value == true
+end
+
+---Run a call that opens or closes windows, and keep the layout around them.
+---
+--- Neovim makes the windows of a tab page equal again after every open and
+--- every close, when 'equalalways' is on. A sidebar with 'winfixwidth' keeps
+--- its width while other windows change, but it still takes the room of a
+--- window that closes next to it, and it never gives that room back.
+---
+--- The call therefore holds 'equalalways' off, and puts the width of every
+--- panel back afterwards. The reader then keeps the sidebar that the reader
+--- set, and only a resize by hand changes it.
+---@generic T
+---@param fn fun(): T
+---@return T
+function M.keep(fn)
+  local api = vim.api
+  local equalalways = vim.o.equalalways
+  vim.o.equalalways = false
+
+  ---@type { win: integer, width: integer }[]
+  local panels = {}
+  for _, win in ipairs(api.nvim_tabpage_list_wins(0)) do
+    if is_panel(win) and api.nvim_win_get_config(win).relative == "" then
+      panels[#panels + 1] = { win = win, width = api.nvim_win_get_width(win) }
+    end
+  end
+
+  local ok, result = pcall(fn)
+
+  for _, held in ipairs(panels) do
+    if api.nvim_win_is_valid(held.win) and api.nvim_win_get_width(held.win) ~= held.width then
+      pcall(api.nvim_win_set_width, held.win, held.width)
+    end
+  end
+  vim.o.equalalways = equalalways
+
+  if not ok then
+    error(result, 0)
+  end
+  return result
+end
+
 return M

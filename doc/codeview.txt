@@ -309,6 +309,17 @@ icons, set plain characters: >lua
     })
 <
 
+                                                            *codeview-layout*
+The sidebar keeps its width. A file that opens takes the window of the file
+that was open, so the tab page holds the same windows before and after. Only a
+resize by hand changes the width of a panel, and a later open keeps that
+width.
+
+Neovim makes the windows of a tab page equal again after every open and every
+close, when 'equalalways' is on. codeview holds that option off while it opens
+or closes its own windows, and puts the width of every panel back afterwards.
+Your own windows keep their behavior.
+
 ==============================================================================
 7. DIFF VIEW                                                     *codeview-diff*
 
