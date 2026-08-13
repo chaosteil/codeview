@@ -675,6 +675,35 @@ last save.
 
 Read the store from Lua with |codeview.store()|.
 
+                                                             *codeview-hints*
+A row at the bottom of the screen shows the keys of the window that has the
+cursor, the way a terminal tool does: >
+
+     ]h next hunk  ]f next file  za unfold  <space>ct style  K read comment
+<
+The row holds the keys that a reader does not guess from the window. `i`
+writes a comment and `<CR>` opens the file under the cursor, so neither reads
+in the row. The style toggle does read there, because nothing else names it.
+
+The row is a window of one line, and not a float, so it covers no line of a
+diff and no statusline. It opens with the session and closes with it. It
+follows the `keymaps` option, so it names the keys that you set.
+
+Set `hints.enabled` to false to leave the row out. Set `hints.actions` to name
+the actions of one surface yourself. The surfaces are "sidebar", "view", and
+"overview": >lua
+
+    require("codeview").setup({
+      hints = {
+        actions = {
+          view = {
+            { action = "toggle_style", text = "style" },
+            { action = "toggle_overview", text = "comments" },
+          },
+        },
+      },
+    })
+<
 ==============================================================================
 9. COMMENT OVERVIEW                                          *codeview-overview*
 
@@ -1288,6 +1317,10 @@ Defaults: >lua
         editor = "inline",           -- "inline" | "float"
         start_insert = true,         -- start the editor in insert mode
       },
+      hints = {
+        enabled = true,             -- key row at the bottom of the screen
+        actions = false,            -- false takes the built-in lists
+      },
       export = {
         register = "+",
         template = false,            -- false uses the built-in renderer
@@ -1432,7 +1465,8 @@ again after a colorscheme change.
 >
     CodeViewTitle          Title        range in the sidebar header
     CodeViewCount          Comment      counts in the sidebar header
-    CodeViewHint           Comment      text of an empty list
+    CodeViewHint           Comment      text of an empty list, and of a hint
+    CodeViewHintKey        Special      key in the hint row
     CodeViewDir            Directory    directory node, icon, and old path
     CodeViewIndent         NonText      indent guides of the tree
     CodeViewCurrent        CursorLine   line of the file in the view

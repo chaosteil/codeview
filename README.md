@@ -329,6 +329,34 @@ Press <CR> to show it.
 `<CR>` reads the file again, without the limit. The key maps on such a diff
 only. Set `diff.max_lines` to 0 to remove the limit for every file.
 
+## Key hints
+
+A row at the bottom of the screen shows the keys of the window that has the
+cursor, the way a terminal tool does. It holds the keys that you do not guess
+from the window, so `i` and `<CR>` stay out of it:
+
+```
+ ]h next hunk  ]f next file  za unfold  <space>ct style  K read comment
+```
+
+The row follows your keymaps, so it names the keys that you set. Set
+`hints.enabled = false` to leave it out, or `hints.actions` to name the actions
+of a surface yourself:
+
+```lua
+require("codeview").setup({
+  hints = {
+    enabled = true,
+    actions = {
+      view = {
+        { action = "toggle_style", text = "style" },
+        { action = "toggle_overview", text = "comments" },
+      },
+    },
+  },
+})
+```
+
 ## Colors
 
 The diff keeps the colors of the code. codeview parses each side of the file
@@ -552,6 +580,10 @@ The defaults are:
     height = 10,
     editor = "inline", -- "inline" | "float"
     start_insert = true,
+  },
+  hints = {
+    enabled = true,
+    actions = false,
   },
   export = {
     register = "+",

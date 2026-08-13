@@ -18,6 +18,7 @@ local M = {}
 ---@field comments codeview.Config.Comments Comment editor and storage options.
 ---@field export codeview.Config.Export Export options.
 ---@field github codeview.Config.GitHub Pull request options.
+---@field hints codeview.Config.Hints Key hint row options.
 ---@field keymaps table<string, string|string[]|false> Buffer-local keymaps. A list holds more than one key for one action. Set an entry to false to disable it.
 ---@field log_level integer Minimum level for notifications. Use a `vim.log.levels` value.
 
@@ -57,6 +58,10 @@ local M = {}
 ---@field height integer Height of the comment editor, in lines.
 ---@field editor "inline"|"float" Where the comment editor opens. Inline opens it under the line.
 ---@field start_insert boolean Start the comment editor in insert mode.
+
+---@class codeview.Config.Hints
+---@field enabled boolean Show a row with the keys of the window at the bottom of the screen.
+---@field actions table<string, { action: string, text: string }[]>|false Keys per surface. False takes the built-in lists.
 
 ---@class codeview.Config.Export
 ---@field register string Register that receives the exported markdown. An empty text writes no register.
@@ -107,6 +112,10 @@ M.defaults = {
     height = 10,
     editor = "inline",
     start_insert = true,
+  },
+  hints = {
+    enabled = true,
+    actions = false,
   },
   export = {
     register = "+",
@@ -258,6 +267,12 @@ function M.validate(opts)
     vim.validate("comments.height", opts.comments.height, positive_integer, "positive integer")
     vim.validate("comments.editor", opts.comments.editor, one_of({ "inline", "float" }))
     vim.validate("comments.start_insert", opts.comments.start_insert, "boolean")
+
+    vim.validate("hints", opts.hints, "table")
+    vim.validate("hints.enabled", opts.hints.enabled, "boolean")
+    if opts.hints.actions ~= false then
+      vim.validate("hints.actions", opts.hints.actions, "table")
+    end
 
     vim.validate("export", opts.export, "table")
     vim.validate("export.register", opts.export.register, "string")

@@ -17,6 +17,7 @@ M.links = {
   CodeViewTitle = "Title",
   CodeViewCount = "Comment",
   CodeViewHint = "Comment",
+  CodeViewHintKey = "Special",
   CodeViewDir = "Directory",
   CodeViewIndent = "NonText",
   CodeViewCurrent = "CursorLine",

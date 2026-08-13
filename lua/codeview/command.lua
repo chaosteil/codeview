@@ -68,6 +68,7 @@ local function opened(review, err)
       return
     end
   end
+  require("codeview.hints").open({ session = review })
   api.nvim_echo({ { "codeview: " .. review:summary() } }, false, {})
 end
 
