@@ -423,6 +423,12 @@ local function keymaps(sidebar)
   add(keys.prev_file, function()
     sidebar:prev_file()
   end)
+  add(keys.edit_file, function()
+    -- The key acts on the file under the cursor of the sidebar, and not on
+    -- the file that the diff shows.
+    local node = sidebar:cursor_node()
+    view.edit({ path = node and node.kind == "file" and node.path or nil })
+  end)
   add(keys.toggle_style, function()
     view.set_style()
   end)

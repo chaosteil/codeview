@@ -516,6 +516,22 @@ hunk of the row. Read the map with |codeview.view()|: >lua
     print(map:kind(row), map:file_line(row))   -- "add", 12, "new"
     print(map:buf_row(12, "new"))              -- 5
 <
+                                                              *codeview-edit*
+`gf` leaves the review and edits the real file. The window of the diff takes
+the file of the working copy, with the cursor on the line that the diff shows.
+The buffer is a normal file buffer, so `:w` writes it.
+
+The working copy is not the revision of the review. The line is therefore the
+line of the change, and the text around it can differ. A row of the old side
+has no line of its own, so the nearest row of the new side answers for it.
+
+The sidebar stays open, and `<CR>` on the file reads its diff again. The
+window of the file leaves the session, so |:CodeViewClose| keeps it open.
+
+The key also works on a file line of the sidebar. It reports a commit document
+and a file that the working copy does not hold, for example a file that the
+range deletes.
+
 ==============================================================================
 8. COMMENTS                                                  *codeview-comments*
 
@@ -1181,6 +1197,15 @@ codeview.set_style({style})
 codeview.toggle_style()
     Switch between the inline style and the side-by-side style.
 
+                                                        *codeview.edit_file()*
+codeview.edit_file({opts})
+    Leave the review and edit the file of the working copy. {opts} takes
+    `path`, `line`, and `win`. Without them the call reads the file and the
+    line of the diff that is open. See |codeview-edit|.
+
+    Return: ~
+        True when a file opened.
+
                                                    *codeview.toggle_context()*
 codeview.toggle_context({id}, {expanded})
     Show or hide the lines of a collapsed section. Without {id} the call acts
@@ -1364,6 +1389,7 @@ Defaults: >lua
         expand_context = "za",
         load_diff = "<CR>",
         toggle_style = "<leader>ct",
+        edit_file = "gf",
         comment = "<leader>cc",
         comment_insert = { "i", "a" },
         comment_add = { "o", "O" },
@@ -1435,6 +1461,7 @@ The table names the surface of each action: >
     expand_context    za                 D  show or hide the section
     load_diff         <CR>               D  render a diff above the limit *
     toggle_style      <leader>ct     S   D  switch inline and side by side
+    edit_file         gf             S   D  edit the file in the working copy
     comment           <leader>cc         D  edit or write the comment
     comment_insert    i a                D  edit or write the comment
     comment_add       o O                D  write another comment on the line

@@ -559,6 +559,91 @@ describe("codeview.view", function()
       end)
     end)
 
+    describe("the working copy", function()
+      it("opens the real file in the window of the diff", function()
+        local review = open_session()
+        local state = assert(view.open(review, 1))
+        local win = state.win
+        api.nvim_set_current_win(win)
+
+        assert.is_true(view.edit())
+        local buf = api.nvim_win_get_buf(win)
+        assert.are.equal(vim.fs.joinpath(review.repo.root, state.path), api.nvim_buf_get_name(buf))
+        -- The file is a normal buffer: the reader edits it and writes it.
+        assert.is_true(vim.bo[buf].modifiable)
+        assert.are.equal("", vim.bo[buf].buftype)
+        assert.is_nil(view.current())
+      end)
+
+      it("puts the cursor on the line of the diff", function()
+        local review = open_session()
+        local state = assert(view.open(review, 1))
+        local row, line
+        for index, record in ipairs(state.map.rows) do
+          if record.new then
+            row, line = index, record.new
+            break
+          end
+        end
+        assert.is_truthy(row, "the diff holds no line of the new side")
+
+        local win = state.win
+        api.nvim_set_current_win(win)
+        api.nvim_win_set_cursor(win, { row, 0 })
+        assert.is_true(view.edit())
+        assert.are.equal(line, api.nvim_win_get_cursor(win)[1])
+      end)
+
+      it("keeps the file when the session closes", function()
+        local review = open_session()
+        local state = assert(view.open(review, 1))
+        local win = state.win
+        api.nvim_set_current_win(win)
+        view.edit()
+        local buf = api.nvim_win_get_buf(win)
+
+        review:close()
+        opened = nil
+        assert.is_true(api.nvim_win_is_valid(win), "the session closed the window of the file")
+        assert.are.equal(buf, api.nvim_win_get_buf(win))
+      end)
+
+      it("takes a path of the caller", function()
+        local review = open_session()
+        local file = assert(review:file(2))
+        assert.is_true(view.edit({ path = file.path }))
+        local name = api.nvim_buf_get_name(api.nvim_get_current_buf())
+        assert.are.equal(vim.fs.joinpath(review.repo.root, file.path), name)
+      end)
+
+      it("leaves one window in the side-by-side style", function()
+        require("codeview.config").setup({ commit_message = false, diff = { style = "split" } })
+        local review = open_session()
+        local state = assert(view.open(review, 1))
+        assert.is_truthy(state.old_win, "the split style opened no second window")
+        local before = #api.nvim_tabpage_list_wins(0)
+        api.nvim_set_current_win(state.win)
+
+        assert.is_true(view.edit())
+        assert.are.equal(before - 1, #api.nvim_tabpage_list_wins(0))
+      end)
+
+      it("reports a file that the working copy does not hold", function()
+        local review = open_session()
+        view.open(review, 1)
+        assert.is_false(view.edit({ path = "no/such/file.txt" }))
+      end)
+
+      it("reports a commit document", function()
+        require("codeview.config").setup({})
+        local review = open_session()
+        local message = require("codeview.message")
+        local index = assert(review:index_of(message.path_of(review.commits[1].id)))
+        view.open(review, index)
+        assert.is_false(view.edit())
+      end)
+    end)
+
     it("removes the fixture", function()
       diff_fixture.cleanup()
       assert.are.equal(0, vim.fn.isdirectory(diff_fixture.dir))

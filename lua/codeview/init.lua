@@ -198,6 +198,16 @@ function M.prev_hunk(opts)
   return require("codeview.view").prev_hunk(opts)
 end
 
+---Open the file of the review in the working copy.
+---
+--- The call leaves the review: the window of the diff takes the real file,
+--- with the cursor on the line of the diff. See |codeview.view.edit()|.
+---@param opts? { path?: string, line?: integer, win?: integer }
+---@return boolean opened
+function M.edit_file(opts)
+  return require("codeview.view").edit(opts)
+end
+
 ---Read the diff style of the view, or the style of the next file.
 ---@return "inline"|"split" style
 function M.style()

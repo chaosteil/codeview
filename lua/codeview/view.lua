@@ -179,6 +179,32 @@ local function target_window(session, buf)
   return win
 end
 
+---Line of the working copy that a row of the view points at.
+---
+--- The file on disk holds the new side of the review, so a row of the old
+--- side has no line of its own. The nearest row of the new side answers for
+--- it, which puts the cursor at the place of the change.
+---@param view codeview.view.State
+---@param row integer Row of the buffer, from 1.
+---@return integer line Line of the file, from 1.
+local function working_line(view, row)
+  local rows = view.map.rows
+  local record = rows[row]
+  if record and record.new then
+    return record.new
+  end
+  for step = 1, #rows do
+    local before, after = rows[row - step], rows[row + step]
+    if before and before.new then
+      return before.new
+    end
+    if after and after.new then
+      return after.new
+    end
+  end
+  return 1
+end
+
 ---Report a message of an action of the view.
 ---@param message string
 local function notify(message)
@@ -233,6 +259,9 @@ local function set_keymaps(session, buf)
   end)
   add(keys.collapse_all, function()
     M.collapse_all()
+  end)
+  add(keys.edit_file, function()
+    M.edit()
   end)
   add(keys.toggle_style, function()
     M.toggle_style()
@@ -1193,6 +1222,73 @@ function M.close()
   local view = state
   state = nil
   unmount(view)
+  return true
+end
+
+---Open the file of the review in the working copy.
+---
+--- The call leaves the review and edits the real file: the window of the diff
+--- takes the file on disk, with the cursor on the line of the diff. The file
+--- holds the state of the working copy, and not the revision of the review, so
+--- the line is the line of the change and not always the same text.
+---
+--- The window leaves the session, so a later close of the session keeps the
+--- file open.
+---@param opts? { path?: string, line?: integer, win?: integer }
+---@return boolean opened False with a message when there is no file to edit.
+function M.edit(opts)
+  opts = opts or {}
+  local session = require("codeview.session").current()
+  if not session or not session:is_active() then
+    notify("no review session")
+    return false
+  end
+
+  local view = M.current()
+  local path = opts.path or (view and view.path)
+  if not path then
+    notify("no file of the review")
+    return false
+  end
+  if require("codeview.message").is(path) then
+    notify("a commit message is no file of the working copy")
+    return false
+  end
+
+  local full = vim.fs.joinpath(session.repo.root, path)
+  if vim.fn.filereadable(full) ~= 1 then
+    notify("the working copy holds no " .. path)
+    return false
+  end
+
+  local win = opts.win or (view and view.win) or api.nvim_get_current_win()
+  local line = opts.line
+  if not line and view and api.nvim_win_is_valid(win) then
+    local cursor = api.nvim_win_get_cursor(win)
+    line = working_line(view, cursor[1])
+  end
+
+  if not usable(win) then
+    win = target_window(session, api.nvim_create_buf(false, true))
+  end
+  -- The window holds a file of the user from here on, so the session must not
+  -- close it. The diff buffers wipe themselves once no window shows them, and
+  -- |M.current()| drops a state whose buffers are gone, so the view needs no
+  -- close call here. A close would take this window with it.
+  session:remove_window(win)
+  if view and view.old_win and view.old_win ~= win and api.nvim_win_is_valid(view.old_win) then
+    -- The side-by-side style holds a second window. One file needs one window.
+    session:remove_window(view.old_win)
+    pcall(api.nvim_win_close, view.old_win, true)
+  end
+
+  api.nvim_set_current_win(win)
+  vim.cmd.edit(vim.fn.fnameescape(full))
+  if line then
+    local last = api.nvim_buf_line_count(api.nvim_win_get_buf(win))
+    pcall(api.nvim_win_set_cursor, win, { math.min(line, last), 0 })
+    pcall(vim.cmd, "normal! zz")
+  end
   return true
 end
 

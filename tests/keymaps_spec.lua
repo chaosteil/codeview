@@ -45,6 +45,7 @@ describe("codeview keymaps", function()
     -- The load key maps on a diff above the `diff.max_lines` limit only.
     load_diff = { { surface = "view", mode = "n" } },
     toggle_style = { { surface = "sidebar", mode = "n" }, { surface = "view", mode = "n" } },
+    edit_file = { { surface = "sidebar", mode = "n" }, { surface = "view", mode = "n" } },
     comment = { { surface = "view", mode = "n" }, { surface = "view", mode = "x" } },
     comment_insert = { { surface = "view", mode = "n" } },
     comment_add = { { surface = "view", mode = "n" } },

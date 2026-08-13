@@ -379,6 +379,20 @@ The plugin needs a treesitter parser for the language of the file. A file
 without one keeps the plain diff colors. Set `diff.syntax = false` to turn the
 whole layer off, which also gives the row colors their foreground back.
 
+## Edit the file
+
+`gf` leaves the review and opens the real file. The window of the diff takes
+the file of your working copy, with the cursor on the line that the diff shows.
+From there you write and save it like any other file.
+
+The file holds the state of your working copy, and not the revision of the
+review, so the line is the line of the change and the text around it can
+differ. The sidebar stays open: press `<CR>` on the file to read its diff
+again. A close of the session leaves the file window alone.
+
+`gf` also works on a file line of the sidebar, and it reports a commit
+document or a file that the working copy does not hold.
+
 ## Comments
 
 The diff buffer is read-only, so the insert keys are free. They open the
@@ -516,6 +530,7 @@ a file buffer of your own.
 | `expand_context`  | `za`             | D         | show or hide the section           |
 | `load_diff`       | `<CR>`           | D\*       | render a diff above the limit      |
 | `toggle_style`    | `<leader>ct`     | S D       | switch inline and side by side     |
+| `edit_file`       | `gf`             | S D       | edit the file in the working copy  |
 | `comment`         | `<leader>cc`     | D         | edit or write the comment          |
 | `comment_insert`  | `i` `a`          | D         | edit or write the comment          |
 | `comment_add`     | `o` `O`          | D         | write another comment on the line  |
@@ -617,6 +632,7 @@ The defaults are:
     expand_context = "za",
     load_diff = "<CR>",
     toggle_style = "<leader>ct",
+    edit_file = "gf",
     comment = "<leader>cc",
     comment_insert = { "i", "a" },
     comment_add = { "o", "O" },
