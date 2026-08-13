@@ -2,6 +2,8 @@
 
 codeview is a Neovim plugin for code review. It shows the changes of a commit or a range of commits. You browse the changed files in a sidebar, read diffs inline or side-by-side, and leave comments. You can export the comments, and later send them to GitHub.
 
+Each milestone has a task breakdown in `tasks/` (one file per milestone, with checkboxes).
+
 ## Decisions
 
 - Language: Lua. The only external dependency is plenary.nvim (tests). The runtime uses the Neovim standard library (`vim.system`, `vim.diff`, `vim.ui`, extmarks).
