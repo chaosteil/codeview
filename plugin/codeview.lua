@@ -16,3 +16,17 @@ vim.g.loaded_codeview = 1
 if type(vim.g.codeview) == "table" then
   require("codeview").setup(vim.g.codeview)
 end
+
+vim.api.nvim_create_user_command("CodeView", function(opts)
+  require("codeview.command").run(opts)
+end, {
+  nargs = "*",
+  bang = true,
+  desc = "Review a commit (:CodeView <rev>), a range (:CodeView <rev>..<rev>), or pick from the log",
+})
+
+vim.api.nvim_create_user_command("CodeViewClose", function()
+  require("codeview.command").close()
+end, {
+  desc = "Close the review session",
+})

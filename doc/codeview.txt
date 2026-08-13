@@ -6,8 +6,11 @@ CONTENTS                                                     *codeview-contents*
   1. Introduction ......................... |codeview-introduction|
   2. Requirements ......................... |codeview-requirements|
   3. Setup ................................ |codeview-setup|
-  4. Configuration ........................ |codeview-config|
-  5. Health ............................... |codeview-health|
+  4. Commands ............................. |codeview-commands|
+  5. Sessions ............................. |codeview-sessions|
+  6. Lua API .............................. |codeview-api|
+  7. Configuration ........................ |codeview-config|
+  8. Health ............................... |codeview-health|
 
 ==============================================================================
 1. INTRODUCTION                                          *codeview-introduction*
@@ -17,8 +20,8 @@ codeview shows the changes of a commit, or of a range of commits. You browse
 the changed files in a sidebar, read the diffs inline or side by side, and
 write comments on the lines. You can export the comments as markdown.
 
-This release contains the plugin skeleton. The review commands come with the
-next milestones.
+This release selects the revisions of a review. The sidebar, the diff views,
+and the comments come with the next milestones.
 
 ==============================================================================
 2. REQUIREMENTS                                          *codeview-requirements*
@@ -58,7 +61,120 @@ plugin then calls setup() with that table: >lua
     vim.g.codeview = { sidebar = { position = "right" } }
 <
 ==============================================================================
-4. CONFIGURATION                                               *codeview-config*
+4. COMMANDS                                                  *codeview-commands*
+
+                                                                   *:CodeView*
+:CodeView {rev}
+    Review one commit. The base of the review is the parent of {rev}. For the
+    first commit of the repository the base is the empty state.
+
+    The command sends the argument to the backend as it is. A revision
+    argument can hold spaces, for example `main@{2 days ago}`.
+
+    Examples: >vim
+
+        :CodeView HEAD
+        :CodeView HEAD~3..HEAD
+        :CodeView main...feature
+<
+:CodeView {rev}..{rev}
+    Review the changes between the two revisions. The left side is the base.
+    It is not part of the review.
+
+:CodeView {rev}...{rev}
+    Review the changes since the merge base of the two revisions.
+
+:CodeView
+    Open the commit picker. Select one commit to review it.
+
+:CodeView!
+    Open the picker in the range mode. Select the first commit of the range,
+    then the last commit. Both commits are part of the review. The second list
+    holds only the descendants of the first commit.
+
+                                                              *:CodeViewClose*
+:CodeViewClose
+    Close the review session. The command closes the windows and the buffers
+    of the session.
+
+==============================================================================
+5. SESSIONS                                                  *codeview-sessions*
+
+A session holds the backend handle, the resolved range, the commits of the
+range, and the files that the range changes. The plugin keeps one session. A
+second open closes the session that runs. A failed open keeps it.
+
+The session sends these events: >
+
+    User CodeViewSessionOpened      a session opened
+    User CodeViewSessionRefreshed   a session read its data again
+    User CodeViewSessionClosed      a session closed
+<
+The `data` field of the event holds plain values only: >
+
+    data.id         number of the session
+    data.spec       text that names the range
+    data.files      number of changed files
+    data.commits    number of commits in the range
+<
+Neovim copies the payload of a User event, so the payload cannot hold the
+session object. To use the session methods, read the session with
+|codeview.session()|: >lua
+
+    vim.api.nvim_create_autocmd("User", {
+      pattern = "CodeViewSessionOpened",
+      callback = function(event)
+        print(event.data.spec, require("codeview").session():summary())
+      end,
+    })
+<
+The close event comes after the session ended. |codeview.session()| gives nil
+in that handler.
+
+==============================================================================
+6. LUA API                                                        *codeview-api*
+
+                                                             *codeview.open()*
+codeview.open({spec}, {opts}, {cb})
+    Open a review session for {spec}. {spec} is revision text such as "HEAD"
+    or "main..feature", or a table with resolved revisions.
+
+    {opts} accepts these fields: >lua
+
+        {
+          repo = nil,     -- repository handle, to skip the detection
+          dir = nil,      -- directory for the detection, cwd by default
+          backend = nil,  -- "auto" | "git" | "jj", the config value by default
+        }
+<
+    Without {cb} the call blocks and returns `session, err`. With {cb} the
+    call returns at once and calls `cb(session, err)`.
+
+                                                             *codeview.pick()*
+codeview.pick({opts}, {cb})
+    Open the commit picker. Set `opts.mode` to "range" to ask for two picks.
+    The callback gets nil and nil when the user cancels the picker.
+
+                                                          *codeview.session()*
+codeview.session()
+    Return the session that runs, or nil.
+
+                                                            *codeview.close()*
+codeview.close()
+    Close the session that runs. Return false when no session runs.
+
+A session answers these calls: >lua
+
+    session:label()          -- text of the range
+    session:summary()        -- range, file count, and commit count
+    session:changed_files()  -- list of changed files
+    session:file(index)      -- one changed file
+    session:index_of(path)   -- position of a path in the list
+    session:refresh(cb)      -- read the files and the commits again
+    session:close()          -- close the session
+<
+==============================================================================
+7. CONFIGURATION                                               *codeview-config*
 
 Defaults: >lua
 
@@ -102,7 +218,7 @@ Set a keymap to false to disable it. setup() rejects an unknown key, and
 reports the name of the key.
 
 ==============================================================================
-5. HEALTH                                                      *codeview-health*
+8. HEALTH                                                      *codeview-health*
 
 Run |:checkhealth| codeview. The report shows: >
 

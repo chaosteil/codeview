@@ -14,7 +14,17 @@ describe("codeview", function()
     assert.are.equal("table", type(codeview))
     assert.are.equal("function", type(codeview.setup))
     assert.are.equal("function", type(codeview.config))
+    assert.are.equal("function", type(codeview.open))
+    assert.are.equal("function", type(codeview.pick))
+    assert.are.equal("function", type(codeview.session))
+    assert.are.equal("function", type(codeview.close))
     assert.are.equal("string", type(codeview.version))
+  end)
+
+  it("reports no session before the first open", function()
+    local codeview = helpers.fresh()
+    assert.is_nil(codeview.session())
+    assert.is_false(codeview.close())
   end)
 
   it("accepts a table in setup()", function()
@@ -64,6 +74,14 @@ describe("codeview", function()
     assert.are.equal(0, res.code)
     assert.is_truthy(res.output:find("1", 1, true), res.output)
     assert.is_truthy(res.output:find("auto", 1, true), res.output)
+  end)
+
+  it("registers the commands in a clean Neovim", function()
+    local res = helpers.clean_nvim(
+      'print(vim.fn.exists(":CodeView"), vim.fn.exists(":CodeViewClose"), package.loaded["codeview.session"] == nil)'
+    )
+    assert.are.equal(0, res.code)
+    assert.is_truthy(res.output:find("2 2 true", 1, true), res.output)
   end)
 
   it("reads options from vim.g.codeview", function()

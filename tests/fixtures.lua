@@ -84,12 +84,11 @@ function M.tempdir(suffix)
   return dir
 end
 
----Build a git repository with the history of `M.commits`.
----@return tests.Fixture
-function M.git()
-  local dir = M.tempdir("codeview-git")
-  local branch = "main"
-  local env = {
+---Environment of a git fixture. It keeps the user configuration out.
+---@param dir string
+---@return table<string, string>
+local function git_env(dir)
+  return {
     GIT_CONFIG_GLOBAL = "/dev/null",
     GIT_CONFIG_SYSTEM = "/dev/null",
     GIT_AUTHOR_NAME = "Ada Lovelace",
@@ -98,11 +97,35 @@ function M.git()
     GIT_COMMITTER_EMAIL = "ada@example.com",
     HOME = dir,
   }
+end
 
+---Start a git repository with a fixed configuration.
+---@param dir string
+---@param branch string Name of the first branch.
+---@param env table<string, string>
+local function git_init(dir, branch, env)
   run({ "git", "init", "--quiet", "--initial-branch=" .. branch, "." }, dir, env)
   run({ "git", "config", "user.name", "Ada Lovelace" }, dir, env)
   run({ "git", "config", "user.email", "ada@example.com" }, dir, env)
   run({ "git", "config", "commit.gpgsign", "false" }, dir, env)
+end
+
+---Environment with a fixed commit date.
+---@param env table<string, string>
+---@param date string ISO 8601 timestamp.
+---@return table<string, string>
+local function at_date(env, date)
+  return vim.tbl_extend("force", env, { GIT_AUTHOR_DATE = date, GIT_COMMITTER_DATE = date })
+end
+
+---Build a git repository with the history of `M.commits`.
+---@return tests.Fixture
+function M.git()
+  local dir = M.tempdir("codeview-git")
+  local branch = "main"
+  local env = git_env(dir)
+
+  git_init(dir, branch, env)
 
   local ids, names = {}, {}
   for index, commit in ipairs(M.commits) do
@@ -119,8 +142,7 @@ function M.git()
     end
 
     -- A fixed date per commit keeps the log order stable.
-    local date = string.format("2024-01-0%dT10:00:00+00:00", index)
-    local commit_env = vim.tbl_extend("force", env, { GIT_AUTHOR_DATE = date, GIT_COMMITTER_DATE = date })
+    local commit_env = at_date(env, string.format("2024-01-0%dT10:00:00+00:00", index))
     run({ "git", "commit", "--quiet", "-m", commit.message }, dir, commit_env)
 
     ids[commit.name] = vim.trim(run({ "git", "rev-parse", "HEAD" }, dir, env))
@@ -135,6 +157,68 @@ function M.git()
     ids = ids,
     names = names,
     branch = branch,
+    cleanup = function()
+      vim.fn.delete(dir, "rf")
+    end,
+  }
+end
+
+---Build a git repository with two branches and a merge.
+---
+--- The history is:
+---
+---     base (day 1) -> main_one (day 3) -> merge (day 5)
+---     base (day 1) -> feature_one (day 2) -> feature_two (day 4) -> merge
+---
+--- The dates put `main_one` between the two feature commits. The log in date
+--- order is [merge, feature_two, main_one, feature_one, base]. `main_one` is
+--- newer than `feature_one`, but it is not a descendant of it.
+---@return tests.Fixture
+function M.git_branched()
+  local dir = M.tempdir("codeview-branched")
+  local env = git_env(dir)
+  git_init(dir, "main", env)
+
+  ---Write one file and commit it.
+  ---@param path string
+  ---@param day integer Day of the commit date.
+  ---@param message string
+  ---@return string id
+  local function commit(path, day, message)
+    write_file(vim.fs.joinpath(dir, path), path .. "\n")
+    run({ "git", "add", "--", path }, dir, env)
+    run(
+      { "git", "commit", "--quiet", "-m", message },
+      dir,
+      at_date(env, string.format("2024-02-0%dT10:00:00+00:00", day))
+    )
+    return vim.trim(run({ "git", "rev-parse", "HEAD" }, dir, env))
+  end
+
+  local ids = {}
+  ids.base = commit("a.txt", 1, "base: add a.txt")
+  run({ "git", "checkout", "--quiet", "-b", "feature" }, dir, env)
+  ids.feature_one = commit("c.txt", 2, "feature one: add c.txt")
+  run({ "git", "checkout", "--quiet", "main" }, dir, env)
+  ids.main_one = commit("b.txt", 3, "main one: add b.txt")
+  run({ "git", "checkout", "--quiet", "feature" }, dir, env)
+  ids.feature_two = commit("d.txt", 4, "feature two: add d.txt")
+  run({ "git", "checkout", "--quiet", "main" }, dir, env)
+  run(
+    { "git", "merge", "--quiet", "--no-ff", "-m", "merge: feature into main", "feature" },
+    dir,
+    at_date(env, "2024-02-05T10:00:00+00:00")
+  )
+  ids.merge = vim.trim(run({ "git", "rev-parse", "HEAD" }, dir, env))
+
+  local root = vim.trim(run({ "git", "rev-parse", "--show-toplevel" }, dir, env))
+
+  return {
+    root = vim.fs.normalize(root),
+    dir = dir,
+    ids = ids,
+    names = { "base", "feature_one", "main_one", "feature_two", "merge" },
+    branch = "main",
     cleanup = function()
       vim.fn.delete(dir, "rf")
     end,

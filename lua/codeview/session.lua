@@ -1,0 +1,475 @@
+---@brief The review session.
+---
+--- A session holds the backend handle, the resolved range, the commits of the
+--- range, and the files that the range changes. It also owns the windows,
+--- buffers, and autocmds that the later views create, and closes them again.
+---
+--- The plugin keeps one active session. |codeview.session.open()| closes the
+--- session that runs, after the new session has its data. A failed open keeps
+--- the old session.
+---
+--- `open()` takes an optional callback, like the backend calls. Without a
+--- callback it blocks and returns `session, err`. With a callback it returns
+--- at once and calls `cb(session, err)` on the main loop.
+
+local errors = require("codeview.error")
+local vcs = require("codeview.vcs")
+
+local api = vim.api
+
+local M = {}
+
+---@class codeview.Session
+---@field id integer Number of the session. It counts from 1.
+---@field repo codeview.vcs.Repo Repository handle of the backend.
+---@field range codeview.vcs.Range Range with resolved commit ids.
+---@field spec string Text that names the range.
+---@field files codeview.vcs.FileChange[] Files that the range changes.
+---@field commits codeview.vcs.Commit[] Commits of the range, newest first.
+---@field opened_at integer Time of the open call, in seconds since the epoch.
+---@field closed boolean True after |codeview.Session:close()|.
+---@field private windows integer[] Windows that close with the session.
+---@field private buffers integer[] Buffers that close with the session.
+---@field private callbacks fun(session: codeview.Session)[] Handlers of the close event.
+---@field private group integer? Autocmd group, made on demand.
+local Session = {}
+Session.__index = Session
+
+---Session that runs now.
+---@type codeview.Session?
+local current = nil
+
+---Number of sessions that this Neovim opened.
+---@type integer
+local counter = 0
+
+---Return a value in the sync form, or send it to the callback.
+---@generic T
+---@param cb? fun(value: T?, err: codeview.Error?)
+---@param value any?
+---@param err codeview.Error?
+---@return any?, codeview.Error?
+local function done(cb, value, err)
+  if not cb then
+    return value, err
+  end
+  vim.schedule(function()
+    cb(value, err)
+  end)
+  return nil, nil
+end
+
+---@alias codeview.session.Step fun(cb?: fun(value: any?, err: codeview.Error?)): any?, codeview.Error?
+
+---Wrap one backend call, so that it keeps its result in a table.
+---@param fn codeview.session.Step Call in the sync form and in the async form.
+---@param store table Table that receives the result.
+---@param key string Field of the result.
+---@return codeview.session.Step
+local function into(fn, store, key)
+  ---@param value any?
+  ---@param err codeview.Error?
+  ---@return any?, codeview.Error?
+  local function keep(value, err)
+    if value == nil then
+      return nil, err or errors.new(errors.codes.COMMAND_FAILED, "the " .. key .. " call gave no answer")
+    end
+    store[key] = value
+    return value, nil
+  end
+
+  return function(cb)
+    if not cb then
+      return keep(fn())
+    end
+    fn(function(value, err)
+      cb(keep(value, err))
+    end)
+    return nil, nil
+  end
+end
+
+---Run steps one after the other. The first error stops the run.
+---@param steps codeview.session.Step[]
+---@param cb? fun(ok: boolean?, err: codeview.Error?)
+---@return boolean? ok
+---@return codeview.Error? err
+local function chain(steps, cb)
+  if not cb then
+    for _, step in ipairs(steps) do
+      local _, err = step()
+      if err then
+        return nil, err
+      end
+    end
+    return true, nil
+  end
+
+  local index = 0
+  local function step()
+    index = index + 1
+    if not steps[index] then
+      cb(true, nil)
+      return
+    end
+    steps[index](function(_, err)
+      if err then
+        cb(nil, err)
+        return
+      end
+      step()
+    end)
+  end
+  step()
+  return nil, nil
+end
+
+---Shorten a commit id for a label.
+---@param rev string
+---@return string
+local function short(rev)
+  if #rev >= 12 and rev:match("^%x+$") then
+    return rev:sub(1, 8)
+  end
+  return rev
+end
+
+---Text that names a range.
+---
+--- The text of the user comes first. A range table without text gets a label
+--- of short commit ids, because its resolved ids are long.
+---@param range codeview.vcs.Range Range with resolved revisions.
+---@param input string|codeview.vcs.Range|codeview.vcs.RangeSpec Argument of the open call.
+---@return string
+local function label_of(range, input)
+  if type(input) == "string" and vim.trim(input) ~= "" then
+    return vim.trim(input)
+  end
+  if type(input) == "table" and type(input.spec) == "string" and input.spec ~= "" then
+    return input.spec
+  end
+  if range.from then
+    return short(range.from) .. ".." .. short(range.to)
+  end
+  return short(range.to)
+end
+
+---Send a User event for a session.
+---
+--- The payload holds plain values only. `nvim_exec_autocmds()` copies the
+--- data through the API layer, which drops the metatable of the session. A
+--- handler reads the session itself with |codeview.session.current()|.
+---@param name string Name of the User event.
+---@param session codeview.Session
+local function announce(name, session)
+  pcall(api.nvim_exec_autocmds, "User", {
+    pattern = name,
+    data = {
+      id = session.id,
+      spec = session.spec,
+      files = #session.files,
+      commits = #session.commits,
+    },
+  })
+end
+
+--- Open and close ------------------------------------------------------------
+
+---@class codeview.session.OpenOpts
+---@field repo codeview.vcs.Repo? Repository handle. Without it the session detects one.
+---@field dir string? Directory for the detection. The current directory by default.
+---@field backend "auto"|"git"|"jj"? Backend for the detection. The configuration value by default.
+
+---Open a review session.
+---
+--- The argument is user text (`a`, `a..b`, `a...b`), a parsed spec from
+--- |codeview.vcs.parse_range()|, or a range table with resolved revisions.
+---@param spec string|codeview.vcs.Range|codeview.vcs.RangeSpec Revision argument.
+---@param opts? codeview.session.OpenOpts
+---@param cb? fun(session: codeview.Session?, err: codeview.Error?) Callback for the async form.
+---@return codeview.Session? session Nil after an error.
+---@return codeview.Error? err
+function M.open(spec, opts, cb)
+  if type(opts) == "function" then
+    cb, opts = opts, nil
+  end
+  opts = opts or {}
+
+  if type(spec) ~= "string" and type(spec) ~= "table" then
+    return done(cb, nil, errors.new(errors.codes.INVALID_ARG, "range must be a string or a table, got " .. type(spec)))
+  end
+
+  local state = { repo = opts.repo }
+  local steps = {}
+  if not state.repo then
+    steps[#steps + 1] = into(function(step_cb)
+      return vcs.detect(opts.dir, { backend = opts.backend }, step_cb)
+    end, state, "repo")
+  end
+  steps[#steps + 1] = into(function(step_cb)
+    return state.repo:resolve_range(spec, step_cb)
+  end, state, "range")
+  steps[#steps + 1] = into(function(step_cb)
+    return state.repo:changed_files(state.range, step_cb)
+  end, state, "files")
+  steps[#steps + 1] = into(function(step_cb)
+    return state.repo:log({ range = state.range }, step_cb)
+  end, state, "commits")
+
+  ---Build the session, after every call gave its answer.
+  ---@return codeview.Session
+  local function build()
+    M.close()
+    counter = counter + 1
+    local session = setmetatable({
+      id = counter,
+      repo = state.repo,
+      range = state.range,
+      spec = label_of(state.range, spec),
+      files = state.files,
+      commits = state.commits,
+      opened_at = os.time(),
+      closed = false,
+      windows = {},
+      buffers = {},
+      callbacks = {},
+    }, Session)
+    current = session
+    announce("CodeViewSessionOpened", session)
+    return session
+  end
+
+  if not cb then
+    local ok, err = chain(steps)
+    if not ok then
+      return nil, err
+    end
+    return build(), nil
+  end
+
+  chain(steps, function(ok, err)
+    if not ok then
+      cb(nil, err)
+      return
+    end
+    cb(build(), nil)
+  end)
+  return nil, nil
+end
+
+---Close the session that runs.
+---@return boolean closed False when no session runs.
+function M.close()
+  if not current then
+    return false
+  end
+  return current:close()
+end
+
+---Read the session that runs.
+---@return codeview.Session? session
+function M.current()
+  return current
+end
+
+---Report whether a session runs.
+---@return boolean
+function M.is_active()
+  return current ~= nil and not current.closed
+end
+
+--- Session methods -----------------------------------------------------------
+
+---Text that names the range of the session.
+---@return string
+function Session:label()
+  return self.spec
+end
+
+---One line with the range, the file count, and the commit count.
+---@return string
+function Session:summary()
+  return string.format(
+    "%s: %d %s, %d %s",
+    self:label(),
+    #self.files,
+    #self.files == 1 and "file" or "files",
+    #self.commits,
+    #self.commits == 1 and "commit" or "commits"
+  )
+end
+
+---Files that the range changes.
+---@return codeview.vcs.FileChange[]
+function Session:changed_files()
+  return self.files
+end
+
+---Read one changed file by its position in the list.
+---@param index integer Position, from 1 upwards.
+---@return codeview.vcs.FileChange? file Nil when the position is outside the list.
+function Session:file(index)
+  return self.files[index]
+end
+
+---Position of a path in the file list.
+---@param path string Path in the new revision.
+---@return integer? index Nil when the range does not change the path.
+function Session:index_of(path)
+  for index, file in ipairs(self.files) do
+    if file.path == path then
+      return index
+    end
+  end
+  return nil
+end
+
+---Report whether the session still runs.
+---@return boolean
+function Session:is_active()
+  return not self.closed
+end
+
+---Read the changed files and the commits again.
+---
+--- Use this call after the repository changed, for example after an amend.
+---@param cb? fun(session: codeview.Session?, err: codeview.Error?) Callback for the async form.
+---@return codeview.Session? session
+---@return codeview.Error? err
+function Session:refresh(cb)
+  if self.closed then
+    return done(cb, nil, errors.new(errors.codes.INVALID_ARG, "the session is closed"))
+  end
+
+  local state = {}
+  local steps = {
+    into(function(step_cb)
+      return self.repo:changed_files(self.range, step_cb)
+    end, state, "files"),
+    into(function(step_cb)
+      return self.repo:log({ range = self.range }, step_cb)
+    end, state, "commits"),
+  }
+
+  ---Keep the new data, if the session still runs.
+  ---
+  --- A close can come in while the backend works. A late answer must not
+  --- write into a session that closed already.
+  ---@return codeview.Session? session
+  ---@return codeview.Error? err
+  local function apply()
+    if self.closed then
+      return nil, errors.new(errors.codes.INVALID_ARG, "the session is closed")
+    end
+    self.files = state.files
+    self.commits = state.commits
+    announce("CodeViewSessionRefreshed", self)
+    return self, nil
+  end
+
+  if not cb then
+    local ok, err = chain(steps)
+    if not ok then
+      return nil, err
+    end
+    return apply()
+  end
+
+  chain(steps, function(ok, err)
+    if not ok then
+      cb(nil, err)
+      return
+    end
+    cb(apply())
+  end)
+  return nil, nil
+end
+
+--- Lifecycle -----------------------------------------------------------------
+
+---Let a window close with the session.
+---@param win integer Window handle.
+---@return integer win The same handle.
+function Session:add_window(win)
+  if not vim.tbl_contains(self.windows, win) then
+    self.windows[#self.windows + 1] = win
+  end
+  return win
+end
+
+---Let a buffer close with the session.
+---@param buf integer Buffer handle.
+---@return integer buf The same handle.
+function Session:add_buffer(buf)
+  if not vim.tbl_contains(self.buffers, buf) then
+    self.buffers[#self.buffers + 1] = buf
+  end
+  return buf
+end
+
+---Autocmd group of the session.
+---
+--- The group is empty until a caller adds an autocmd to it. |Session:close()|
+--- deletes the group with every autocmd in it.
+---@return integer group Group id for `nvim_create_autocmd()`.
+function Session:augroup()
+  if not self.group then
+    self.group = api.nvim_create_augroup("codeview.session." .. self.id, { clear = true })
+  end
+  return self.group
+end
+
+---Call a function when the session closes.
+---
+--- The handlers run before the windows and the buffers close. An error in a
+--- handler does not stop the close.
+---@param fn fun(session: codeview.Session)
+function Session:on_close(fn)
+  self.callbacks[#self.callbacks + 1] = fn
+end
+
+---Close the session.
+---
+--- The call runs the close handlers, deletes the autocmd group, closes the
+--- windows, and deletes the buffers of the session. A second call does
+--- nothing.
+---@return boolean closed False when the session was closed already.
+function Session:close()
+  if self.closed then
+    return false
+  end
+  self.closed = true
+  if current == self then
+    current = nil
+  end
+
+  for index = #self.callbacks, 1, -1 do
+    pcall(self.callbacks[index], self)
+  end
+  self.callbacks = {}
+
+  if self.group then
+    pcall(api.nvim_del_augroup_by_id, self.group)
+    self.group = nil
+  end
+
+  for _, win in ipairs(self.windows) do
+    if api.nvim_win_is_valid(win) then
+      -- The call fails on the last window of the last tab page. Keep that one.
+      pcall(api.nvim_win_close, win, true)
+    end
+  end
+  self.windows = {}
+
+  for _, buf in ipairs(self.buffers) do
+    if api.nvim_buf_is_valid(buf) then
+      pcall(api.nvim_buf_delete, buf, { force = true })
+    end
+  end
+  self.buffers = {}
+
+  announce("CodeViewSessionClosed", self)
+  return true
+end
+
+return M

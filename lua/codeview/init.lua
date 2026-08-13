@@ -38,6 +38,38 @@ function M.config()
   return config.get()
 end
 
+---Open a review session.
+---
+--- The argument is user text (`a`, `a..b`, `a...b`) or a range table. Without
+--- a callback the call blocks. The command `:CodeView` calls this function.
+---@param spec string|codeview.vcs.Range|codeview.vcs.RangeSpec Revision argument.
+---@param opts? codeview.session.OpenOpts
+---@param cb? fun(session: codeview.Session?, err: codeview.Error?) Callback for the async form.
+---@return codeview.Session? session
+---@return codeview.Error? err
+function M.open(spec, opts, cb)
+  return require("codeview.session").open(spec, opts, cb)
+end
+
+---Open the commit picker.
+---@param opts? codeview.picker.Opts `mode = "range"` asks for two picks.
+---@param cb? fun(session: codeview.Session?, err: codeview.Error?) Nil session and nil error mean cancel.
+function M.pick(opts, cb)
+  require("codeview.picker").pick(opts, cb)
+end
+
+---Read the session that runs.
+---@return codeview.Session? session Nil when no session runs.
+function M.session()
+  return require("codeview.session").current()
+end
+
+---Close the session that runs.
+---@return boolean closed False when no session runs.
+function M.close()
+  return require("codeview.session").close()
+end
+
 ---Run the health check of the plugin.
 ---
 --- The same report comes from `:checkhealth codeview`.
