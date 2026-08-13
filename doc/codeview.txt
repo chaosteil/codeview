@@ -24,8 +24,8 @@ the changed files in a sidebar, read the diffs inline or side by side, and
 write comments on the lines. You can export the comments as markdown.
 
 This release selects the revisions of a review, lists the changed files in a
-sidebar, and shows an inline diff of each file. The side-by-side diff and the
-comments come with the next milestones.
+sidebar, and shows the diff of each file inline or side by side. The comments
+come with the next milestones.
 
 ==============================================================================
 2. REQUIREMENTS                                          *codeview-requirements*
@@ -186,13 +186,14 @@ directory that hides the marked file opens again.
                                                      *codeview-sidebar-keymaps*
 The sidebar buffer holds these maps. |codeview-config| names the keys: >
 
-    <CR>    open the file under the cursor, or toggle a directory
-    <Tab>   toggle the directory of the line under the cursor
-    zR      show the children of every directory
-    zM      hide the children of every directory
-    ]f      open the next file
-    [f      open the previous file
-    q       close the review session
+    <CR>        open the file under the cursor, or toggle a directory
+    <Tab>       toggle the directory of the line under the cursor
+    zR          show the children of every directory
+    zM          hide the children of every directory
+    ]f          open the next file
+    [f          open the previous file
+    <leader>ct  switch the diff style
+    q           close the review session
 <
 The next-file key and the previous-file key follow the order of the tree.
 They step over the directory nodes, and they also reach a file in a directory
@@ -224,11 +225,17 @@ icons, set plain characters: >lua
 7. DIFF VIEW                                                     *codeview-diff*
 
 The diff view shows one changed file in the main window. It reads both sides
-of the file from the backend and compares them with |vim.diff()|. This release
-holds the inline style: one unified diff in one buffer.
+of the file from the backend and compares them with |vim.diff()|. Two styles
+show the result of that comparison:
 
-The buffer is read-only. Its filetype is `codeview-diff`. The buffer variable
-`b:codeview_filetype` holds the filetype of the file itself: >
+    inline    one unified diff in one buffer
+    split     two aligned buffers, the old side left, the new side right
+
+The `diff.style` option names the style of the next file. |codeview-diff-style|
+describes the switch between the two styles.
+
+The buffers are read-only. Their filetype is `codeview-diff`. The buffer
+variable `b:codeview_filetype` holds the filetype of the file itself: >
 
     @@ -1,6 +1,6 @@
      line 01
@@ -242,9 +249,10 @@ The buffer is read-only. Its filetype is `codeview-diff`. The buffer variable
     @@ -27,7 +27,7 @@
      line 27
 <
-The first character of a line is the marker. A space marks an unchanged line,
-`-` marks a removed line, and `+` marks an added line. The status column shows
-the line number of the old file and the line number of the new file.
+In the inline style the first character of a line is the marker. A space marks
+an unchanged line, `-` marks a removed line, and `+` marks an added line. The
+status column shows the line number of the old file and the line number of the
+new file.
 
 A line that only one side holds shows one number. The plugin highlights a
 removed line with |hl-CodeViewDiffDelete| and an added line with
@@ -271,17 +279,59 @@ A file without a text diff shows one note instead of a diff: >
     The file is empty.          both sides hold no line
     Binary file. It has no text diff.
 <
+                                                          *codeview-diff-split*
+The side-by-side style shows the old version at the left and the new version
+at the right: >
+
+    @@ -1,4 @@              @@ +1,6 @@
+    one                     one
+    two                     two changed
+    three                   three
+    four                    four
+                            five
+                            six
+<
+Both sides hold the same number of rows, so a change sits on the same screen
+row in both windows. A change that adds more lines than it removes gets a
+filler row at the left, and a change that removes more lines than it adds gets
+a filler row at the right. A filler row holds no text. It shows the highlight
+|hl-CodeViewDiffFiller| and virtual text, so it never reads as a line of the
+file.
+
+The two windows scroll and move the cursor together, through 'scrollbind' and
+'cursorbind'. The status column of the left window shows the line numbers of
+the old file, and the status column of the right window the numbers of the new
+file. Both styles hide the same unchanged sections, and `za`, `zR`, and `zM`
+work in both.
+
+The two windows show one diff together. If you close one of them, the view
+takes the inline style in the window that stays. The `diff.style` option keeps
+its value, so the next file opens side by side again.
+
+                                                          *codeview-diff-style*
+Press `<leader>ct` in the diff view or in the sidebar to switch the style. The
+switch keeps the diff, so the backend reads no file again, and it keeps the
+cursor on the same line of the file. A cursor on a removed line moves to the
+left window. A cursor on a hunk header, or on the row of a collapsed section,
+stays on that header or on that row. The new style also becomes the `diff.style` option, so the next
+file opens in the same style.
+
+To start every review in the side-by-side style, set the option: >lua
+
+    require("codeview").setup({ diff = { style = "split" } })
+<
                                                         *codeview-diff-keymaps*
 The diff buffer holds these maps. |codeview-config| names the keys: >
 
-    ]h      jump to the next hunk
-    [h      jump to the previous hunk
-    za      show or hide the section under the cursor
-    zR      show every hidden line
-    zM      hide every section again
-    ]f      open the next file
-    [f      open the previous file
-    q       close the review session
+    ]h          jump to the next hunk
+    [h          jump to the previous hunk
+    za          show or hide the section under the cursor
+    zR          show every hidden line
+    zM          hide every section again
+    ]f          open the next file
+    [f          open the previous file
+    <leader>ct  switch the diff style
+    q           close the review session
 <
 The diff view sends one event: >
 
@@ -293,8 +343,11 @@ The `data` field of the event holds these values: >
     data.index      position of the file in the file list
     data.path       path of the file
     data.status     status of the file in the range
+    data.style      style of the render, "inline" or "split"
     data.buf        buffer that holds the diff
 <
+The event also comes after a change of the style, because the buffer of the
+file is a new buffer then.
                                                         *codeview-diff-linemap*
 The view keeps a line map. The map holds one record per buffer row, with the
 kind of the row, the line in the old file, the line in the new file, and the
@@ -359,8 +412,10 @@ codeview.toggle_sidebar({opts})
                                                              *codeview.view()*
 codeview.view()
     Return the state of the diff view, or nil when no file is open. The state
-    holds the path, the status, the diff, the line map, the buffer, and the
-    window.
+    holds the path, the status, the diff, the style, the line map, the buffer,
+    and the window. In the side-by-side style it also holds the buffer, the
+    window, and the line map of the old side: `old_buf`, `old_win`, and
+    `old_map`.
 
                                                         *codeview.open_file()*
 codeview.open_file({index}, {opts}, {cb})
@@ -376,6 +431,20 @@ codeview.next_hunk({opts})
 codeview.prev_hunk({opts})
     Move the cursor to the first row of the previous hunk. Set `opts.wrap` to
     true to continue at the last hunk. Return the row, or nil.
+
+                                                            *codeview.style()*
+codeview.style()
+    Return the style of the diff view, or the style of the next file.
+
+                                                        *codeview.set_style()*
+codeview.set_style({style})
+    Set the diff style to "inline" or "split". Without {style} the call takes
+    the other style. The call returns the style after it, or nil for an
+    unknown name.
+
+                                                     *codeview.toggle_style()*
+codeview.toggle_style()
+    Switch between the inline style and the side-by-side style.
 
                                                    *codeview.toggle_context()*
 codeview.toggle_context({id}, {expanded})
@@ -462,6 +531,7 @@ again after a colorscheme change.
                                                         *hl-CodeViewDiffAdd*
                                                         *hl-CodeViewDiffDelete*
                                                         *hl-CodeViewDiffText*
+                                                        *hl-CodeViewDiffFiller*
 >
     CodeViewTitle          Title        range in the sidebar header
     CodeViewCount          Comment      counts in the sidebar header
@@ -483,6 +553,7 @@ again after a colorscheme change.
     CodeViewDiffText       DiffText     changed part of a line
     CodeViewDiffHunk       Title        hunk header of a diff
     CodeViewDiffFold       Folded       row of a collapsed section
+    CodeViewDiffFiller     NonText      filler row of the side-by-side diff
     CodeViewDiffNumber     LineNr       line numbers of the status column
     CodeViewDiffMessage    Comment      note of a file without a text diff
 <

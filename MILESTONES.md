@@ -89,7 +89,7 @@ Done when: all M2–M5 features work in a jj repo without code changes outside t
 Goal: leave comments in the diff.
 
 - The diff buffer stays read-only. Comments are virtual only: extmark signs, virtual text, and virtual lines. The comment file is the only write target.
-- A key opens a small edit window to write a comment on the current line, or on a line range via visual selection — like the GitHub UI.
+- The insert keys write comments. In the diff, `i`, `a`, `o`, and `O` open a small edit window for the line under the cursor. In visual mode, `I`, `A`, and `c` open it for the selected line range, like the GitHub UI.
 - Comments anchor to file, start line, end line, side (old/new), and commit, with extmark signs across the full range in the diff.
 - All comments of a session persist in one file, named by the session key. The frontmatter holds the session data (repo, range, timestamp). Each comment is one section with its own fields (file, start line, end line, side, commit) and a markdown body.
 - Comments load again when you reopen a session on the same range. Edit and delete work.

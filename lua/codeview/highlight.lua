@@ -26,6 +26,7 @@ M.links = {
   CodeViewDiffText = "DiffText",
   CodeViewDiffHunk = "Title",
   CodeViewDiffFold = "Folded",
+  CodeViewDiffFiller = "NonText",
   CodeViewDiffNumber = "LineNr",
   CodeViewDiffMessage = "Comment",
   CodeViewAdded = "Added",

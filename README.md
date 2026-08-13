@@ -6,8 +6,8 @@ diffs inline or side by side, and write comments on the lines. You can export
 the comments as markdown, and later send them to GitHub.
 
 > Status: early development. This release selects the revisions of a review,
-> lists the changed files in a sidebar, and shows an inline diff of each file.
-> The side-by-side diff and the comments come with the next milestones.
+> lists the changed files in a sidebar, and shows the diff of each file inline
+> or side by side. The comments come with the next milestones.
 > See `MILESTONES.md`.
 
 ## Requirements
@@ -87,18 +87,51 @@ view shows a unified diff of the two revisions:
 ```
 
 The status column shows the line number of the old file and the line number of
-the new file. These keys work in the diff buffer:
+the new file.
 
-| Key  | Action                                        |
-| ---- | --------------------------------------------- |
-| `]h` | jump to the next hunk                         |
-| `[h` | jump to the previous hunk                     |
-| `za` | show or hide the section under the cursor     |
-| `zR` | show every hidden line                        |
-| `zM` | hide every section again                      |
-| `]f` | open the next file                            |
-| `[f` | open the previous file                        |
-| `q`  | close the review session                      |
+## Side-by-side diff
+
+`<leader>ct` switches between the inline diff and the side-by-side diff. The
+side-by-side style shows the old version at the left and the new version at
+the right:
+
+```
+@@ -1,4 @@              @@ +1,6 @@
+one                     one
+two                     two changed
+three                   three
+four                    four
+                        five
+                        six
+```
+
+Both sides hold the same number of rows, so a change sits on the same screen
+row in both windows. A change with more lines on one side gets a filler row on
+the other side. The two windows scroll and move the cursor together. The
+switch keeps the diff and the line of the cursor.
+
+The new style also becomes the `diff.style` option. To start every review side
+by side, set the option:
+
+```lua
+require("codeview").setup({ diff = { style = "split" } })
+```
+
+## Diff keys
+
+These keys work in the diff buffer:
+
+| Key          | Action                                    |
+| ------------ | ----------------------------------------- |
+| `]h`         | jump to the next hunk                     |
+| `[h`         | jump to the previous hunk                 |
+| `za`         | show or hide the section under the cursor |
+| `zR`         | show every hidden line                    |
+| `zM`         | hide every section again                  |
+| `]f`         | open the next file                        |
+| `[f`         | open the previous file                    |
+| `<leader>ct` | switch the diff style                     |
+| `q`          | close the review session                  |
 
 ## Configuration
 

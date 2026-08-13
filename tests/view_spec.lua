@@ -495,6 +495,256 @@ describe("codeview.view", function()
     end)
   end)
 
+  describe("the diff style", function()
+    local diff_fixture = fixtures.git_diff()
+    local config
+
+    ---Open the diff of long.txt, the file with two hunks.
+    ---@return codeview.view.State
+    local function open_long()
+      local review, err = session_mod.open(diff_fixture.ids.base .. ".." .. diff_fixture.ids.change, {
+        dir = diff_fixture.dir,
+      })
+      assert.is_nil(err)
+      opened = assert(review)
+      config = require("codeview.config")
+      return assert(view.open(review, assert(review:index_of("long.txt"))))
+    end
+
+    it("opens two aligned windows", function()
+      local state = open_long()
+      assert.are.equal("inline", state.style)
+      assert.are.equal("split", view.set_style("split"))
+
+      state = assert(view.current())
+      local old_win = state.old_win --[[@as integer]]
+      assert.are.equal("split", state.style)
+      assert.is_true(api.nvim_win_is_valid(old_win))
+      assert.are.equal(state.old_buf, api.nvim_win_get_buf(old_win))
+      assert.are.equal(state.buf, api.nvim_win_get_buf(state.win))
+      -- The old side is the left window of the two.
+      assert.is_true(api.nvim_win_get_position(old_win)[2] < api.nvim_win_get_position(state.win)[2])
+
+      local old_lines = lines_of(state.old_buf)
+      local new_lines = lines_of(state.buf)
+      assert.are.equal(#old_lines, #new_lines)
+      assert.are.equal("line 03", old_lines[4])
+      assert.are.equal("line 03 changed", new_lines[4])
+      assert.are.equal(state.map:len(), state.old_map:len())
+    end)
+
+    it("binds the scrolling and the cursor of the two windows", function()
+      local state = open_long()
+      view.set_style("split")
+      state = assert(view.current())
+      local old_win = state.old_win --[[@as integer]]
+      assert.is_true(vim.wo[state.win][0].scrollbind)
+      assert.is_true(vim.wo[state.win][0].cursorbind)
+      assert.is_true(vim.wo[old_win][0].scrollbind)
+      assert.is_true(vim.wo[old_win][0].cursorbind)
+    end)
+
+    it("keeps the cursor on the same content line in both directions", function()
+      local state = open_long()
+      -- Row 5 of the inline style is the added line of the first hunk.
+      api.nvim_win_set_cursor(state.win, { 5, 0 })
+      assert.are.equal(3, (state.map:file_line(5, "new")))
+
+      view.set_style("split")
+      state = assert(view.current())
+      local row = api.nvim_win_get_cursor(state.win)[1]
+      assert.are.equal(3, (state.map:file_line(row, "new")))
+      assert.are.equal(row, api.nvim_win_get_cursor(state.old_win --[[@as integer]])[1])
+
+      view.set_style("inline")
+      state = assert(view.current())
+      assert.are.equal(5, api.nvim_win_get_cursor(state.win)[1])
+      assert.are.equal(3, (state.map:file_line(5, "new")))
+    end)
+
+    it("keeps a removed line on the old side", function()
+      local state = open_long()
+      -- Row 4 of the inline style is the removed line of the first hunk.
+      api.nvim_win_set_cursor(state.win, { 4, 0 })
+      assert.are.equal(3, (state.map:file_line(4, "old")))
+      api.nvim_set_current_win(state.win)
+
+      view.set_style("split")
+      state = assert(view.current())
+      local old_win = state.old_win --[[@as integer]]
+      local row = api.nvim_win_get_cursor(old_win)[1]
+      assert.are.equal(3, (state.old_map:file_line(row, "old")))
+      assert.are.equal(old_win, api.nvim_get_current_win())
+
+      view.set_style("inline")
+      assert.are.equal(4, api.nvim_win_get_cursor(assert(view.current()).win)[1])
+    end)
+
+    it("keeps the cursor on the header of a hunk", function()
+      local state = open_long()
+      api.nvim_set_current_win(state.win)
+      api.nvim_win_set_cursor(state.win, { 1, 0 })
+      press("]h")
+      assert.are.equal(10, api.nvim_win_get_cursor(state.win)[1])
+      assert.are.equal("header", state.map:kind(10))
+
+      view.set_style("split")
+      state = assert(view.current())
+      local row = api.nvim_win_get_cursor(state.win)[1]
+      assert.are.equal("header", state.map:kind(row))
+      assert.are.equal(state.map:hunk_starts()[2], row)
+
+      view.set_style("inline")
+      assert.are.equal(10, api.nvim_win_get_cursor(assert(view.current()).win)[1])
+    end)
+
+    it("keeps the cursor on the row of a collapsed section", function()
+      local state = open_long()
+      api.nvim_win_set_cursor(state.win, { 9, 0 })
+      assert.are.equal("filler", state.map:kind(9))
+      assert.are.equal(1, assert(state.map:row(9)).gap)
+
+      view.set_style("split")
+      state = assert(view.current())
+      local row = api.nvim_win_get_cursor(state.win)[1]
+      assert.are.equal("filler", state.map:kind(row))
+      assert.are.equal(1, assert(state.map:row(row)).gap)
+
+      view.set_style("inline")
+      assert.are.equal(9, api.nvim_win_get_cursor(assert(view.current()).win)[1])
+    end)
+
+    it("takes the inline style after a window of the split closes", function()
+      local state = open_long()
+      view.set_style("split")
+      state = assert(view.current())
+      local old_win = state.old_win --[[@as integer]]
+
+      api.nvim_win_close(old_win, true)
+      assert.is_true(vim.wait(1000, function()
+        return assert(view.current()).style == "inline"
+      end, 10))
+
+      state = assert(view.current())
+      assert.is_nil(state.old_win)
+      assert.is_nil(state.old_map)
+      assert.is_true(api.nvim_win_is_valid(state.win))
+      assert.are.equal(state.buf, api.nvim_win_get_buf(state.win))
+      assert.are.equal("@@ -1,6 +1,6 @@", lines_of(state.buf)[1])
+      -- The option keeps the style that the user asked for.
+      assert.are.equal("split", config.get().diff.style)
+    end)
+
+    it("keeps the handles of the session at the windows that live", function()
+      open_long()
+      local review = assert(opened)
+      for _ = 1, 3 do
+        view.set_style("split")
+        view.set_style("inline")
+      end
+      for _, win in ipairs(review.windows) do
+        assert.is_true(api.nvim_win_is_valid(win))
+      end
+      for _, buf in ipairs(review.buffers) do
+        assert.is_true(api.nvim_buf_is_valid(buf))
+      end
+    end)
+
+    it("shows the same hunks in both styles", function()
+      local state = open_long()
+      local hunks = state.map:hunk_count()
+      view.set_style("split")
+      state = assert(view.current())
+      assert.are.equal(hunks, state.map:hunk_count())
+      assert.are.equal(hunks, state.old_map:hunk_count())
+      assert.are.same(state.map:hunk_starts(), state.old_map:hunk_starts())
+    end)
+
+    it("reads the file once for both styles", function()
+      local state = open_long()
+      local before = state.diff
+      local reads = 0
+      state.session.repo.file_content = function(...)
+        reads = reads + 1
+        return nil, nil, select(4, ...)
+      end
+      view.set_style("split")
+      assert.are.equal(0, reads)
+      assert.are.equal(before, assert(view.current()).diff)
+    end)
+
+    it("stores the style in the configuration", function()
+      open_long()
+      view.set_style("split")
+      assert.are.equal("split", config.get().diff.style)
+      assert.are.equal("split", view.style())
+
+      -- The next file opens in the style of the configuration.
+      local review = assert(opened)
+      local state = assert(view.open(review, assert(review:index_of("added.txt"))))
+      assert.are.equal("split", state.style)
+      assert.is_truthy(state.old_win)
+    end)
+
+    it("switches with one key", function()
+      local state = open_long()
+      api.nvim_set_current_win(state.win)
+      local key = config.get().keymaps.toggle_style:gsub("<leader>", vim.g.mapleader or "\\")
+
+      press(key)
+      assert.are.equal("split", assert(view.current()).style)
+      press(key)
+      assert.are.equal("inline", assert(view.current()).style)
+    end)
+
+    it("takes the other style without an argument", function()
+      open_long()
+      assert.are.equal("split", view.toggle_style())
+      assert.are.equal("inline", view.toggle_style())
+    end)
+
+    it("reports an unknown style", function()
+      local state = open_long()
+      assert.is_nil(view.set_style("unified"))
+      assert.are.equal("inline", assert(view.current()).style)
+      assert.are.equal(state.buf, assert(view.current()).buf)
+    end)
+
+    it("keeps the style of the configuration without a file", function()
+      view.close()
+      session_mod.close()
+      assert.are.equal("split", view.set_style("split"))
+      assert.are.equal("inline", view.toggle_style())
+    end)
+
+    it("closes both buffers and the window of the old side", function()
+      local state = open_long()
+      view.set_style("split")
+      state = assert(view.current())
+      local old_win, old_buf, buf = state.old_win, state.old_buf, state.buf
+
+      assert.is_true(view.close())
+      assert.is_false(api.nvim_win_is_valid(old_win))
+      assert.is_false(api.nvim_buf_is_valid(old_buf))
+      assert.is_false(api.nvim_buf_is_valid(buf))
+    end)
+
+    it("closes the windows of the split with the session", function()
+      open_long()
+      view.set_style("split")
+      local state = assert(view.current())
+      local old_win = state.old_win --[[@as integer]]
+      opened:close()
+      assert.is_false(api.nvim_win_is_valid(old_win))
+      assert.is_nil(view.current())
+    end)
+
+    it("removes the fixture", function()
+      diff_fixture.cleanup()
+      assert.are.equal(0, vim.fn.isdirectory(diff_fixture.dir))
+    end)
+  end)
+
   it("leaves no windows behind", function()
     assert.are.equal(1, #api.nvim_tabpage_list_wins(0))
   end)

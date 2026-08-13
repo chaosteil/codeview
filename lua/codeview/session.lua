@@ -407,6 +407,37 @@ function Session:add_buffer(buf)
   return buf
 end
 
+---Take a window out of the list of the session.
+---
+--- The caller closes the window itself. A view that opens a window for each
+--- file calls this, so that the list holds the windows that live.
+---@param win integer Window handle.
+---@return boolean removed False when the session does not hold the window.
+function Session:remove_window(win)
+  for index, handle in ipairs(self.windows) do
+    if handle == win then
+      table.remove(self.windows, index)
+      return true
+    end
+  end
+  return false
+end
+
+---Take a buffer out of the list of the session.
+---
+--- The caller deletes the buffer itself.
+---@param buf integer Buffer handle.
+---@return boolean removed False when the session does not hold the buffer.
+function Session:remove_buffer(buf)
+  for index, handle in ipairs(self.buffers) do
+    if handle == buf then
+      table.remove(self.buffers, index)
+      return true
+    end
+  end
+  return false
+end
+
 ---Autocmd group of the session.
 ---
 --- The group is empty until a caller adds an autocmd to it. |Session:close()|

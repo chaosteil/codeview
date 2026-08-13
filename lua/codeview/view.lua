@@ -3,14 +3,23 @@
 --- The view shows the diff of one changed file of the session in the main
 --- window, next to the sidebar. It reads both sides of the file from the
 --- backend, runs |codeview.diff| on them, and renders the result with the
---- style of the `diff.style` option. This milestone holds the inline style.
+--- style of the `diff.style` option.
 ---
---- The buffer of the view is read-only. |codeview.inline| owns its content,
---- its highlights, and its line map. The view owns the window, the keymaps,
---- and the state of the collapsed sections.
+--- Two styles show the same diff:
 ---
---- The view keeps one buffer. A second open replaces the buffer, so the tab
---- page never holds more than one view buffer.
+--- - "inline": one unified diff in one buffer, from |codeview.inline|.
+--- - "split": two aligned buffers in two windows, from |codeview.split|.
+---
+--- |codeview.view.set_style()| changes the style of the file that is open. It
+--- keeps the diff, so the backend reads the file once for both styles, and it
+--- keeps the cursor on the same line of the file through the line maps.
+---
+--- The buffers of the view are read-only. The style module owns their content,
+--- their highlights, and their line maps. The view owns the windows, the
+--- keymaps, and the state of the collapsed sections.
+---
+--- The view keeps the buffers of one file. A second open replaces them, so the
+--- tab page never holds the buffers of two files.
 
 local config = require("codeview.config")
 local diff_mod = require("codeview.diff")
@@ -19,11 +28,20 @@ local highlight = require("codeview.highlight")
 local inline = require("codeview.inline")
 local linemap = require("codeview.linemap")
 local panel = require("codeview.panel")
+local split = require("codeview.split")
 local tree = require("codeview.tree")
 
 local api = vim.api
 
 local M = {}
+
+---@alias codeview.view.Style "inline"|"split"
+
+---@class codeview.view.Anchor
+---@field line integer? Line in the file.
+---@field side codeview.linemap.Side? Side that holds the line.
+---@field hunk integer? Hunk of a header row, which holds no file line.
+---@field gap integer? Collapsed section of a filler row, which holds no file line.
 
 ---@class codeview.view.State
 ---@field session codeview.Session Session that owns the view.
@@ -33,11 +51,16 @@ local M = {}
 ---@field rev string Revision that the content comes from.
 ---@field old_rev string? Revision of the old side. Nil for an added file.
 ---@field new_rev string? Revision of the new side. Nil for a deleted file.
----@field diff codeview.diff.File Diff that the buffer shows.
----@field map codeview.LineMap Map between the buffer rows and the file lines.
+---@field diff codeview.diff.File Diff that the buffers show.
+---@field style codeview.view.Style Style of the render.
+---@field map codeview.LineMap Map of the buffer rows of `buf`.
+---@field old_map codeview.LineMap? Map of the buffer rows of `old_buf`. Split style only.
 ---@field expanded table<integer, boolean> Collapsed sections that show their lines.
----@field buf integer Buffer that holds the diff.
+---@field buf integer Buffer of the diff. In the split style it holds the new side.
 ---@field win integer Window that shows the buffer.
+---@field old_buf integer? Buffer of the old side. Split style only.
+---@field old_win integer? Window of the old side. Split style only.
+---@field guards integer[] Autocmds that watch the windows of the style.
 
 ---File that the view shows now.
 ---@type codeview.view.State?
@@ -104,16 +127,20 @@ local function announce(view)
       index = view.index,
       path = view.path,
       status = view.status,
+      style = view.style,
       buf = view.buf,
     },
   })
 end
 
 ---Report whether a window can hold the view.
----@param win integer Window handle.
+---@param win integer? Window handle.
 ---@return boolean
 local function usable(win)
-  return api.nvim_win_is_valid(win) and api.nvim_win_get_config(win).relative == "" and not panel.is_panel_win(win)
+  if type(win) ~= "number" or not api.nvim_win_is_valid(win) then
+    return false
+  end
+  return api.nvim_win_get_config(win).relative == "" and not panel.is_panel_win(win)
 end
 
 ---Window for the content of a file.
@@ -198,20 +225,24 @@ local function set_keymaps(session, buf)
   add(keys.collapse_all, function()
     M.collapse_all()
   end)
+  add(keys.toggle_style, function()
+    M.toggle_style()
+  end)
   add(keys.close, function()
     session:close()
   end)
 end
 
----Make the buffer for one file.
+---Make the buffer of one side of a file.
 ---
 --- The buffer holds the diff, so its filetype is the filetype of the diff. A
 --- buffer variable keeps the filetype of the file itself, for a later
 --- milestone.
 ---@param session codeview.Session
----@param file codeview.vcs.FileChange
+---@param path string Path of the side in its revision.
+---@param side codeview.linemap.Side? Side of a side-by-side view. Nil for the inline view.
 ---@return integer buf
-local function make_buf(session, file)
+local function make_buf(session, path, side)
   local buf = api.nvim_create_buf(false, true)
 
   vim.bo[buf].buftype = "nofile"
@@ -221,9 +252,14 @@ local function make_buf(session, file)
   vim.bo[buf].undolevels = -1
   vim.bo[buf].modifiable = false
   vim.bo[buf].modified = false
-  pcall(api.nvim_buf_set_name, buf, string.format("codeview://%d/%s", session.id, file.path))
 
-  vim.b[buf].codeview_filetype = vim.filetype.match({ filename = file.path, buf = buf }) or ""
+  -- The old side of a split view needs its own name, because the two sides can
+  -- hold the same path.
+  local name = string.format("codeview://%d/%s", session.id, path)
+  pcall(api.nvim_buf_set_name, buf, side == "old" and name .. "@old" or name)
+
+  vim.b[buf].codeview_filetype = vim.filetype.match({ filename = path, buf = buf }) or ""
+  vim.b[buf].codeview_side = side
   vim.bo[buf].filetype = inline.filetype
 
   set_keymaps(session, buf)
@@ -231,7 +267,26 @@ local function make_buf(session, file)
   return buf
 end
 
----Window of the view, while it shows the buffer of the view.
+---Windows of the view, while they show the buffers of the view.
+---
+--- The order is old side first, so that a caller reaches the left window with
+--- the first entry.
+---@param view codeview.view.State
+---@return integer[] wins
+local function view_windows(view)
+  local out = {}
+  if view.old_win and view.old_buf and api.nvim_win_is_valid(view.old_win) then
+    if api.nvim_win_get_buf(view.old_win) == view.old_buf then
+      out[#out + 1] = view.old_win
+    end
+  end
+  if api.nvim_win_is_valid(view.win) and api.nvim_win_get_buf(view.win) == view.buf then
+    out[#out + 1] = view.win
+  end
+  return out
+end
+
+---Window of the view that holds the new side.
 ---@param view codeview.view.State
 ---@return integer? win
 local function view_window(view)
@@ -241,32 +296,314 @@ local function view_window(view)
   return nil
 end
 
+---Report whether the cursor is in a window of the view.
+---@param view codeview.view.State
+---@return boolean
+local function has_focus(view)
+  return vim.tbl_contains(view_windows(view), api.nvim_get_current_win())
+end
+
+---Map of one side of the view.
+---@param view codeview.view.State
+---@param side codeview.linemap.Side
+---@return codeview.LineMap map
+local function map_of(view, side)
+  if side == "old" and view.old_map then
+    return view.old_map
+  end
+  return view.map
+end
+
+---Row of the cursor in the view.
+---
+--- Both sides of a split view hold the same rows, so one row number answers
+--- for both windows.
+---@param view codeview.view.State
+---@return integer row Row from 1. The first row without a window.
+local function cursor_row(view)
+  local wins = view_windows(view)
+  local current = api.nvim_get_current_win()
+  for _, win in ipairs(wins) do
+    if win == current then
+      return api.nvim_win_get_cursor(win)[1]
+    end
+  end
+  local win = view_window(view) or wins[1]
+  if not win then
+    return 1
+  end
+  return api.nvim_win_get_cursor(win)[1]
+end
+
+---Position of the cursor in the diff.
+---
+--- The map of the window with the cursor answers first. A row that this side
+--- does not hold, for example a filler row, falls back to the other side.
+---
+--- A hunk header and the row of a collapsed section hold no file line. They
+--- keep their number in both styles, so the anchor names the hunk or the
+--- section. It also keeps the closest file line above the row, for the case
+--- that the new render holds no row of the same kind.
+---@param view codeview.view.State
+---@return codeview.view.Anchor? anchor Nil on a row that no map holds.
+local function anchor_of(view)
+  local row = cursor_row(view)
+  local maps = { view.map, view.old_map }
+  if view.old_map and api.nvim_get_current_win() == view.old_win then
+    maps = { view.old_map, view.map }
+  end
+  for _, map in ipairs(maps) do
+    local line, side = map:file_line(row)
+    if line and side then
+      return { line = line, side = side }
+    end
+  end
+
+  local map = maps[1]
+  local record = map:row(row)
+  if not record then
+    return nil
+  end
+  ---@type codeview.view.Anchor
+  local anchor = { gap = record.gap, hunk = record.kind == "header" and record.hunk or nil }
+  for above = row - 1, 1, -1 do
+    local line, side = map:file_line(above)
+    if line and side then
+      anchor.line, anchor.side = line, side
+      break
+    end
+  end
+  if not anchor.gap and not anchor.hunk and not anchor.line then
+    return nil
+  end
+  return anchor
+end
+
+---Move the cursor of the view to one buffer row.
+---
+--- Both windows of a split view move, because the row of a change is the same
+--- number on both sides.
+---@param view codeview.view.State
+---@param row integer Buffer row, from 1.
+---@return integer? row Nil when no window shows the view.
+local function go_to(view, row)
+  local moved = nil
+  for _, win in ipairs(view_windows(view)) do
+    if pcall(api.nvim_win_set_cursor, win, { row, 0 }) then
+      moved = row
+    end
+  end
+  return moved
+end
+
+---Move the cursor to the row of an anchor.
+---
+--- A hunk header and the row of a collapsed section keep their number, so the
+--- call finds them again by that number. Every other anchor takes the row of
+--- its file line, or of the closest line above it.
+---@param view codeview.view.State
+---@param anchor codeview.view.Anchor?
+---@return integer? row
+local function place(view, anchor)
+  if not anchor then
+    return nil
+  end
+  local map = map_of(view, anchor.side or "new")
+  if anchor.gap then
+    for lnum, record in ipairs(map.rows) do
+      if record.kind == "filler" and record.gap == anchor.gap then
+        return go_to(view, lnum)
+      end
+    end
+  end
+  if anchor.hunk then
+    local first = map:hunk_rows(anchor.hunk)
+    if first then
+      return go_to(view, first)
+    end
+  end
+  if not anchor.line or not anchor.side then
+    return nil
+  end
+  local row = map:nearest_row(anchor.line, anchor.side)
+  if not row then
+    return nil
+  end
+  return go_to(view, row)
+end
+
+---Write the diff into the buffers of the style.
+---@param view codeview.view.State
+local function draw(view)
+  if view.style == "split" then
+    local build = split.render(view.old_buf --[[@as integer]], view.buf, view.diff, { expanded = view.expanded })
+    view.map = build.new.map
+    view.old_map = build.old.map
+    split.bind(view.old_win --[[@as integer]], view.win)
+    return
+  end
+  view.map = inline.render(view.buf, view.diff, { expanded = view.expanded }).map
+  view.old_map = nil
+end
+
 ---Render the diff of the view again.
 ---
---- The cursor keeps its file line, so a collapse or an expand of a section
---- does not move the reader.
+--- The cursor keeps its file line, so a collapse, an expand, or a change of
+--- the style does not move the reader.
 ---@param view codeview.view.State
+---@param anchor codeview.view.Anchor? Line to keep. The line of the cursor by default.
 ---@return codeview.view.State view
-local function rerender(view)
+local function rerender(view, anchor)
   if not api.nvim_buf_is_valid(view.buf) then
     return view
   end
-  local win = view_window(view)
-  local line, side
-  if win then
-    line, side = view.map:file_line(api.nvim_win_get_cursor(win)[1])
+  if not anchor and #view_windows(view) > 0 then
+    anchor = anchor_of(view)
   end
-
-  local build = inline.render(view.buf, view.diff, { expanded = view.expanded })
-  view.map = build.map
-
-  if win and line and side then
-    local row = build.map:nearest_row(line, side)
-    if row then
-      pcall(api.nvim_win_set_cursor, win, { row, 0 })
-    end
-  end
+  draw(view)
+  place(view, anchor)
   return view
+end
+
+---Close the windows and delete the buffers of a view.
+---
+--- The session forgets the windows and the buffers again, so that its lists
+--- hold the handles that live, and not one pair per file of the review.
+---@param view codeview.view.State
+local function unmount(view)
+  for _, id in ipairs(view.guards) do
+    pcall(api.nvim_del_autocmd, id)
+  end
+  view.guards = {}
+
+  if view.old_win then
+    if api.nvim_win_is_valid(view.old_win) then
+      pcall(api.nvim_win_close, view.old_win, true)
+    end
+    view.session:remove_window(view.old_win)
+  end
+  view.old_win = nil
+
+  local buffers = { view.buf }
+  if view.old_buf then
+    buffers[#buffers + 1] = view.old_buf
+  end
+  view.old_buf = nil
+  for _, buf in ipairs(buffers) do
+    if api.nvim_buf_is_valid(buf) then
+      pcall(api.nvim_buf_delete, buf, { force = true })
+    end
+    view.session:remove_buffer(buf)
+  end
+end
+
+---Bring the view back after the user closes one window of the split style.
+---
+--- The definition follows |mount()|.
+---@type fun(view: codeview.view.State)
+local repair_split
+
+---Watch the two windows of the side-by-side style.
+---
+--- The windows show one diff together, so the view does not stay in the split
+--- style with one window.
+---@param view codeview.view.State
+---@param wins integer[] Windows of the style.
+local function watch_split(view, wins)
+  local group = view.session:augroup()
+  for _, win in ipairs(wins) do
+    view.guards[#view.guards + 1] = api.nvim_create_autocmd("WinClosed", {
+      group = group,
+      pattern = tostring(win),
+      once = true,
+      desc = "Repair the codeview diff after a window of the split closes",
+      callback = function()
+        -- The window is still open here. The repair runs after the close.
+        vim.schedule(function()
+          repair_split(view)
+        end)
+      end,
+    })
+  end
+end
+
+---Open the windows and the buffers of one style.
+---
+--- The split style puts the old side in a new window at the left of the window
+--- of the view.
+---@param view codeview.view.State
+---@param style codeview.view.Style
+---@param win_hint integer? Window that the view had before.
+local function mount(view, style, win_hint)
+  local session = view.session
+  view.style = style
+
+  local buf = make_buf(session, view.path, style == "split" and "new" or nil)
+  local win = usable(win_hint) and win_hint or target_window(session, buf)
+  if api.nvim_win_get_buf(win) ~= buf then
+    api.nvim_win_set_buf(win, buf)
+  end
+  view.buf, view.win = buf, win
+
+  if style ~= "split" then
+    view.old_buf, view.old_win, view.old_map = nil, nil, nil
+    inline.attach_window(win)
+    return
+  end
+
+  local old_buf = make_buf(session, view.diff.old_path ~= "" and view.diff.old_path or view.path, "old")
+  local ok, old_win = pcall(api.nvim_open_win, old_buf, false, { split = "left", win = win })
+  if not ok then
+    -- The tab page has no room for the second window. Keep the inline style.
+    pcall(api.nvim_buf_delete, old_buf, { force = true })
+    view.style = "inline"
+    view.old_buf, view.old_win, view.old_map = nil, nil, nil
+    inline.attach_window(win)
+    return
+  end
+  session:add_window(old_win)
+  view.old_buf, view.old_win = old_buf, old_win
+  split.attach_window(old_win)
+  split.attach_window(win)
+  watch_split(view, { old_win, win })
+end
+
+---Bring the view back after the user closes one window of the split style.
+---
+--- A window alone shows one side of the diff, with filler rows that align to
+--- nothing. The view takes the inline style in the window that stays. The call
+--- keeps the `diff.style` option, so the next file opens side by side again.
+---@param view codeview.view.State
+function repair_split(view)
+  if state ~= view or view.style ~= "split" or not view.session:is_active() then
+    return
+  end
+  local wins = view_windows(view)
+  if #wins > 1 then
+    return
+  end
+  if #wins == 0 then
+    -- Both windows are gone. The view goes with them.
+    unmount(view)
+    state = nil
+    return
+  end
+
+  local keep = view_window(view)
+  if not keep then
+    -- The new side closed. The window of the old side takes the inline diff.
+    keep = view.old_win
+    view.old_win = nil
+  end
+  local focus = keep == api.nvim_get_current_win()
+
+  unmount(view)
+  mount(view, "inline", usable(keep) and keep or nil)
+  rerender(view)
+  if focus and api.nvim_win_is_valid(view.win) then
+    api.nvim_set_current_win(view.win)
+  end
+  announce(view)
 end
 
 ---Read the file that the view shows.
@@ -347,26 +684,21 @@ function M.open(session, index, cb)
   -- file has no new side, so it comes from the base of the range.
   local rev = new_rev or old_rev
 
-  ---Put the diff into a buffer and show it.
+  ---Put the diff into the buffers of the style and show it.
   ---
-  --- The buffer of the file that was open goes first, because the new buffer
+  --- The buffers of the file that was open go first, because a new buffer
   --- takes the same name after a second open of the same file.
   ---@param result codeview.diff.File
   ---@return codeview.view.State
   local function show(result)
-    local previous = state and state.buf
-    if previous and api.nvim_buf_is_valid(previous) then
-      pcall(api.nvim_buf_delete, previous, { force = true })
+    local keep = state and state.win or nil
+    if state then
+      unmount(state)
     end
     highlight.setup()
-    local buf = make_buf(session, file)
-    local win = target_window(session, buf)
-    if api.nvim_win_get_buf(win) ~= buf then
-      api.nvim_win_set_buf(win, buf)
-    end
-    inline.attach_window(win)
 
-    state = {
+    ---@type codeview.view.State
+    local view = {
       session = session,
       index = index,
       path = file.path,
@@ -375,14 +707,19 @@ function M.open(session, index, cb)
       old_rev = old_rev,
       new_rev = new_rev,
       diff = result,
+      style = config.get().diff.style,
       map = linemap.new(),
+      old_map = nil,
       expanded = {},
-      buf = buf,
-      win = win,
+      buf = -1,
+      win = -1,
+      guards = {},
     }
-    rerender(state)
-    announce(state)
-    return state
+    mount(view, view.style, keep)
+    state = view
+    rerender(view)
+    announce(view)
+    return view
   end
 
   local ticket = ticket_of()
@@ -416,33 +753,6 @@ end
 
 --- Diff navigation --------------------------------------------------------------
 
----Move the cursor of the view to one buffer row.
----@param view codeview.view.State
----@param row integer Buffer row, from 1.
----@return integer? row Nil when the window does not show the view.
-local function go_to(view, row)
-  local win = view_window(view)
-  if not win then
-    return nil
-  end
-  local ok = pcall(api.nvim_win_set_cursor, win, { row, 0 })
-  if not ok then
-    return nil
-  end
-  return row
-end
-
----Row of the cursor in the view.
----@param view codeview.view.State
----@return integer row Row from 1. The first row without a window.
-local function cursor_row(view)
-  local win = view_window(view)
-  if not win then
-    return 1
-  end
-  return api.nvim_win_get_cursor(win)[1]
-end
-
 ---Move the cursor to the first row of the next hunk.
 ---@param opts? { wrap?: boolean } `wrap = true` continues at the first hunk.
 ---@return integer? row Nil when no hunk follows, or when no file is open.
@@ -475,6 +785,13 @@ end
 
 --- Collapsed sections -----------------------------------------------------------
 
+---Renderer of the style of a view.
+---@param view codeview.view.State
+---@return table module |codeview.inline| or |codeview.split|.
+local function renderer(view)
+  return view.style == "split" and split or inline
+end
+
 ---Show or hide the lines of one collapsed section.
 ---@param id integer? Number of the section. The section under the cursor by default.
 ---@param expanded boolean? State to set. The other state by default.
@@ -485,13 +802,13 @@ function M.toggle_context(id, expanded)
     return false
   end
   if not id then
-    local gap = inline.gap_at(view.buf, cursor_row(view))
+    local gap = renderer(view).gap_at(view.buf, cursor_row(view))
     if not gap then
       return false
     end
     id = gap.id
   end
-  if not inline.gaps(view.buf)[id] then
+  if not renderer(view).gaps(view.buf)[id] then
     return false
   end
   if expanded == nil then
@@ -509,7 +826,7 @@ function M.expand_all()
   if not view then
     return false
   end
-  for _, gap in ipairs(inline.gaps(view.buf)) do
+  for _, gap in ipairs(renderer(view).gaps(view.buf)) do
     view.expanded[gap.id] = true
   end
   rerender(view)
@@ -578,7 +895,70 @@ function M.prev(session, cb)
   return M.open(session, index, cb)
 end
 
----Delete the buffer of the view.
+--- Diff style ------------------------------------------------------------------
+
+---Read the style of the view, or the style of the next file.
+---@return codeview.view.Style style
+function M.style()
+  local view = M.current()
+  return view and view.style or config.get().diff.style
+end
+
+---Change the diff style.
+---
+--- The call keeps the diff of the file that is open, so the backend reads no
+--- file again. The cursor keeps its line of the file: the call reads the line
+--- from the map of the old style and finds its row in the map of the new
+--- style. The cursor moves to the window of that side.
+---
+--- The new style also becomes the `diff.style` option, so the next file opens
+--- in the same style.
+---@param style codeview.view.Style? Style to set. The other style by default.
+---@return codeview.view.Style? style Style after the call. Nil for an invalid name.
+function M.set_style(style)
+  local cfg = config.get().diff
+  if style == nil then
+    style = M.style() == "split" and "inline" or "split"
+  end
+  if style ~= "inline" and style ~= "split" then
+    return nil
+  end
+  cfg.style = style
+
+  local view = M.current()
+  if not view or view.style == style then
+    return style
+  end
+
+  local anchor = anchor_of(view)
+  local focused = has_focus(view)
+  unmount(view)
+  mount(view, style, view.win)
+  rerender(view, anchor)
+
+  if focused then
+    local win = view.win
+    -- A hunk header and the row of a section sit on both sides. Only a row of
+    -- the old file moves the cursor to the left window.
+    local on_old = anchor and anchor.side == "old" and not anchor.hunk and not anchor.gap
+    if style == "split" and on_old and view.old_win then
+      win = view.old_win
+    end
+    if api.nvim_win_is_valid(win) then
+      api.nvim_set_current_win(win)
+    end
+  end
+  announce(view)
+  return style
+end
+
+---Switch between the inline style and the side-by-side style.
+---@return codeview.view.Style? style Style after the call.
+function M.toggle_style()
+  return M.set_style(nil)
+end
+
+---Delete the buffers of the view and close the window of the old side.
 ---
 --- The call cancels a request that runs, so that a late answer of the backend
 --- does not open a window again.
@@ -588,11 +968,9 @@ function M.close()
   if not state then
     return false
   end
-  local buf = state.buf
+  local view = state
   state = nil
-  if api.nvim_buf_is_valid(buf) then
-    pcall(api.nvim_buf_delete, buf, { force = true })
-  end
+  unmount(view)
   return true
 end
 

@@ -137,6 +137,28 @@ function M.prev_hunk(opts)
   return require("codeview.view").prev_hunk(opts)
 end
 
+---Read the diff style of the view, or the style of the next file.
+---@return "inline"|"split" style
+function M.style()
+  return require("codeview.view").style()
+end
+
+---Change the diff style.
+---
+--- The call keeps the cursor on the same line of the file. The new style also
+--- becomes the `diff.style` option.
+---@param style "inline"|"split"? Style to set. The other style by default.
+---@return "inline"|"split"? style Style after the call. Nil for an invalid name.
+function M.set_style(style)
+  return require("codeview.view").set_style(style)
+end
+
+---Switch between the inline style and the side-by-side style.
+---@return "inline"|"split"? style Style after the call.
+function M.toggle_style()
+  return require("codeview.view").toggle_style()
+end
+
 ---Show or hide the lines of the collapsed section under the cursor.
 ---@param id integer? Number of the section. The section under the cursor by default.
 ---@param expanded boolean? State to set. The other state by default.

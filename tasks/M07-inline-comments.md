@@ -39,6 +39,17 @@ must report it as high severity.
   In normal mode the comment targets the current line. In visual mode it targets the selected range, like the GitHub UI.
   The diff buffer stays read-only through the whole flow. The float holds the only modifiable buffer.
 
+- [ ] **T7.4a — Insert keys open the comment editor**
+  The diff buffer is read-only, so the insert commands do nothing there. Map them to the
+  comment editor instead, because that is the one thing a reviewer wants to type into.
+  In normal mode, `i`, `a`, `o`, and `O` open the editor for the line under the cursor.
+  In visual mode, `I`, `A`, and `c` open the editor for the selected line range.
+  Do not map `i` in visual mode. It is the prefix for the text objects, and `vi(` must still work.
+  Keep an explicit keymap (`<leader>cc` by default) that does the same thing in both modes.
+  Every one of these keys comes from the config and the user can change or disable it.
+  These maps are buffer-local to the diff buffers. They never apply to a normal file buffer.
+  In the editor float, `:w` saves the comment and `q` or `<Esc><Esc>` discards it.
+
 - [ ] **T7.5 — Anchors in the diff**
   Place an extmark over the comment range. Show a sign on each covered line.
   Map diff-buffer lines to file lines through the M4 line map, for both sides.
@@ -57,7 +68,13 @@ must report it as high severity.
 - [ ] **T7.9 — Tests**
   Round-trip test for the store. Key stability test across reopens. Anchor position tests on fixture diffs.
 
-- [ ] **T7.10 — Read-only guarantee tests**
+- [ ] **T7.10 — Keymap tests**
+  Assert that `i`, `a`, `o`, and `O` in the diff buffer open the editor and do not start insert mode.
+  Assert that `I`, `A`, and `c` in visual mode open the editor with the correct line range.
+  Assert that `vi(` still selects a text object in the diff buffer.
+  Assert that the maps are buffer-local and absent from a normal file buffer.
+
+- [ ] **T7.11 — Read-only guarantee tests**
   Assert that the diff buffer keeps `modifiable = false` before, during, and after the comment flow.
   Assert that the line count and the text of the diff buffer do not change when a comment is
   added, edited, and deleted. Assert that only extmarks change.
