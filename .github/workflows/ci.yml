@@ -24,10 +24,20 @@ jobs:
           neovim: true
           version: ${{ matrix.neovim }}
 
+      - name: Install jj
+        env:
+          JJ_VERSION: v0.44.0
+        run: |
+          set -euo pipefail
+          url="https://github.com/jj-vcs/jj/releases/download/${JJ_VERSION}/jj-${JJ_VERSION}-x86_64-unknown-linux-musl.tar.gz"
+          curl --location --silent --show-error --fail "$url" | tar -xz -C /usr/local/bin jj
+          jj --version
+
       - name: Show versions
         run: |
           nvim --version
           git --version
+          jj --version
 
       - name: Run the tests
         run: make test

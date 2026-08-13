@@ -1,0 +1,488 @@
+local fixtures = require("tests.fixtures")
+local suite = require("tests.vcs_backend_suite")
+
+-- Every block below builds a jj fixture. Without jj the whole file is pending,
+-- so a machine without jj still runs the rest of the suite.
+if vim.fn.executable("jj") ~= 1 then
+  describe("codeview.vcs.jj", function()
+    pending("needs jj in $PATH")
+  end)
+  return
+end
+
+---Write a file whose path holds a space.
+---@param dir string Repository root.
+local function write_spaced(dir)
+  local handle = assert(io.open(vim.fs.joinpath(dir, "dir", "with space.txt"), "wb"))
+  handle:write("spaced\n")
+  handle:close()
+end
+
+suite({
+  name = "jj",
+  backend = require("codeview.vcs.jj"),
+  fixture = fixtures.jj,
+  -- `@` is the working-copy commit. The builder leaves the newest commit there.
+  head_rev = "@",
+  detects_renames = true,
+})
+
+describe("codeview.vcs.jj", function()
+  local jj = require("codeview.vcs.jj")
+  local fixture = fixtures.jj()
+  local repo = assert(jj.detect(fixture.dir))
+
+  it("reports that jj is available", function()
+    assert.is_true(jj.available())
+  end)
+
+  it("reports a repository that is not colocated", function()
+    assert.is_false(repo.colocated)
+    assert.are.equal(0, vim.fn.isdirectory(vim.fs.joinpath(fixture.root, ".git")))
+  end)
+
+  it("resolves the working-copy commit and its parent", function()
+    assert.are.equal(fixture.ids.shuffle, assert(repo:resolve_rev("@")))
+    assert.are.equal(fixture.ids.edit, assert(repo:resolve_rev("@-")))
+  end)
+
+  it("resolves a change id", function()
+    local commits = assert(repo:log({ limit = 1 }))
+    assert.are.equal(fixture.ids.shuffle, assert(repo:resolve_rev(commits[1].change_id)))
+  end)
+
+  it("reports the change id and the commit id of a record", function()
+    local commit = assert(repo:log({ limit = 1 }))[1]
+    assert.are.equal(fixture.ids.shuffle, commit.id)
+    assert.are.equal(32, #commit.change_id)
+    assert.is_truthy(commit.change_id:match("^[k-z]+$"), commit.change_id)
+    -- The user interface shows the change id, not the commit id.
+    assert.are.equal(commit.change_id:sub(1, 8), commit.short_id)
+  end)
+
+  it("lists only the commits that touch a path", function()
+    local commits = assert(repo:log({ paths = { "keep.txt" } }))
+    assert.are.equal(2, #commits)
+    assert.are.equal(fixture.ids.shuffle, commits[1].id)
+    assert.are.equal(fixture.ids.init, commits[2].id)
+
+    local nested = assert(repo:log({ paths = { "dir" } }))
+    assert.are.equal(2, #nested)
+  end)
+
+  it("leaves the virtual root commit out of the log", function()
+    for _, commit in ipairs(assert(repo:log())) do
+      assert.are_not.equal(string.rep("0", 40), commit.id)
+    end
+    assert.are.same({}, assert(repo:log({ limit = 1, revs = { fixture.ids.init } }))[1].parents)
+  end)
+
+  describe("revsets", function()
+    it("reviews the whole history with `::@`", function()
+      local range = assert(repo:resolve_range("::@"))
+      assert.are.equal(fixture.ids.shuffle, range.to)
+      assert.is_nil(range.from)
+    end)
+
+    it("reviews one commit with `@-`", function()
+      local range = assert(repo:resolve_range("@-"))
+      assert.are.equal(fixture.ids.edit, range.to)
+      assert.are.equal(fixture.ids.init, range.from)
+    end)
+
+    it("reads a revset that holds an operator", function()
+      local range = assert(repo:resolve_range("@- | @"))
+      assert.are.equal(fixture.ids.shuffle, range.to)
+      assert.are.equal(fixture.ids.init, range.from)
+    end)
+
+    it("reads a revset with a function call", function()
+      local range = assert(repo:resolve_range("descendants(" .. fixture.ids.edit .. ")"))
+      assert.are.equal(fixture.ids.shuffle, range.to)
+      assert.are.equal(fixture.ids.init, range.from)
+    end)
+
+    it("keeps the revset text as the label", function()
+      assert.are.equal("::@", assert(repo:resolve_range("::@")).spec)
+    end)
+
+    it("rejects a revset with a syntax error", function()
+      local range, err = repo:resolve_range("heads(")
+      assert.is_nil(range)
+      assert.are.equal("bad_revision", err.code)
+    end)
+
+    it("rejects an empty revset", function()
+      local range, err = repo:resolve_range("   ")
+      assert.is_nil(range)
+      assert.are.equal("invalid_arg", err.code)
+    end)
+
+    it("reports a revset that names no commit", function()
+      local range, err = repo:resolve_range("@..@")
+      assert.is_nil(range)
+      assert.are.equal("not_found", err.code)
+      assert.is_truthy(tostring(err):find("no commits", 1, true), tostring(err))
+    end)
+
+    it("rejects the virtual root commit", function()
+      local range, err = repo:resolve_range("root()")
+      assert.is_nil(range)
+      assert.are.equal("bad_revision", err.code)
+
+      local id, rev_err = repo:resolve_rev("root()")
+      assert.is_nil(id)
+      assert.are.equal("bad_revision", rev_err.code)
+    end)
+
+    it("rejects trunk() without a trunk bookmark", function()
+      -- The fixture has no remote, so `trunk()` falls back to the root commit.
+      local range, err = repo:resolve_range("trunk()")
+      assert.is_nil(range)
+      assert.are.equal("bad_revision", err.code)
+      assert.is_truthy(tostring(err):find("root commit", 1, true), tostring(err))
+    end)
+
+    it("lists the changed files of a revset range", function()
+      local range = assert(repo:resolve_range("@- | @"))
+      local files = assert(repo:changed_files(range))
+      local paths = vim.tbl_map(function(file)
+        return file.path
+      end, files)
+      table.sort(paths)
+      assert.are.same({ "a.txt", "added.txt", "dir/renamed.txt", "keep.txt" }, paths)
+    end)
+  end)
+
+  it("reads a file from the working-copy commit", function()
+    assert.are.equal(fixtures.content_at("shuffle", "a.txt"), repo:file_content("@", "a.txt"))
+  end)
+
+  it("reports an unknown path as empty content", function()
+    assert.are.equal("", assert(repo:file_content("@", "no-such-file.txt")))
+  end)
+
+  it("removes the fixture", function()
+    fixture.cleanup()
+    assert.are.equal(0, vim.fn.isdirectory(fixture.dir))
+  end)
+end)
+
+describe("codeview.vcs.jj on a changed working copy", function()
+  local jj = require("codeview.vcs.jj")
+  local fixture = fixtures.jj()
+  local repo = assert(jj.detect(fixture.dir))
+
+  ---Run a jj command in the fixture.
+  ---
+  --- `jj describe` rewrites the working-copy commit, so these tests get their
+  --- own fixture. The commit ids of the other tests stay valid that way.
+  ---@param cmd string[]
+  local function jj_run(cmd)
+    local res = vim.system(cmd, { cwd = fixture.dir, env = fixture.env, text = true }):wait(30000)
+    assert.are.equal(0, res.code, table.concat(cmd, " ") .. ": " .. (res.stderr or ""))
+  end
+
+  it("keeps the body of a commit message", function()
+    jj_run({ "jj", "--no-pager", "describe", "-m", "subject line\n\nbody one\nbody two" })
+    local commit = assert(repo:log({ limit = 1 }))[1]
+    assert.are.equal("subject line", commit.subject)
+    assert.are.equal("body one\nbody two", commit.body)
+  end)
+
+  it("keeps the bytes of a file with CRLF line endings", function()
+    local path = vim.fs.joinpath(fixture.dir, "crlf.txt")
+    local handle = assert(io.open(path, "wb"))
+    handle:write("one\r\ntwo\r\n")
+    handle:close()
+    jj_run({ "jj", "--no-pager", "describe", "-m", "crlf: add crlf.txt" })
+
+    assert.are.equal("one\r\ntwo\r\n", assert(repo:file_content("@", "crlf.txt")))
+  end)
+
+  it("reads a path that holds a space", function()
+    write_spaced(fixture.dir)
+    jj_run({ "jj", "--no-pager", "describe", "-m", "space: add a path with a space" })
+
+    local range = assert(repo:resolve_range("@"))
+    local files = assert(repo:changed_files(range))
+    local seen = false
+    for _, file in ipairs(files) do
+      if file.path == "dir/with space.txt" then
+        seen = true
+      end
+    end
+    assert.is_true(seen)
+    assert.are.equal("spaced\n", assert(repo:file_content("@", "dir/with space.txt")))
+  end)
+
+  it("reads a symbolic link as its target", function()
+    assert(vim.uv.fs_symlink("a.txt", vim.fs.joinpath(fixture.dir, "link.txt")))
+    jj_run({ "jj", "--no-pager", "describe", "-m", "link: add a symbolic link" })
+
+    -- `jj file show` refuses a link. The content is the target of the link,
+    -- which is what the git backend returns.
+    assert.are.equal("a.txt", assert(repo:file_content("@", "link.txt")))
+  end)
+
+  it("removes the fixture", function()
+    fixture.cleanup()
+    assert.are.equal(0, vim.fn.isdirectory(fixture.dir))
+  end)
+end)
+
+describe("codeview on a jj repository", function()
+  local fixture = fixtures.jj()
+  local session_mod = require("codeview.session")
+  local sidebar = require("codeview.sidebar")
+  local view = require("codeview.view")
+  ---@type codeview.Session?
+  local opened
+
+  ---Open a session for the whole history of the fixture.
+  ---@param spec? string
+  ---@return codeview.Session
+  local function open_session(spec)
+    opened = assert(session_mod.open(spec or "::@", { dir = fixture.dir }))
+    return opened
+  end
+
+  after_each(function()
+    view.close()
+    sidebar.close()
+    session_mod.close()
+    opened = nil
+  end)
+
+  it("lists the changed files in the sidebar", function()
+    local review = open_session("@- | @")
+    local bar = assert(sidebar.open({ session = review }))
+    local text = table.concat(bar.panel:lines(), "\n")
+    for _, path in ipairs({ "a.txt", "added.txt", "keep.txt", "renamed.txt" }) do
+      assert.is_truthy(text:find(path, 1, true), text)
+    end
+    assert.is_truthy(text:find("@- | @", 1, true), text)
+  end)
+
+  it("shows the inline diff of a file", function()
+    local review = open_session(fixture.ids.init .. ".." .. fixture.ids.shuffle)
+    local state = assert(view.open(review, assert(review:index_of("a.txt"))))
+    assert.are.same({
+      "@@ -1,3 +1,5 @@",
+      " one",
+      "-two",
+      "+two changed",
+      " three",
+      "+four",
+      "+five",
+    }, vim.api.nvim_buf_get_lines(state.buf, 0, -1, false))
+  end)
+
+  it("shows a deleted file and a renamed file", function()
+    local review = open_session(fixture.ids.init .. ".." .. fixture.ids.shuffle)
+    local deleted = assert(view.open(review, assert(review:index_of("keep.txt"))))
+    assert.are.equal("deleted", deleted.status)
+    assert.are.same({ "@@ -1 +0,0 @@", "-keep me" }, vim.api.nvim_buf_get_lines(deleted.buf, 0, -1, false))
+
+    local renamed = assert(view.open(review, assert(review:index_of("dir/renamed.txt"))))
+    assert.are.equal("dir/nested.txt", renamed.diff.old_path)
+  end)
+
+  it("shows the whole file of the first commit", function()
+    local review = open_session(fixture.ids.init)
+    assert.is_nil(review.range.from)
+    local state = assert(view.open(review, assert(review:index_of("a.txt"))))
+    assert.are.same({
+      "@@ -0,0 +1,3 @@",
+      "+one",
+      "+two",
+      "+three",
+    }, vim.api.nvim_buf_get_lines(state.buf, 0, -1, false))
+  end)
+
+  it("switches to the side-by-side style", function()
+    local review = open_session(fixture.ids.init .. ".." .. fixture.ids.shuffle)
+    view.open(review, assert(review:index_of("a.txt")))
+    assert.are.equal("split", view.set_style("split"))
+    local state = assert(view.current())
+    assert.are.equal("split", state.style)
+    assert.is_truthy(state.old_win)
+    view.set_style("inline")
+  end)
+
+  it("removes the fixture", function()
+    fixture.cleanup()
+    assert.are.equal(0, vim.fn.isdirectory(fixture.dir))
+  end)
+end)
+
+describe("codeview.picker on a jj repository", function()
+  local picker = require("codeview.picker")
+  local session = require("codeview.session")
+  local fixture = fixtures.jj()
+
+  after_each(function()
+    session.close()
+  end)
+
+  it("labels a picked range with jj syntax", function()
+    -- The log is newest first. The first list picks the middle commit, the
+    -- second list picks the newest commit.
+    local picks = { 2, 1 }
+    local calls = 0
+    local function select(items, _, on_choice)
+      calls = calls + 1
+      on_choice(items[picks[calls]], picks[calls])
+    end
+
+    local out, finished = {}, false
+    picker.pick_range({ dir = fixture.dir, select = select }, function(opened, err)
+      out.session, out.err, finished = opened, err, true
+    end)
+    assert.is_true(vim.wait(20000, function()
+      return finished
+    end, 10))
+
+    assert.is_nil(out.err)
+    local review = assert(out.session)
+    assert.are.equal("jj", review.repo.backend)
+    assert.are.equal(fixture.ids.init, review.range.from)
+    assert.are.equal(fixture.ids.shuffle, review.range.to)
+
+    -- The label must stay valid input for `:CodeView`. jj writes the parent of
+    -- a commit as `<rev>-`, not as `<rev>^`.
+    local label = review:label()
+    assert.is_truthy(label:find("-..", 1, true), label)
+    assert.is_nil(label:find("^", 1, true))
+    local range = assert(review.repo:resolve_range(label))
+    assert.are.equal(fixture.ids.init, range.from)
+    assert.are.equal(fixture.ids.shuffle, range.to)
+  end)
+
+  it("removes the fixture", function()
+    fixture.cleanup()
+    assert.are.equal(0, vim.fn.isdirectory(fixture.dir))
+  end)
+end)
+
+describe("codeview.vcs detection of nested repositories", function()
+  local vcs = require("codeview.vcs")
+  local fixture = fixtures.jj()
+  local nested = vim.fs.joinpath(fixture.dir, "vendor", "clone")
+
+  ---Root of the nested repository, without symbolic links.
+  ---@return string
+  local function nested_root()
+    return vim.fs.normalize(assert(vim.uv.fs_realpath(nested)))
+  end
+
+  -- A git clone inside a jj repository, for example a vendored dependency.
+  vim.fn.mkdir(nested, "p")
+  local init = vim
+    .system(
+      { "git", "init", "--quiet", "--initial-branch=main", "." },
+      { cwd = nested, text = true, env = { GIT_CONFIG_GLOBAL = "/dev/null", GIT_CONFIG_SYSTEM = "/dev/null" } }
+    )
+    :wait(30000)
+  assert(init.code == 0, init.stderr)
+
+  it("takes the git repository inside the jj repository", function()
+    local repo = assert(vcs.detect(nested, { backend = "auto" }))
+    assert.are.equal("git", repo.backend)
+    assert.are.equal(nested_root(), repo.root)
+  end)
+
+  it("takes the same repository asynchronously", function()
+    local out, finished = {}, false
+    vcs.detect(nested, { backend = "auto" }, function(repo, err)
+      out.repo, out.err, finished = repo, err, true
+    end)
+    assert.is_true(vim.wait(20000, function()
+      return finished
+    end, 10))
+    assert.is_nil(out.err)
+    assert.are.equal("git", out.repo.backend)
+    assert.are.equal(nested_root(), out.repo.root)
+  end)
+
+  it("takes the jj repository around it", function()
+    local repo = assert(vcs.detect(fixture.dir, { backend = "auto" }))
+    assert.are.equal("jj", repo.backend)
+    assert.are.equal(fixture.root, repo.root)
+  end)
+
+  it("removes the fixture", function()
+    fixture.cleanup()
+    assert.are.equal(0, vim.fn.isdirectory(fixture.dir))
+  end)
+end)
+
+describe("codeview.vcs.jj in a colocated repository", function()
+  local vcs = require("codeview.vcs")
+  local fixture = fixtures.jj({ colocate = true })
+
+  it("has both a .jj and a .git directory", function()
+    assert.are.equal(1, vim.fn.isdirectory(vim.fs.joinpath(fixture.root, ".jj")))
+    assert.are.equal(1, vim.fn.isdirectory(vim.fs.joinpath(fixture.root, ".git")))
+  end)
+
+  it("reports the colocation on the handle", function()
+    local repo = assert(require("codeview.vcs.jj").detect(fixture.dir))
+    assert.is_true(repo.colocated)
+  end)
+
+  it("prefers the jj backend with the automatic detection", function()
+    local repo = assert(vcs.detect(fixture.dir, { backend = "auto" }))
+    assert.are.equal("jj", repo.backend)
+    assert.are.equal(fixture.root, repo.root)
+  end)
+
+  it("uses the git backend when the configuration forces it", function()
+    local repo = assert(vcs.detect(fixture.dir, { backend = "git" }))
+    assert.are.equal("git", repo.backend)
+  end)
+
+  it("uses the jj backend when the configuration forces it", function()
+    local config = require("codeview.config")
+    config.setup({ backend = "jj" })
+    local repo = assert(vcs.detect(fixture.dir))
+    config.reset()
+    assert.are.equal("jj", repo.backend)
+  end)
+
+  it("opens a session on a revset", function()
+    local session = require("codeview.session")
+    local opened = assert(session.open("::@", { dir = fixture.dir }))
+    assert.are.equal("jj", opened.repo.backend)
+    assert.are.equal(fixture.ids.shuffle, opened.range.to)
+    assert.is_nil(opened.range.from)
+    assert.are.equal(3, #opened.commits)
+    assert.are.equal("::@", opened:label())
+    opened:close()
+  end)
+
+  it("opens a session through :CodeView with a revset", function()
+    local command = require("codeview.command")
+    local session = require("codeview.session")
+    local out, finished = {}, false
+    command.run({
+      args = "@- | @",
+      dir = fixture.dir,
+      on_open = function(opened, err)
+        out.session, out.err, finished = opened, err, true
+      end,
+    })
+    assert.is_true(vim.wait(20000, function()
+      return finished
+    end, 10))
+    assert.is_nil(out.err)
+    assert.are.equal(fixture.ids.shuffle, out.session.range.to)
+    assert.are.equal(fixture.ids.init, out.session.range.from)
+    session.close()
+  end)
+
+  it("removes the fixture", function()
+    fixture.cleanup()
+    assert.are.equal(0, vim.fn.isdirectory(fixture.dir))
+  end)
+end)

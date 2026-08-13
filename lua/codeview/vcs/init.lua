@@ -23,7 +23,7 @@ local M = {}
 
 ---@class codeview.vcs.Commit
 ---@field id string Full commit id.
----@field short_id string Abbreviated commit id.
+---@field short_id string Abbreviated id for the user interface. The jj backend uses the change id.
 ---@field change_id string? Change id, for a backend that has one.
 ---@field subject string First line of the commit message.
 ---@field body string Rest of the commit message, without the subject.
@@ -55,7 +55,7 @@ local M = {}
 ---@field spec string? Text that the user wrote.
 
 ---@class codeview.vcs.RangeSpec
----@field kind "single"|"range"|"triple"|"explicit" Form of the input: `a`, `a..b`, `a...b`, or a range table with no base.
+---@field kind "single"|"range"|"triple"|"explicit"|"revset" Form of the input: `a`, `a..b`, `a...b`, a range table with no base, or a jj revset.
 ---@field from string? Left side of the text.
 ---@field to string Right side of the text.
 ---@field spec string The text itself.
@@ -84,9 +84,15 @@ local M = {}
 ---@type table<string, string>
 M.backends = {
   git = "codeview.vcs.git",
+  jj = "codeview.vcs.jj",
 }
 
----Order in which `backend = "auto"` tries the backends.
+---Order in which `backend = "auto"` reads the backends.
+---
+--- The order decides only between two repositories with the same root. A
+--- colocated repository has a `.jj` directory and a `.git` directory, and both
+--- backends report the same root. The jj backend wins there, because the user
+--- drives such a repository with jj.
 ---@type string[]
 M.order = { "jj", "git" }
 
@@ -128,10 +134,33 @@ local function no_repo(dir)
   return errors.new(errors.codes.NOT_A_REPO, "no repository at " .. (dir or vim.uv.cwd() or "."))
 end
 
+---@param name string Name of the backend that the configuration forces.
+---@return codeview.Error
+local function no_executable(name)
+  return errors.new(errors.codes.UNSUPPORTED, "the " .. name .. " backend needs " .. name .. " in $PATH")
+end
+
+---Keep the repository that holds the other one.
+---
+--- Both roots are parents of the same directory, so one path is a prefix of
+--- the other. The deeper root is the closer repository: a git repository
+--- inside a jj repository wins over the jj repository around it. Two equal
+--- roots keep the first candidate, which is the order of |codeview.vcs.order|.
+---@param current codeview.vcs.Repo?
+---@param candidate codeview.vcs.Repo
+---@return codeview.vcs.Repo
+local function closer(current, candidate)
+  if not current or #candidate.root > #current.root then
+    return candidate
+  end
+  return current
+end
+
 ---Find the repository that holds a directory.
 ---
---- With `backend = "auto"` the search tries each backend in |codeview.vcs.order|
---- and takes the first repository that it finds.
+--- With `backend = "auto"` the search reads every backend and takes the
+--- repository with the deepest root. |codeview.vcs.order| decides only between
+--- two repositories with the same root.
 ---@param dir? string Directory inside the repository. The current directory by default.
 ---@param opts? { backend?: "auto"|"git"|"jj" } Backend to use. The configuration value by default.
 ---@param cb? fun(repo: codeview.vcs.Repo?, err: codeview.Error?) Callback for the async form.
@@ -143,35 +172,49 @@ function M.detect(dir, opts, cb)
   end
   local name = (opts or {}).backend or config.get().backend
   local names = candidates(name)
+  local forced = name ~= "auto"
 
   if not cb then
+    local best ---@type codeview.vcs.Repo?
     local last ---@type codeview.Error?
     for _, candidate in ipairs(names) do
       local backend, err = M.get(candidate)
       if not backend then
         return nil, err
       end
-      if backend.available() then
+      if not backend.available() then
+        if forced then
+          return nil, no_executable(candidate)
+        end
+      else
         local repo, detect_err = backend.detect(dir)
         if repo then
-          return repo, nil
-        end
-        if detect_err and detect_err.code ~= errors.codes.NOT_A_REPO then
+          best = closer(best, repo)
+        elseif detect_err and detect_err.code ~= errors.codes.NOT_A_REPO then
           return nil, detect_err
+        else
+          last = detect_err
         end
-        last = detect_err
       end
+    end
+    if best then
+      return best, nil
     end
     return nil, last or no_repo(dir)
   end
 
   local index = 0
+  local best ---@type codeview.vcs.Repo?
   local last ---@type codeview.Error?
   local function step()
     index = index + 1
     local candidate = names[index]
     if not candidate then
-      cb(nil, last or no_repo(dir))
+      if best then
+        cb(best, nil)
+      else
+        cb(nil, last or no_repo(dir))
+      end
       return
     end
     local backend, err = M.get(candidate)
@@ -180,12 +223,17 @@ function M.detect(dir, opts, cb)
       return
     end
     if not backend.available() then
+      if forced then
+        cb(nil, no_executable(candidate))
+        return
+      end
       step()
       return
     end
     backend.detect(dir, function(repo, detect_err)
       if repo then
-        cb(repo, nil)
+        best = closer(best, repo)
+        step()
         return
       end
       if detect_err and detect_err.code ~= errors.codes.NOT_A_REPO then

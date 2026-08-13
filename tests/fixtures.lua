@@ -53,6 +53,7 @@ M.commits = {
 ---@field ids table<string, string> Commit id of each commit name.
 ---@field names string[] Commit names, oldest first.
 ---@field branch string Name of the default branch.
+---@field env table<string, string>? Environment that the builder used.
 ---@field cleanup fun() Delete the repository.
 
 ---Run a command and stop the test when it fails.
@@ -159,6 +160,95 @@ function M.git()
     branch = branch,
     cleanup = function()
       vim.fn.delete(dir, "rf")
+    end,
+  }
+end
+
+---Environment of a jj fixture. It keeps the user configuration out.
+---
+--- `JJ_CONFIG` points at a file that does not exist, so jj reads no user
+--- settings. `HOME` points outside the repository, so that no file of the
+--- environment lands in the working copy.
+---@param home string Directory for `HOME`. It must be outside the repository.
+---@return table<string, string>
+local function jj_env(home)
+  return {
+    HOME = home,
+    JJ_CONFIG = vim.fs.joinpath(home, "no-such-config.toml"),
+    JJ_USER = "Ada Lovelace",
+    JJ_EMAIL = "ada@example.com",
+  }
+end
+
+---Read the commit id of the working-copy commit.
+---@param dir string
+---@param env table<string, string>
+---@return string id
+local function jj_head(dir, env)
+  return vim.trim(run({
+    "jj",
+    "--no-pager",
+    "--ignore-working-copy",
+    "log",
+    "--no-graph",
+    "-r",
+    "@",
+    "-T",
+    "commit_id",
+  }, dir, env))
+end
+
+---Build a jj repository with the history of `M.commits`.
+---
+--- Each commit becomes the working-copy commit first. `jj describe` snapshots
+--- the files and sets the message. `jj new` then starts the next commit. The
+--- last commit stays the working-copy commit, so `@` names it.
+---@param opts? { colocate?: boolean } `colocate = true` also makes a `.git` directory.
+---@return tests.Fixture
+function M.jj(opts)
+  opts = opts or {}
+  local dir = M.tempdir("codeview-jj")
+  local home = M.tempdir("codeview-jj-home")
+  local env = jj_env(home)
+
+  run({ "jj", "--no-pager", "git", "init", opts.colocate and "--colocate" or "--no-colocate", "." }, dir, env)
+
+  local ids, names = {}, {}
+  for index, commit in ipairs(M.commits) do
+    for old, new in pairs(commit.rename) do
+      local target = vim.fs.joinpath(dir, new)
+      vim.fn.mkdir(vim.fs.dirname(target), "p")
+      assert(vim.uv.fs_rename(vim.fs.joinpath(dir, old), target))
+    end
+    for _, path in ipairs(commit.remove) do
+      vim.fn.delete(vim.fs.joinpath(dir, path))
+    end
+    for path, content in pairs(commit.write) do
+      write_file(vim.fs.joinpath(dir, path), content)
+    end
+
+    -- A fixed date per commit keeps the log order stable.
+    local at = vim.tbl_extend("force", env, { JJ_TIMESTAMP = string.format("2024-01-0%dT10:00:00+00:00", index) })
+    run({ "jj", "--no-pager", "describe", "-m", commit.message }, dir, at)
+    ids[commit.name] = jj_head(dir, env)
+    names[#names + 1] = commit.name
+    if index < #M.commits then
+      run({ "jj", "--no-pager", "new" }, dir, at)
+    end
+  end
+
+  local root = vim.trim(run({ "jj", "--no-pager", "--ignore-working-copy", "root" }, dir, env))
+
+  return {
+    root = vim.fs.normalize(root),
+    dir = dir,
+    ids = ids,
+    names = names,
+    branch = "main",
+    env = env,
+    cleanup = function()
+      vim.fn.delete(dir, "rf")
+      vim.fn.delete(home, "rf")
     end,
   }
 end
@@ -290,6 +380,62 @@ function M.git_diff()
     ["empty.txt"] = "",
     ["bin.dat"] = "\0\4\5 binary again \6\0",
   }, 2, "change: edit, add, delete, and rename")
+
+  local root = vim.trim(run({ "git", "rev-parse", "--show-toplevel" }, dir, env))
+
+  return {
+    root = vim.fs.normalize(root),
+    dir = dir,
+    ids = ids,
+    names = { "base", "change" },
+    branch = "main",
+    cleanup = function()
+      vim.fn.delete(dir, "rf")
+    end,
+  }
+end
+
+---Build a git repository for the comment tests.
+---
+--- The range `base..change` changes two files:
+---
+---     call.lua        one changed line. The file holds brackets, so a test can
+---                     check that `vi(` still selects a text object.
+---     tail.txt        40 lines, only the last one changed. The render hides
+---                     the head of the file behind the first row, so a test can
+---                     comment on a line that no row is at or above.
+---@return tests.Fixture
+function M.git_comments()
+  local dir = M.tempdir("codeview-comment")
+  local env = git_env(dir)
+  git_init(dir, "main", env)
+
+  ---@param files table<string, string> Content of every file.
+  ---@param day integer
+  ---@param message string
+  ---@return string id
+  local function commit(files, day, message)
+    for path, content in pairs(files) do
+      write_file(vim.fs.joinpath(dir, path), content)
+      run({ "git", "add", "--", path }, dir, env)
+    end
+    run(
+      { "git", "commit", "--quiet", "-m", message },
+      dir,
+      at_date(env, string.format("2024-04-0%dT10:00:00+00:00", day))
+    )
+    return vim.trim(run({ "git", "rev-parse", "HEAD" }, dir, env))
+  end
+
+  local ids = {}
+  ids.base = commit({
+    ["call.lua"] = "local a = call(one, two)\nlocal b = 2\nlocal c = 3\nlocal d = 4\n",
+    ["tail.txt"] = M.numbered(40),
+  }, 1, "base: add the files")
+  ids.change = commit({
+    ["call.lua"] = "local a = call(one, two)\nlocal b = 22\nlocal c = 3\nlocal d = 4\n",
+    ["tail.txt"] = M.numbered(40, { [40] = " changed" }),
+  }, 2, "change: edit the files")
 
   local root = vim.trim(run({ "git", "rev-parse", "--show-toplevel" }, dir, env))
 

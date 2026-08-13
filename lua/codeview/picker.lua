@@ -144,6 +144,16 @@ function M.select_commit(commits, opts, cb)
   end)
 end
 
+---Operator that names the parent of a commit, per backend.
+---
+--- The label of a range must stay valid input for `:CodeView`. git writes the
+--- parent of a commit as `<rev>^`, jj writes it as `<rev>-`.
+---@type table<string, string>
+local PARENT = {
+  git = "^",
+  jj = "-",
+}
+
 ---Build the range of two picks.
 ---
 --- Both picks belong to the review. The base is the parent of the older
@@ -152,8 +162,9 @@ end
 --- commit.
 ---@param first codeview.vcs.Commit Older commit of the two picks.
 ---@param last codeview.vcs.Commit Newer commit of the two picks.
+---@param repo? codeview.vcs.Repo Repository of the commits. It decides the syntax of the label.
 ---@return codeview.vcs.RangeSpec spec
-function M.build_range(first, last)
+function M.build_range(first, last, repo)
   local base = (first.parents or {})[1]
   if first.id == last.id then
     return { kind = "single", to = last.id, spec = last.short_id }
@@ -161,11 +172,12 @@ function M.build_range(first, last)
   if not base then
     return { kind = "explicit", to = last.id, spec = last.short_id }
   end
+  local parent = PARENT[repo and repo.backend or "git"] or PARENT.git
   return {
     kind = "range",
     from = base,
     to = last.id,
-    spec = first.short_id .. "^.." .. last.short_id,
+    spec = first.short_id .. parent .. ".." .. last.short_id,
   }
 end
 
@@ -319,7 +331,7 @@ function M.pick_range(opts, cb)
           cb(nil, errors.new(errors.codes.INVALID_ARG, first.short_id .. " is not an ancestor of " .. last.short_id))
           return
         end
-        session.open(M.build_range(first, last), { repo = repo }, cb)
+        session.open(M.build_range(first, last, repo), { repo = repo }, cb)
       end)
     end)
   end)

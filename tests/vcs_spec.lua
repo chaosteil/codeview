@@ -83,6 +83,18 @@ describe("codeview.vcs", function()
       assert.are.equal("function", type(backend.available))
     end)
 
+    it("loads the jj backend", function()
+      local backend, err = vcs.get("jj")
+      assert.is_nil(err)
+      assert.are.equal("jj", backend.name)
+      assert.are.equal("function", type(backend.detect))
+      assert.are.equal("function", type(backend.available))
+    end)
+
+    it("tries jj before git", function()
+      assert.are.same({ "jj", "git" }, vcs.order)
+    end)
+
     it("rejects an unknown backend", function()
       local backend, err = vcs.get("hg")
       assert.is_nil(backend)
@@ -110,6 +122,19 @@ describe("codeview.vcs", function()
       local repo = assert(vcs.detect(fixture.dir))
       assert.are.equal("git", repo.backend)
       config.reset()
+    end)
+
+    it("reports a forced backend that is not installed", function()
+      local jj = require("codeview.vcs.jj")
+      local available = jj.available
+      jj.available = function()
+        return false
+      end
+      local repo, err = vcs.detect(fixture.dir, { backend = "jj" })
+      jj.available = available
+      assert.is_nil(repo)
+      assert.are.equal("unsupported", err.code)
+      assert.is_truthy(tostring(err):find("$PATH", 1, true), tostring(err))
     end)
 
     it("rejects an unknown backend name", function()
