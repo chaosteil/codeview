@@ -46,6 +46,8 @@ describe("codeview keymaps", function()
     load_diff = { { surface = "view", mode = "n" } },
     toggle_style = { { surface = "sidebar", mode = "n" }, { surface = "view", mode = "n" } },
     edit_file = { { surface = "sidebar", mode = "n" }, { surface = "view", mode = "n" } },
+    -- The back key sits on the file that the edit key opened.
+    back = { { surface = "file", mode = "n" } },
     comment = { { surface = "view", mode = "n" }, { surface = "view", mode = "x" } },
     comment_insert = { { surface = "view", mode = "n" } },
     comment_add = { { surface = "view", mode = "n" } },
@@ -92,6 +94,11 @@ describe("codeview keymaps", function()
     if name == "view" then
       return assert(view.open(review, 1)).buf
     end
+    if name == "file" then
+      assert(view.open(review, 1))
+      assert(require("codeview.view").edit(), "the edit key opened no file")
+      return api.nvim_get_current_buf()
+    end
     if name == "editor" then
       return (editor.open({ on_save = function() end }))
     end
@@ -134,7 +141,7 @@ describe("codeview keymaps", function()
   ---@return table<string, table<string, table<string, boolean>>>
   local function surface_keys(review)
     local out = {}
-    for _, name in ipairs({ "view", "sidebar", "overview", "export", "editor" }) do
+    for _, name in ipairs({ "view", "file", "sidebar", "overview", "export", "editor" }) do
       local buf = buffer_of(review, name)
       out[name] = { n = mapped(buf, "n"), x = mapped(buf, "x") }
     end

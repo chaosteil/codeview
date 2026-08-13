@@ -116,6 +116,7 @@ With [lazy.nvim](https://github.com/folke/lazy.nvim):
   "chaosteil/codeview",
   cmd = {
     "CodeView",
+    "CodeViewBack",
     "CodeViewClose",
     "CodeViewFiles",
     "CodeViewComments",
@@ -175,6 +176,7 @@ vim.g.codeview = { sidebar = { position = "right" } }
 :CodeViewClose             " close the session
 :CodeViewFiles             " open or close the changed-files sidebar
 :CodeViewComments          " open or close the comment overview
+:CodeViewBack              " back to the review from a file
 :CodeViewExport            " render the comments as markdown
 :CodeViewSubmit            " send the comments to the pull request
 ```
@@ -390,6 +392,15 @@ review, so the line is the line of the change and the text around it can
 differ. The sidebar stays open: press `<CR>` on the file to read its diff
 again. A close of the session leaves the file window alone.
 
+`<leader>cb` goes back. The window takes the diff of the file again, with the
+cursor on the row of the line that you left. The key sits on the file that `gf`
+opened and nowhere else, so it reaches no other buffer of yours. `:CodeViewBack`
+does the same from any window.
+
+The key is the way back, because the native jump of Neovim cannot return: the
+diff buffer wipes itself when the window leaves it, so the jump list holds no
+entry for it.
+
 `gf` also works on a file line of the sidebar, and it reports a commit
 document or a file that the working copy does not hold.
 
@@ -531,6 +542,7 @@ a file buffer of your own.
 | `load_diff`       | `<CR>`           | D\*       | render a diff above the limit      |
 | `toggle_style`    | `<leader>ct`     | S D       | switch inline and side by side     |
 | `edit_file`       | `gf`             | S D       | edit the file in the working copy  |
+| `back`            | `<leader>cb`     | F         | back to the review from the file   |
 | `comment`         | `<leader>cc`     | D         | edit or write the comment          |
 | `comment_insert`  | `i` `a`          | D         | edit or write the comment          |
 | `comment_add`     | `o` `O`          | D         | write another comment on the line  |
@@ -633,6 +645,7 @@ The defaults are:
     load_diff = "<CR>",
     toggle_style = "<leader>ct",
     edit_file = "gf",
+    back = "<leader>cb",
     comment = "<leader>cc",
     comment_insert = { "i", "a" },
     comment_add = { "o", "O" },

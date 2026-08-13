@@ -51,6 +51,9 @@ M.actions = {
     { action = "delete_comment", text = "delete comment" },
     { action = "toggle_overview", text = "comments" },
   },
+  file = {
+    { action = "back", text = "back to the review" },
+  },
   overview = {
     { action = "edit_comment", text = "edit" },
     { action = "delete_comment", text = "delete" },
@@ -88,6 +91,10 @@ local function surface_of(win)
   local view = require("codeview.view").current()
   if view and (view.win == win or view.old_win == win) then
     return "view"
+  end
+  -- The file that the edit key opened. It holds the way back.
+  if vim.b[api.nvim_win_get_buf(win)].codeview_file then
+    return "file"
   end
   return nil
 end

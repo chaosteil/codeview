@@ -148,6 +148,11 @@ function M.close()
   end
 end
 
+---Run `:CodeViewBack`.
+function M.back()
+  require("codeview.view").back()
+end
+
 ---Run `:CodeViewFiles`.
 ---
 --- The command closes the sidebar when it is open. Otherwise it opens the

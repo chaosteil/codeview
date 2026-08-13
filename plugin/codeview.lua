@@ -35,6 +35,10 @@ end, {
   desc = "Close the review session",
 })
 
+vim.api.nvim_create_user_command("CodeViewBack", function()
+  require("codeview.command").back()
+end, { desc = "Go back to the review from a file of the working copy" })
+
 vim.api.nvim_create_user_command("CodeViewFiles", function()
   require("codeview.command").files()
 end, {

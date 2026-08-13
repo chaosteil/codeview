@@ -628,6 +628,63 @@ describe("codeview.view", function()
         assert.are.equal(before - 1, #api.nvim_tabpage_list_wins(0))
       end)
 
+      it("goes back to the review at the same line", function()
+        local review = open_session()
+        local state = assert(view.open(review, 1))
+        local path, win = state.path, state.win
+        local row, line
+        for index, record in ipairs(state.map.rows) do
+          if record.new then
+            row, line = index, record.new
+            break
+          end
+        end
+        api.nvim_set_current_win(win)
+        api.nvim_win_set_cursor(win, { row, 0 })
+        assert.is_true(view.edit())
+
+        assert.is_true(view.back())
+        local back = assert(view.current())
+        assert.are.equal(path, back.path)
+        assert.are.equal(win, back.win)
+        -- The cursor sits on the row that holds the line of the file.
+        local at = api.nvim_win_get_cursor(win)[1]
+        assert.are.equal(line, back.map.rows[at].new)
+      end)
+
+      it("maps the back key on the file only", function()
+        local review = open_session()
+        assert(view.open(review, 1))
+        view.edit()
+
+        ---@type table<string, boolean>
+        local keys = {}
+        for _, map in ipairs(api.nvim_buf_get_keymap(api.nvim_get_current_buf(), "n")) do
+          if type(map.desc) == "string" and map.desc:find("^codeview: ") then
+            keys[map.lhs] = true
+          end
+        end
+        assert.is_true(keys[" cb"], "the file holds no back key: " .. vim.inspect(keys))
+
+        -- A buffer that codeview never opened keeps its own keys.
+        local other = api.nvim_create_buf(true, true)
+        for _, map in ipairs(api.nvim_buf_get_keymap(other, "n")) do
+          assert.is_nil((map.desc or ""):match("^codeview: "))
+        end
+        api.nvim_buf_delete(other, { force = true })
+      end)
+
+      it("reports a file that the range does not change", function()
+        local review = open_session()
+        assert(view.open(review, 1))
+        view.edit()
+        local buf = api.nvim_get_current_buf()
+        vim.b[buf].codeview_file = nil
+        api.nvim_buf_set_name(buf, vim.fs.joinpath(review.repo.root, "not-in-the-range.txt"))
+
+        assert.is_false(view.back())
+      end)
+
       it("reports a file that the working copy does not hold", function()
         local review = open_session()
         view.open(review, 1)

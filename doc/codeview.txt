@@ -138,6 +138,12 @@ plugin then calls setup() with that table: >lua
     Close the review session. The command closes the windows and the buffers
     of the session.
 
+                                                               *:CodeViewBack*
+:CodeViewBack
+    Go back to the review from a file of the working copy. The window takes
+    the diff of the file again, with the cursor on the row of the line that
+    the file holds. See |codeview-edit-back|.
+
                                                               *:CodeViewFiles*
 :CodeViewFiles
     Open the changed-files sidebar and put the cursor in it. The command
@@ -531,6 +537,18 @@ window of the file leaves the session, so |:CodeViewClose| keeps it open.
 The key also works on a file line of the sidebar. It reports a commit document
 and a file that the working copy does not hold, for example a file that the
 range deletes.
+
+                                                         *codeview-edit-back*
+`<leader>cb` goes back. The window takes the diff of the file again, with the
+cursor on the row of the line that you left. |:CodeViewBack| does the same
+from any window.
+
+The key sits on the file that the edit key opened, and on no other buffer. It
+is the way back, because the jump list of Neovim holds no entry for the diff:
+the diff buffer wipes itself when the window leaves it.
+
+A file with changes that are not written needs 'hidden', or a write first,
+because the window cannot leave a modified buffer otherwise.
 
 ==============================================================================
 8. COMMENTS                                                  *codeview-comments*
@@ -1390,6 +1408,7 @@ Defaults: >lua
         load_diff = "<CR>",
         toggle_style = "<leader>ct",
         edit_file = "gf",
+        back = "<leader>cb",
         comment = "<leader>cc",
         comment_insert = { "i", "a" },
         comment_add = { "o", "O" },
@@ -1462,6 +1481,7 @@ The table names the surface of each action: >
     load_diff         <CR>               D  render a diff above the limit *
     toggle_style      <leader>ct     S   D  switch inline and side by side
     edit_file         gf             S   D  edit the file in the working copy
+    back              <leader>cb         F  back to the review from the file
     comment           <leader>cc         D  edit or write the comment
     comment_insert    i a                D  edit or write the comment
     comment_add       o O                D  write another comment on the line

@@ -142,6 +142,8 @@ M.defaults = {
     load_diff = "<CR>",
     toggle_style = "<leader>ct",
     edit_file = "gf",
+    -- The key sits on the file that the edit key opened, and nowhere else.
+    back = "<leader>cb",
     comment = "<leader>cc",
     -- The diff buffer is read-only, so the insert keys are free. They open the
     -- comment editor instead. Visual `i` stays free, because `vi(` must work.

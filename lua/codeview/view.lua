@@ -179,6 +179,10 @@ local function target_window(session, buf)
   return win
 end
 
+---Set the back key of a file buffer. |set_back_key()| holds the definition.
+---@type fun(session: codeview.Session, buf: integer)
+local set_back_key
+
 ---Line of the working copy that a row of the view points at.
 ---
 --- The file on disk holds the new side of the review, so a row of the old
@@ -1284,11 +1288,100 @@ function M.edit(opts)
 
   api.nvim_set_current_win(win)
   vim.cmd.edit(vim.fn.fnameescape(full))
+  local file_buf = api.nvim_win_get_buf(win)
+  vim.b[file_buf].codeview_file = path
+  set_back_key(session, file_buf)
   if line then
     local last = api.nvim_buf_line_count(api.nvim_win_get_buf(win))
     pcall(api.nvim_win_set_cursor, win, { math.min(line, last), 0 })
     pcall(vim.cmd, "normal! zz")
   end
+  return true
+end
+
+---Buffer-local key that goes back to the review.
+---
+--- The map sits on the file that |M.edit()| opened, and nowhere else. It is
+--- the way back, because the diff buffer wipes itself when the window leaves
+--- it, so the jump list of Neovim holds no entry to return to.
+---@param session codeview.Session
+---@param buf integer Buffer of the file.
+set_back_key = function(session, buf)
+  for _, lhs in ipairs(config.keys(config.get().keymaps.back)) do
+    vim.keymap.set("n", lhs, function()
+      M.back()
+    end, { buffer = buf, nowait = true, silent = true, desc = "codeview: back to the review" })
+  end
+  session:on_close(function()
+    if api.nvim_buf_is_valid(buf) then
+      for _, lhs in ipairs(config.keys(config.get().keymaps.back)) do
+        pcall(vim.keymap.del, "n", lhs, { buffer = buf })
+      end
+      pcall(function()
+        vim.b[buf].codeview_file = nil
+      end)
+    end
+  end)
+end
+
+---Go back to the review from a file of the working copy.
+---
+--- The window takes the diff of the file again, with the cursor on the line
+--- that the file holds. A file that the range does not change gets a message,
+--- because the review has no diff to show for it.
+---@param opts? { win?: integer, line?: integer }
+---@return boolean opened
+function M.back(opts)
+  opts = opts or {}
+  local session = require("codeview.session").current()
+  if not session or not session:is_active() then
+    notify("no review session")
+    return false
+  end
+
+  local win = opts.win or api.nvim_get_current_win()
+  if not api.nvim_win_is_valid(win) then
+    return false
+  end
+  local buf = api.nvim_win_get_buf(win)
+  local name = api.nvim_buf_get_name(buf)
+  if name == "" then
+    notify("this window holds no file of the review")
+    return false
+  end
+
+  local root = session.repo.root
+  local path = vim.b[buf].codeview_file
+  if not path then
+    local full = vim.fs.normalize(name)
+    local prefix = vim.fs.normalize(root) .. "/"
+    if full:sub(1, #prefix) ~= prefix then
+      notify("the file is outside " .. root)
+      return false
+    end
+    path = full:sub(#prefix + 1)
+  end
+
+  local index = session:index_of(path)
+  if not index then
+    notify("the range does not change " .. path)
+    return false
+  end
+
+  -- A modified buffer stays loaded while the window shows the diff, but only
+  -- when Neovim may hide it. Without 'hidden' the write comes first.
+  if vim.bo[buf].modified and not vim.o.hidden then
+    notify("write " .. path .. " first, or set 'hidden'")
+    return false
+  end
+
+  local line = opts.line or api.nvim_win_get_cursor(win)[1]
+  local state_view, err = M.open(session, index, { win = win })
+  if not state_view then
+    notify(tostring(err))
+    return false
+  end
+  M.go_to_line(line, "new")
   return true
 end
 
