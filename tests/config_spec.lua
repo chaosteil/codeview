@@ -26,7 +26,7 @@ describe("codeview.config", function()
 
   it("does not change the defaults table", function()
     config.setup({ sidebar = { width = 60 }, keymaps = { close = "<Esc>" } })
-    assert.are.equal(40, config.defaults.sidebar.width)
+    assert.are.equal(20, config.defaults.sidebar.width)
     assert.are.equal("q", config.defaults.keymaps.close)
   end)
 
@@ -77,7 +77,7 @@ describe("codeview.config", function()
     assert.are.equal(60, cfg.overview.width)
     assert.are.equal("right", cfg.overview.position)
     assert.is_true(cfg.overview.auto_open)
-    assert.are.equal(40, cfg.sidebar.width)
+    assert.are.equal(20, cfg.sidebar.width)
     assert.are.equal("left", cfg.sidebar.position)
   end)
 

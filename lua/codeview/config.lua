@@ -86,7 +86,7 @@ M.defaults = {
   },
   sidebar = {
     position = "left",
-    width = 40,
+    width = 20,
     auto_open = true,
     icons = {
       expanded = "▾",

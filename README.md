@@ -194,7 +194,7 @@ too. A single revision reviews that commit against its parent.
 require("codeview").setup({
   backend = "git",             -- skip the detection
   diff = { style = "inline" },
-  sidebar = { position = "left", width = 40 },
+  sidebar = { position = "left", width = 24 },
 })
 ```
 
@@ -554,7 +554,7 @@ The defaults are:
   },
   sidebar = {
     position = "left", -- "left" | "right"
-    width = 40,
+    width = 20,
     auto_open = true,
     icons = {
       expanded = "▾",

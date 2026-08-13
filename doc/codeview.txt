@@ -1290,7 +1290,7 @@ Defaults: >lua
       },
       sidebar = {
         position = "left",           -- "left" | "right"
-        width = 40,
+        width = 20,
         auto_open = true,
         icons = {
           expanded = "▾",            -- directory that shows its children
