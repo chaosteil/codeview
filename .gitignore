@@ -1,0 +1,12 @@
+# Test sandbox: plenary.nvim clone and the isolated XDG directories.
+.tests/
+
+# Generated help tags.
+doc/tags
+
+# luacheck cache.
+.luacheckcache
+
+# Editor and OS files.
+*.swp
+.DS_Store

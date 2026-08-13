@@ -1,0 +1,114 @@
+*codeview.txt*   Code review inside Neovim
+
+==============================================================================
+CONTENTS                                                     *codeview-contents*
+
+  1. Introduction ......................... |codeview-introduction|
+  2. Requirements ......................... |codeview-requirements|
+  3. Setup ................................ |codeview-setup|
+  4. Configuration ........................ |codeview-config|
+  5. Health ............................... |codeview-health|
+
+==============================================================================
+1. INTRODUCTION                                          *codeview-introduction*
+                                                                    *codeview*
+
+codeview shows the changes of a commit, or of a range of commits. You browse
+the changed files in a sidebar, read the diffs inline or side by side, and
+write comments on the lines. You can export the comments as markdown.
+
+This release contains the plugin skeleton. The review commands come with the
+next milestones.
+
+==============================================================================
+2. REQUIREMENTS                                          *codeview-requirements*
+
+- Neovim 0.11 or later.
+- git, for the git backend.
+- jj, for the jj backend (optional).
+- gh, for GitHub pull request review (optional).
+
+==============================================================================
+3. SETUP                                                        *codeview-setup*
+
+The plugin works without a setup call. Every option then holds its default
+value.
+
+To change an option, call setup(): >lua
+
+    require("codeview").setup({
+      diff = { style = "split" },
+    })
+<
+                                                          *codeview.setup()*
+codeview.setup({opts})
+    Merge {opts} into the defaults, validate the result, and store it.
+
+    Return: ~
+        The active configuration, or nil and a message when {opts} is invalid.
+
+                                                          *codeview.config()*
+codeview.config()
+    Return the active configuration table.
+
+                                                                  *g:codeview*
+You can also set the variable `vim.g.codeview` before the plugin loads. The
+plugin then calls setup() with that table: >lua
+
+    vim.g.codeview = { sidebar = { position = "right" } }
+<
+==============================================================================
+4. CONFIGURATION                                               *codeview-config*
+
+Defaults: >lua
+
+    {
+      backend = "auto",              -- "auto" | "git" | "jj"
+      diff = {
+        style = "inline",            -- "inline" | "split"
+        context = 3,                 -- unchanged lines around a hunk
+        max_lines = 20000,           -- ask before a larger diff
+        word_diff = true,            -- highlight changed words
+      },
+      sidebar = {
+        position = "left",           -- "left" | "right"
+        width = 40,
+        auto_open = true,
+      },
+      comments = {
+        dir = stdpath("config") .. "/review",
+        display = "virtual",         -- "virtual" | "float"
+        sign = "▌",
+      },
+      export = {
+        register = "+",
+        template = false,            -- false uses the built-in renderer
+      },
+      keymaps = {
+        open_file = "<CR>",
+        next_file = "]f",
+        prev_file = "[f",
+        next_hunk = "]h",
+        prev_hunk = "[h",
+        toggle_style = "<leader>ct",
+        comment = "<leader>cc",
+        delete_comment = "<leader>cd",
+        close = "q",
+      },
+      log_level = vim.log.levels.WARN,
+    }
+<
+Set a keymap to false to disable it. setup() rejects an unknown key, and
+reports the name of the key.
+
+==============================================================================
+5. HEALTH                                                      *codeview-health*
+
+Run |:checkhealth| codeview. The report shows: >
+
+    - the Neovim version, against the minimum version
+    - the plugin version and the state of setup()
+    - the result of the configuration validation
+    - the git, jj, and gh executables with their versions
+<
+vim:tw=78:ts=8:noet:ft=help:norl:
