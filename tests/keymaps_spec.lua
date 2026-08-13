@@ -47,6 +47,7 @@ describe("codeview keymaps", function()
     toggle_style = { { surface = "sidebar", mode = "n" }, { surface = "view", mode = "n" } },
     comment = { { surface = "view", mode = "n" }, { surface = "view", mode = "x" } },
     comment_insert = { { surface = "view", mode = "n" } },
+    comment_add = { { surface = "view", mode = "n" } },
     comment_visual = { { surface = "view", mode = "x" } },
     edit_comment = { { surface = "view", mode = "n" }, { surface = "overview", mode = "n" } },
     delete_comment = { { surface = "view", mode = "n" }, { surface = "overview", mode = "n" } },

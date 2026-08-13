@@ -638,6 +638,75 @@ describe("codeview.comments", function()
       api.nvim_buf_delete(file_buf, { force = true })
     end)
 
+    it("edits the comment of the line with the insert key", function()
+      local state = open_diff()
+      api.nvim_win_set_cursor(state.win, { 2, 0 })
+      comments.add()
+      write_comment("the first note")
+
+      api.nvim_win_set_cursor(state.win, { 2, 0 })
+      assert.is_true(comments.edit_or_add({ view = state }))
+      local ed = assert(editor.current())
+      assert.are.same({ "the first note" }, api.nvim_buf_get_lines(ed.buf, 0, -1, false))
+      editor.cancel()
+
+      -- The line keeps one comment: the key edited, it did not add.
+      assert.are.equal(1, #comments.list(assert(opened)))
+    end)
+
+    it("writes a new comment with the insert key on a free line", function()
+      local state = open_diff()
+      api.nvim_win_set_cursor(state.win, { 2, 0 })
+      assert.is_true(comments.edit_or_add({ view = state }))
+      local ed = assert(editor.current())
+      assert.are.same({ "" }, api.nvim_buf_get_lines(ed.buf, 0, -1, false))
+      editor.cancel()
+    end)
+
+    it("writes another comment with the add key", function()
+      local state = open_diff()
+      api.nvim_win_set_cursor(state.win, { 2, 0 })
+      comments.add()
+      write_comment("the first note")
+
+      api.nvim_win_set_cursor(state.win, { 2, 0 })
+      comments.add()
+      write_comment("the second note")
+
+      assert.are.equal(2, #comments.list(assert(opened)))
+    end)
+
+    it("hides the body of the comment that the editor holds", function()
+      local state = open_diff()
+      api.nvim_win_set_cursor(state.win, { 2, 0 })
+      comments.add()
+      write_comment("the first note")
+
+      ---Number of extmarks that draw virtual lines.
+      ---@return integer
+      local function bodies()
+        local count = 0
+        for _, mark in ipairs(api.nvim_buf_get_extmarks(state.buf, comments.ns, 0, -1, { details = true })) do
+          if mark[4] and mark[4].virt_lines then
+            count = count + 1
+          end
+        end
+        return count
+      end
+      assert.are.equal(1, bodies())
+
+      api.nvim_win_set_cursor(state.win, { 2, 0 })
+      comments.edit_or_add({ view = state })
+      -- The editor sits under the row with the same text, so the diff drops
+      -- the virtual lines while the editor is open.
+      assert.are.equal(0, bodies())
+      assert.are.equal(1, #api.nvim_buf_get_extmarks(state.buf, comments.ns, 0, -1, {}))
+
+      editor.cancel()
+      assert.are.equal(1, bodies())
+      assert.is_nil(comments.editing)
+    end)
+
     it("takes the keys from the configuration", function()
       config.setup({ comments = { dir = dir }, keymaps = { comment_insert = { "gc" }, comment_visual = false } })
       local state = open_diff()

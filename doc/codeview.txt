@@ -471,15 +471,26 @@ changes, so the line map of the render stays correct.
 The insert keys write comments. They do nothing in a read-only buffer, so the
 diff buffer maps them to the comment editor: >
 
-    i a o O     comment on the line under the cursor
+    i a         edit the comment of the line, or write the first one
+    o O         write another comment on the line
     I A c       comment on the selected lines, in the visual mode
-    <leader>cc  comment on the line, or on the selection
+    <leader>cc  edit or write the comment of the line, or of the selection
     <leader>ce  edit the comment under the cursor
     <leader>cd  delete the comment under the cursor, after a question
     <leader>cr  resolve the comment under the cursor, or open it again
     <leader>co  open or close the comment overview
     K           show the comment under the cursor in a float
 <
+`i` and `a` read the line first. A line that already holds a comment opens
+that comment in the editor, the way `i` changes the text that a normal buffer
+holds. A line without a comment starts a new one. `o` and `O` always start a
+new comment, so a second comment on the same line stays one keypress away. A
+line with more than one comment asks which comment to edit.
+
+While the editor holds a comment, the diff drops the virtual lines of that
+comment and keeps its sign, because the editor shows the same text one row
+below the sign.
+
 The visual mode keeps `i` free, because `i` is the prefix of the text objects.
 `vi(` still selects a text object in the diff buffer. The maps are
 buffer-local. They never reach a file buffer of your own.
@@ -1258,7 +1269,8 @@ Defaults: >lua
         load_diff = "<CR>",
         toggle_style = "<leader>ct",
         comment = "<leader>cc",
-        comment_insert = { "i", "a", "o", "O" },
+        comment_insert = { "i", "a" },
+        comment_add = { "o", "O" },
         comment_visual = { "I", "A", "c" },
         edit_comment = "<leader>ce",
         delete_comment = "<leader>cd",
@@ -1326,8 +1338,9 @@ The table names the surface of each action: >
     expand_context    za                 D  show or hide the section
     load_diff         <CR>               D  render a diff above the limit *
     toggle_style      <leader>ct     S   D  switch inline and side by side
-    comment           <leader>cc         D  comment on the line or selection
-    comment_insert    i a o O            D  comment on the line
+    comment           <leader>cc         D  edit or write the comment
+    comment_insert    i a                D  edit or write the comment
+    comment_add       o O                D  write another comment on the line
     comment_visual    I A c              D  comment on the selected lines
     edit_comment      <leader>ce       O D  edit the comment
     delete_comment    <leader>cd       O D  delete the comment

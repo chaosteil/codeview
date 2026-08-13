@@ -39,6 +39,13 @@ local M = {}
 ---@type integer
 M.ns = api.nvim_create_namespace("codeview.comments")
 
+---Comment that the editor has open, while it edits an existing comment.
+---
+--- The diff keeps the sign of the comment, but drops its virtual lines: the
+--- editor shows the same body right under that row, and one body is enough.
+---@type string?
+M.editing = nil
+
 ---@class codeview.comments.Target
 ---@field view codeview.view.State View that holds the lines.
 ---@field buf integer Buffer that shows the side of the anchor.
@@ -456,6 +463,11 @@ local function place(view, comment, display)
   if not api.nvim_buf_is_valid(buf) then
     return false
   end
+  if M.editing == comment.id then
+    -- The editor holds the body of this comment, one row under the sign. The
+    -- virtual lines would print the same text twice.
+    display = "float"
+  end
   local rows = comment_rows(map, comment)
   if #rows == 0 then
     return false
@@ -755,6 +767,16 @@ function M.edit(opts)
     return false
   end
 
+  local anchor = comment_anchor(ctx.view, comment)
+
+  ---Show the body of the comment in the diff again.
+  local function release()
+    if M.editing == comment.id then
+      M.editing = nil
+      M.decorate(ctx.view)
+    end
+  end
+
   require("codeview.editor").open({
     title = string.format(
       "Edit %s:%s (%s)",
@@ -763,8 +785,9 @@ function M.edit(opts)
       comment.side
     ),
     text = comment.body,
-    anchor = comment_anchor(ctx.view, comment),
+    anchor = anchor,
     on_save = function(body)
+      release()
       -- The store comes again from the session, because a session that closes
       -- while the editor is open drops its store.
       local live, live_err = M.store(session)
@@ -780,8 +803,37 @@ function M.edit(opts)
       persist(live)
       announce("comment_changed", session, changed)
     end,
+    on_cancel = release,
   })
+
+  -- The editor sits under the row of the comment, where the virtual lines of
+  -- the body are. Drop them while the editor holds the same text.
+  if anchor and require("codeview.editor").current() then
+    M.editing = comment.id
+    M.decorate(ctx.view)
+  end
   return true
+end
+
+---Edit the comment under the cursor, or write a new one.
+---
+--- The insert keys land here. A line that already holds a comment opens that
+--- comment, because a reviewer who presses `i` on their own note wants to
+--- change it. A line without a comment starts a new one. The `comment_add`
+--- keys always start a new comment, so a second comment on the same line stays
+--- one keypress away.
+---@param opts? { visual?: boolean, first?: integer, last?: integer, view?: codeview.view.State }
+---@return boolean opened
+function M.edit_or_add(opts)
+  opts = opts or {}
+  local view = opts.view or require("codeview.view").current()
+  if view and not opts.first and not opts.last then
+    local found = M.at_cursor(view)
+    if #found > 0 then
+      return M.edit({ view = view })
+    end
+  end
+  return M.add(opts)
 end
 
 ---Delete the comment under the cursor.
@@ -983,8 +1035,14 @@ function M.set_keymaps(session, buf)
     M.add({ view = view_of() })
   end
 
-  add("n", keys.comment, normal, "comment on the line")
-  add("n", keys.comment_insert, normal, "comment on the line")
+  ---Edit the comment of the line, or write the first one.
+  local function edit_or_add()
+    M.edit_or_add({ view = view_of() })
+  end
+
+  add("n", keys.comment, edit_or_add, "edit or write the comment of the line")
+  add("n", keys.comment_insert, edit_or_add, "edit or write the comment of the line")
+  add("n", keys.comment_add, normal, "write another comment on the line")
   add("x", keys.comment, visual, "comment on the selected lines")
   add("x", keys.comment_visual, visual, "comment on the selected lines")
   add("n", keys.edit_comment, function()

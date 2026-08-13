@@ -128,7 +128,12 @@ M.defaults = {
     comment = "<leader>cc",
     -- The diff buffer is read-only, so the insert keys are free. They open the
     -- comment editor instead. Visual `i` stays free, because `vi(` must work.
-    comment_insert = { "i", "a", "o", "O" },
+    --
+    -- `i` and `a` edit the comment of the line, the way they edit the text of
+    -- a normal buffer. `o` and `O` open a new comment, the way they open a new
+    -- line.
+    comment_insert = { "i", "a" },
+    comment_add = { "o", "O" },
     comment_visual = { "I", "A", "c" },
     edit_comment = "<leader>ce",
     delete_comment = "<leader>cd",

@@ -158,7 +158,8 @@ vim.g.codeview = { sidebar = { position = "right" } }
 
 1. Run `:CodeView HEAD~3..HEAD` in a repository.
 2. Walk the files in the sidebar. Press `<CR>` to open a diff.
-3. Press `i` on a line to write a comment. Save it with `:w`.
+3. Press `i` on a line to write a comment. Save it with `:w`. Press `i` again
+   to edit it.
 4. Press `<leader>co` to see all comments of the review.
 5. Run `:CodeViewExport` to put the review in your clipboard.
 
@@ -290,15 +291,23 @@ only. Set `diff.max_lines` to 0 to remove the limit for every file.
 ## Comments
 
 The diff buffer is read-only, so the insert keys are free. They open the
-comment editor instead: `i`, `a`, `o`, and `O` comment on the line under the
-cursor. In the visual mode `I`, `A`, and `c` comment on the selected lines,
-like the GitHub review UI. The visual mode keeps `i` free, so `vi(` still
-selects a text object.
+comment editor instead. `i` and `a` read the line first: a line that already
+holds a comment opens that comment, the way `i` changes the text of a normal
+buffer, and a line without one starts a new comment. `o` and `O` always start a
+new comment, so a second comment on the same line stays one keypress away. In
+the visual mode `I`, `A`, and `c` comment on the selected lines, like the
+GitHub review UI. The visual mode keeps `i` free, so `vi(` still selects a text
+object.
 
-The editor is a float with its own markdown buffer. `:w` saves the comment, and
-`q` or `<Esc><Esc>` discards it. The diff buffer never becomes modifiable. A
-comment shows as extmarks only: a sign on every covered line, and virtual lines
-below the range.
+The editor opens inline by default, under the commented row and in the width of
+the diff. The space comes from virtual lines, so the rows below move down while
+you type and move back when you finish. It starts in insert mode. Set
+`comments.editor = "float"` for a float in the middle of the screen, or
+`comments.start_insert = false` to start in normal mode.
+
+`:w` saves the comment, and `q` or `<Esc><Esc>` discards it. The diff buffer
+never becomes modifiable. A comment shows as extmarks only: a sign on every
+covered line, and virtual lines below the range.
 
 A comment anchors to a file, a line range, a side of the diff, and a commit. A
 removed line anchors to the old side, and an added or unchanged line to the new
@@ -416,8 +425,9 @@ a file buffer of your own.
 | `expand_context`  | `za`             | D         | show or hide the section           |
 | `load_diff`       | `<CR>`           | D\*       | render a diff above the limit      |
 | `toggle_style`    | `<leader>ct`     | S D       | switch inline and side by side     |
-| `comment`         | `<leader>cc`     | D         | comment on the line or selection   |
-| `comment_insert`  | `i` `a` `o` `O`  | D         | comment on the line                |
+| `comment`         | `<leader>cc`     | D         | edit or write the comment          |
+| `comment_insert`  | `i` `a`          | D         | edit or write the comment          |
+| `comment_add`     | `o` `O`          | D         | write another comment on the line  |
 | `comment_visual`  | `I` `A` `c`      | D         | comment on the selected lines      |
 | `edit_comment`    | `<leader>ce`     | O D       | edit the comment                   |
 | `delete_comment`  | `<leader>cd`     | O D       | delete the comment                 |
@@ -511,7 +521,8 @@ The defaults are:
     load_diff = "<CR>",
     toggle_style = "<leader>ct",
     comment = "<leader>cc",
-    comment_insert = { "i", "a", "o", "O" },
+    comment_insert = { "i", "a" },
+    comment_add = { "o", "O" },
     comment_visual = { "I", "A", "c" },
     edit_comment = "<leader>ce",
     delete_comment = "<leader>cd",
