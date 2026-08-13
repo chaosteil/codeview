@@ -300,6 +300,8 @@ function M.render(buf, diff, opts)
   vim.bo[buf].modified = false
 
   apply_marks(buf, build)
+  -- The marker column shifts every capture of the parse by its width.
+  require("codeview.syntax").apply(buf, diff, build.map, { offset = #M.markers.context })
   if not states[buf] then
     watch(buf)
   end

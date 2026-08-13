@@ -26,6 +26,7 @@ local M = {}
 ---@field context integer Number of unchanged lines kept around each hunk.
 ---@field max_lines integer Highest number of lines of the two sides together. A larger diff needs the load key. 0 removes the limit.
 ---@field word_diff boolean Highlight the changed words inside a modified line.
+---@field syntax boolean Highlight the code of the diff in the colors of its language. The diff colors then stay in the background.
 
 ---@class codeview.Config.Sidebar
 ---@field position "left"|"right" Side of the tab page for the sidebar.
@@ -76,6 +77,7 @@ M.defaults = {
     context = 3,
     max_lines = 20000,
     word_diff = true,
+    syntax = true,
   },
   sidebar = {
     position = "left",
@@ -229,6 +231,7 @@ function M.validate(opts)
     vim.validate("diff.context", opts.diff.context, positive_integer, "positive integer")
     vim.validate("diff.max_lines", opts.diff.max_lines, whole_number, "positive integer, or 0")
     vim.validate("diff.word_diff", opts.diff.word_diff, "boolean")
+    vim.validate("diff.syntax", opts.diff.syntax, "boolean")
 
     vim.validate("sidebar", opts.sidebar, "table")
     vim.validate("sidebar.position", opts.sidebar.position, one_of({ "left", "right" }))

@@ -420,6 +420,10 @@ describe("codeview.inline", function()
     end
 
     it("links every diff group to a standard group", function()
+      -- The row groups of the added and the removed lines follow the
+      -- `diff.syntax` option, so they link only while the option is off. See
+      -- tests/syntax_spec.lua for the other case.
+      require("codeview.config").setup({ diff = { syntax = false } })
       highlight.apply()
       assert.are.equal("DiffAdd", api.nvim_get_hl(0, { name = "CodeViewDiffAdd" }).link)
       assert.are.equal("DiffDelete", api.nvim_get_hl(0, { name = "CodeViewDiffDelete" }).link)

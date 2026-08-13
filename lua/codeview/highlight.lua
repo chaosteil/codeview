@@ -21,8 +21,6 @@ M.links = {
   CodeViewIndent = "NonText",
   CodeViewCurrent = "CursorLine",
   CodeViewMarker = "Special",
-  CodeViewDiffAdd = "DiffAdd",
-  CodeViewDiffDelete = "DiffDelete",
   CodeViewDiffText = "DiffText",
   CodeViewDiffHunk = "Title",
   CodeViewDiffFold = "Folded",
@@ -61,10 +59,60 @@ M.status = {
   unknown = "CodeViewUnknown",
 }
 
+---Groups of a whole diff row that follow the `diff.syntax` option.
+---
+--- They are not part of |codeview.highlight.links|, because
+--- |codeview.highlight.apply_diff_rows()| defines them.
+---@type table<string, string>
+M.diff_rows = {
+  CodeViewDiffAdd = "DiffAdd",
+  CodeViewDiffDelete = "DiffDelete",
+}
+
 ---Define every group.
 function M.apply()
   for group, target in pairs(M.links) do
     api.nvim_set_hl(0, group, { link = target, default = true })
+  end
+  M.apply_diff_rows()
+end
+
+---Background of one group, or nil when the group carries none.
+---@param name string
+---@return integer? bg
+local function background_of(name)
+  local ok, hl = pcall(api.nvim_get_hl, 0, { name = name, link = false })
+  if not ok or type(hl) ~= "table" then
+    return nil
+  end
+  return hl.bg
+end
+
+---Colors of the added rows and the removed rows.
+---
+--- A whole-row highlight with a foreground color hides the syntax colors of
+--- the code. With `diff.syntax` on, the row groups therefore take the
+--- background of `DiffAdd` and `DiffDelete` and carry no foreground: the code
+--- keeps the colors of its language, and the background still says added or
+--- removed.
+---
+--- The groups take the plain link when the option is off, and also when the
+--- colorscheme puts no background on `DiffAdd` or `DiffDelete`, because a row
+--- without any color says nothing.
+---
+--- The two groups carry no `default`, unlike every other group of the module:
+--- their value follows an option and a colorscheme, so the call computes it
+--- again on each run. To give them your own colors, set them from your own
+--- |ColorScheme| autocmd, which runs after this one.
+function M.apply_diff_rows()
+  local syntax = require("codeview.config").get().diff.syntax
+  for group, target in pairs(M.diff_rows) do
+    local bg = syntax and background_of(target) or nil
+    if bg then
+      api.nvim_set_hl(0, group, { bg = bg })
+    else
+      api.nvim_set_hl(0, group, { link = target })
+    end
   end
 end
 

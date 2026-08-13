@@ -407,6 +407,9 @@ function M.render(old_buf, new_buf, diff, opts)
   for side, buf in pairs({ old = old_buf, new = new_buf }) do
     if api.nvim_buf_is_valid(buf) then
       write(buf, build, side)
+      -- The side-by-side style writes the text of the file without a marker,
+      -- so every capture sits at its own column.
+      require("codeview.syntax").apply(buf, diff, build[side].map, { side = side })
       states[buf] = { side = side, diff = diff, build = build, opts = opts }
     end
   end

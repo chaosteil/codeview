@@ -329,6 +329,17 @@ Press <CR> to show it.
 `<CR>` reads the file again, without the limit. The key maps on such a diff
 only. Set `diff.max_lines` to 0 to remove the limit for every file.
 
+## Colors
+
+The diff keeps the colors of the code. codeview parses each side of the file
+with treesitter and writes the captures into the diff buffer, so a Lua file
+reads like Lua. The diff itself then colors the background only: green behind
+an added row, red behind a removed row.
+
+The plugin needs a treesitter parser for the language of the file. A file
+without one keeps the plain diff colors. Set `diff.syntax = false` to turn the
+whole layer off, which also gives the row colors their foreground back.
+
 ## Comments
 
 The diff buffer is read-only, so the insert keys are free. They open the
@@ -511,6 +522,7 @@ The defaults are:
     context = 3,
     max_lines = 20000, -- lines of both sides, 0 removes the limit
     word_diff = true,
+    syntax = true,
   },
   sidebar = {
     position = "left", -- "left" | "right"

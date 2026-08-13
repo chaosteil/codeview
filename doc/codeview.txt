@@ -347,6 +347,23 @@ removed line with |hl-CodeViewDiffDelete| and an added line with
 |hl-CodeViewDiffAdd|. With `diff.word_diff` the changed part of a line also
 gets |hl-CodeViewDiffText|.
 
+                                                         *codeview-diff-syntax*
+The diff keeps the colors of the code. A diff buffer holds two revisions with
+a marker in front, so treesitter cannot attach to it. codeview parses each
+side as a whole file instead, and writes the captures of the highlights query
+into the rows of that side.
+
+The diff colors then stay in the background: |hl-CodeViewDiffAdd| and
+|hl-CodeViewDiffDelete| take the background of `DiffAdd` and `DiffDelete` and
+carry no foreground, so the code keeps the colors of its language.
+
+The layer needs a treesitter parser for the language of the file. A file
+without one keeps the plain diff colors, and so does a binary file or a diff
+above the line limit. Set `diff.syntax` to false to turn the layer off. The
+row colors then take their foreground again: >lua
+
+    require("codeview").setup({ diff = { syntax = false } })
+<
                                                         *codeview-diff-context*
 The view shows `diff.context` unchanged lines around each hunk. It hides a
 longer unchanged section behind one filler row: >
@@ -1240,6 +1257,7 @@ Defaults: >lua
         context = 3,                 -- unchanged lines around a hunk
         max_lines = 20000,           -- lines of both sides, 0 removes the limit
         word_diff = true,            -- highlight changed words
+        syntax = true,               -- colors of the language of the file
       },
       sidebar = {
         position = "left",           -- "left" | "right"
