@@ -320,6 +320,17 @@ close, when 'equalalways' is on. codeview holds that option off while it opens
 or closes its own windows, and puts the width of every panel back afterwards.
 Your own windows keep their behavior.
 
+                                                   *codeview-sidebar-comments*
+The first line of the sidebar is "Comments", with the number of comments of
+the review. `<CR>` on that line opens the comment overview, and closes it
+again. See |codeview-overview|.
+
+                                                      *codeview-sidebar-mouse*
+A double click acts like `<CR>`: it opens the file under the pointer, folds
+the directory under the pointer, or opens the comment overview. The key comes
+from the `open_file` option, so a list without `<2-LeftMouse>` takes the mouse
+out. The 'mouse' option must hold the mode, which it does by default.
+
 ==============================================================================
 7. DIFF VIEW                                                     *codeview-diff*
 
@@ -1342,7 +1353,7 @@ Defaults: >lua
         max_comments = 500,          -- highest number of comments of a fetch
       },
       keymaps = {
-        open_file = "<CR>",
+        open_file = { "<CR>", "<2-LeftMouse>" },
         toggle_node = "<Tab>",
         expand_all = "zR",
         collapse_all = "zM",
@@ -1413,6 +1424,7 @@ The table names the surface of each action: >
     Action            Default        Where  What it does
     ────────────────  ─────────────  ─────  ──────────────────────────────────
     open_file         <CR>           S O    open the file, or toggle the node
+                      <2-LeftMouse>  S O    a double click does the same
     toggle_node       <Tab>          S O    show or hide the children
     expand_all        zR             S O D  show every hidden line or node
     collapse_all      zM             S O D  hide every section or node

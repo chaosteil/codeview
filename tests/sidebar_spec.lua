@@ -42,6 +42,10 @@ local function group_exists(name)
 end
 
 describe("codeview.sidebar", function()
+  -- Lines above the tree: the range, the counts, a blank line, the Comments
+  -- line, and a blank line. The first node of the tree follows them.
+  local HEAD = 5
+
   local fixture = fixtures.git()
   local sidebar, session_mod, view, panel, config
   ---@type codeview.Session?
@@ -225,21 +229,21 @@ describe("codeview.sidebar", function()
     it("renders the directories and the files", function()
       local bar = open_sidebar()
       local lines = bar.panel:lines()
-      assert.are.equal(8, #lines)
-      assert.are.equal("  ▾ dir", lines[4])
-      assert.are.equal("  │   renamed.txt ← nested.txt R", lines[5])
-      assert.are.equal("    a.txt M", lines[6])
-      assert.are.equal("    added.txt A", lines[7])
-      assert.are.equal("    keep.txt D", lines[8])
+      assert.are.equal(HEAD + 5, #lines)
+      assert.are.equal("  ▾ dir", lines[HEAD + 1])
+      assert.are.equal("  │   renamed.txt ← nested.txt R", lines[HEAD + 2])
+      assert.are.equal("    a.txt M", lines[HEAD + 3])
+      assert.are.equal("    added.txt A", lines[HEAD + 4])
+      assert.are.equal("    keep.txt D", lines[HEAD + 5])
     end)
 
     it("keeps the node of the line in the line data", function()
       local bar = open_sidebar()
-      local node = bar.panel:data(7)
+      local node = bar.panel:data(HEAD + 4)
       assert.are.equal("file", node.kind)
       assert.are.equal(2, node.index)
       assert.are.equal("added.txt", node.path)
-      assert.are.equal("dir", bar.panel:data(4).kind)
+      assert.are.equal("dir", bar.panel:data(HEAD + 1).kind)
       assert.is_nil(bar.panel:data(1))
     end)
 
@@ -294,8 +298,8 @@ describe("codeview.sidebar", function()
       local review = assert(opened)
       review.files = {}
       local bar = assert(sidebar.open())
-      assert.are.equal("  no changed files", bar.panel:lines()[4])
-      assert.is_nil(bar.panel:data(4))
+      assert.are.equal("  no changed files", bar.panel:lines()[HEAD + 1])
+      assert.is_nil(bar.panel:data(HEAD + 1))
     end)
 
     it("renders again after a refresh of the session", function()
@@ -303,7 +307,7 @@ describe("codeview.sidebar", function()
       local review = assert(opened)
       review.files = { { path = "only.txt", status = "added" } }
       api.nvim_exec_autocmds("User", { pattern = "CodeViewSessionRefreshed", data = { id = review.id } })
-      assert.are.equal("    only.txt A", bar.panel:lines()[4])
+      assert.are.equal("    only.txt A", bar.panel:lines()[HEAD + 1])
     end)
   end)
 
@@ -324,7 +328,7 @@ describe("codeview.sidebar", function()
     it("hides the children of a directory", function()
       local bar = nested()
       assert.is_true(bar:toggle_node(bar.tree.children[1]))
-      assert.are.same({ "  ▸ dir AD", "    root.txt M" }, vim.list_slice(bar.panel:lines(), 4))
+      assert.are.same({ "  ▸ dir AD", "    root.txt M" }, vim.list_slice(bar.panel:lines(), HEAD + 1))
       assert.is_false(bar.expanded["dir"])
     end)
 
@@ -332,22 +336,22 @@ describe("codeview.sidebar", function()
       local bar = nested()
       bar:toggle_node(bar.tree.children[1])
       bar:toggle_node(bar.tree.children[1])
-      assert.are.equal(7, #bar.panel:lines())
-      assert.are.equal("  ▾ dir", bar.panel:lines()[4])
+      assert.are.equal(HEAD + 4, #bar.panel:lines())
+      assert.are.equal("  ▾ dir", bar.panel:lines()[HEAD + 1])
     end)
 
     it("keeps the state over a render", function()
       local bar = nested()
       bar:toggle_node(bar.tree.children[1])
       bar:render()
-      assert.are.equal("  ▸ dir AD", bar.panel:lines()[4])
+      assert.are.equal("  ▸ dir AD", bar.panel:lines()[HEAD + 1])
     end)
 
     it("acts on the directory of a file line", function()
       local bar = nested()
       bar.panel:set_cursor(line_of(bar, "dir/one.txt"))
       assert.is_true(bar:toggle_node())
-      assert.are.equal("  ▸ dir AD", bar.panel:lines()[4])
+      assert.are.equal("  ▸ dir AD", bar.panel:lines()[HEAD + 1])
       local win = assert(bar.panel:window())
       assert.are.equal(line_of(bar, "dir"), api.nvim_win_get_cursor(win)[1])
     end)
@@ -361,10 +365,10 @@ describe("codeview.sidebar", function()
     it("collapses and expands every directory", function()
       local bar = nested()
       bar:collapse_all()
-      assert.are.same({ "  ▸ dir AD", "    root.txt M" }, vim.list_slice(bar.panel:lines(), 4))
+      assert.are.same({ "  ▸ dir AD", "    root.txt M" }, vim.list_slice(bar.panel:lines(), HEAD + 1))
 
       bar:expand_all()
-      assert.are.equal(7, #bar.panel:lines())
+      assert.are.equal(HEAD + 4, #bar.panel:lines())
       assert.are.same({}, bar.expanded)
     end)
 
@@ -373,9 +377,9 @@ describe("codeview.sidebar", function()
       bar:focus()
       bar.panel:set_cursor(line_of(bar, "dir"))
       press("<CR>")
-      assert.are.equal("  ▸ dir AD", bar.panel:lines()[4])
+      assert.are.equal("  ▸ dir AD", bar.panel:lines()[HEAD + 1])
       press("<Tab>")
-      assert.are.equal("  ▾ dir", bar.panel:lines()[4])
+      assert.are.equal("  ▾ dir", bar.panel:lines()[HEAD + 1])
       assert.is_nil(view.current())
     end)
 
@@ -383,9 +387,9 @@ describe("codeview.sidebar", function()
       local bar = nested()
       bar:focus()
       press("zM")
-      assert.are.equal("  ▸ dir AD", bar.panel:lines()[4])
+      assert.are.equal("  ▸ dir AD", bar.panel:lines()[HEAD + 1])
       press("zR")
-      assert.are.equal("  ▾ dir", bar.panel:lines()[4])
+      assert.are.equal("  ▾ dir", bar.panel:lines()[HEAD + 1])
     end)
   end)
 
@@ -430,7 +434,7 @@ describe("codeview.sidebar", function()
     it("shows the directory of the current file again", function()
       local bar = open_sidebar()
       bar:toggle_node(bar.tree.children[1])
-      assert.are.equal("  ▸ dir R", bar.panel:lines()[4])
+      assert.are.equal("  ▸ dir R", bar.panel:lines()[HEAD + 1])
 
       local _, err = await(function(cb)
         view.open(assert(opened), 3, cb)
@@ -623,6 +627,68 @@ describe("codeview.sidebar", function()
 
   it("leaves no windows behind", function()
     assert.are.equal(1, #api.nvim_tabpage_list_wins(0))
+  end)
+
+  describe("the comments line", function()
+    it("opens the comment overview", function()
+      local bar = open_sidebar()
+      local overview = require("codeview.overview")
+      local row = nil
+      for index = 1, #bar.panel:lines() do
+        local data = bar.panel:data(index)
+        if type(data) == "table" and data.kind == "action" then
+          row = index
+        end
+      end
+      assert.is_truthy(row, "no action line in the sidebar")
+      assert.is_truthy(bar.panel:lines()[row]:find("Comments", 1, true), bar.panel:lines()[row])
+
+      api.nvim_set_current_win(bar.panel:window())
+      api.nvim_win_set_cursor(bar.panel:window(), { row, 0 })
+      assert.is_nil(overview.get())
+      assert.is_true(bar:open_cursor())
+      assert.is_truthy(overview.get(), "the line opened no overview")
+      overview.close()
+    end)
+
+    it("opens no file", function()
+      local bar = open_sidebar()
+      local view = require("codeview.view")
+      local row = nil
+      for index = 1, #bar.panel:lines() do
+        local data = bar.panel:data(index)
+        if type(data) == "table" and data.kind == "action" then
+          row = index
+        end
+      end
+      api.nvim_set_current_win(bar.panel:window())
+      api.nvim_win_set_cursor(bar.panel:window(), { row, 0 })
+      bar:open_cursor()
+      assert.is_nil(view.current())
+      require("codeview.overview").close()
+    end)
+  end)
+
+  describe("the mouse", function()
+    it("maps a double click to the open action", function()
+      local bar = open_sidebar()
+      ---@type table<string, boolean>
+      local keys = {}
+      for _, map in ipairs(api.nvim_buf_get_keymap(bar.panel:buffer(), "n")) do
+        if type(map.desc) == "string" and map.desc:find("^codeview: ") then
+          keys[map.lhs] = true
+        end
+      end
+      assert.is_true(keys["<2-LeftMouse>"], "the sidebar takes no double click")
+    end)
+
+    it("drops the double click when the user sets one key", function()
+      config.setup({ commit_message = false, keymaps = { open_file = "<CR>" } })
+      local bar = open_sidebar()
+      for _, map in ipairs(api.nvim_buf_get_keymap(bar.panel:buffer(), "n")) do
+        assert.are_not.equal("<2-LeftMouse>", map.lhs)
+      end
+    end)
   end)
 
   it("removes the fixture", function()

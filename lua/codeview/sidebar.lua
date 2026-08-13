@@ -48,6 +48,7 @@ M.marks = {
 ---@field current integer? Position of the file that the diff view shows.
 ---@field expanded table<string, boolean> Expanded state per directory path.
 ---@field private autocmds integer[] Autocmds that close with the sidebar.
+---@field private subscriptions integer[] Event handlers that close with the sidebar.
 local Sidebar = {}
 Sidebar.__index = Sidebar
 
@@ -135,6 +136,27 @@ local function node_line(node, is_current)
   return line.build({ hl = is_current and "CodeViewCurrent" or nil, data = node })
 end
 
+---Line that opens the comment overview.
+---
+--- The line is no file of the review, so it holds an action instead of a
+--- position in the file list. |Sidebar:open_cursor()| runs the action.
+---@param session codeview.Session
+---@return codeview.panel.Line
+local function comments_line(session)
+  local icons = config.get().sidebar.icons
+  local count = #require("codeview.comments").list(session)
+  local line = panel.builder()
+
+  line.add("  ")
+  line.add(icons.file)
+  line.add(" ")
+  line.add("Comments", "CodeViewTitle")
+  if count > 0 then
+    line.add(" " .. count, "CodeViewCount")
+  end
+  return line.build({ data = { kind = "action", action = "overview" } })
+end
+
 ---Build every line of the sidebar.
 ---
 --- The call builds the tree again, so that a refresh of the session and a
@@ -149,6 +171,9 @@ local function render_lines(self)
     { text = counts(session), hl = "CodeViewCount" },
     { text = "" },
   }
+
+  lines[#lines + 1] = comments_line(session)
+  lines[#lines + 1] = { text = "" }
 
   self.tree = tree.build(session:changed_files(), { expanded = self.expanded })
   local nodes = tree.visible(self.tree)
@@ -206,7 +231,7 @@ end
 ---@return codeview.tree.Node? node Nil on a header line.
 function Sidebar:cursor_node()
   local data = self.panel:cursor_data()
-  if type(data) == "table" and (data.kind == "file" or data.kind == "dir") then
+  if type(data) == "table" and (data.kind == "file" or data.kind == "dir" or data.kind == "action") then
     return data
   end
   return nil
@@ -277,6 +302,12 @@ function Sidebar:open_cursor(cb)
   if not node then
     return false
   end
+  if node.kind == "action" then
+    if node.action == "overview" then
+      require("codeview.overview").toggle({ session = self.session, focus = true })
+    end
+    return true
+  end
   if node.kind == "dir" then
     return self:toggle_node(node)
   end
@@ -346,6 +377,10 @@ function Sidebar:close()
     pcall(api.nvim_del_autocmd, id)
   end
   self.autocmds = {}
+  for _, id in ipairs(self.subscriptions or {}) do
+    require("codeview.events").off(id)
+  end
+  self.subscriptions = {}
   if current == self then
     current = nil
   end
@@ -424,6 +459,15 @@ local function watch(sidebar)
       end
     end,
   })
+  -- The Comments line holds the number of comments, so it follows the store.
+  sidebar.subscriptions[#sidebar.subscriptions + 1] = require("codeview.events").on(
+    require("codeview.events").comment,
+    function(data)
+      if data.session == nil or data.session == sidebar.session.id then
+        sidebar:render()
+      end
+    end
+  )
   sidebar.session:on_close(function()
     sidebar:close()
   end)
@@ -456,6 +500,7 @@ function M.open(opts)
       expanded = {},
       tree = tree.build({}),
       autocmds = {},
+      subscriptions = {},
     }, Sidebar)
     sidebar.panel = panel.new({
       title = "files",

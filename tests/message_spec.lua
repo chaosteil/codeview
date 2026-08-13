@@ -110,10 +110,12 @@ describe("codeview.message", function()
       sidebar.open({ session = session })
       local lines = assert(sidebar.get()).panel:lines()
 
-      -- Two header lines and one blank line come first, then the group node.
-      assert.is_truthy(lines[4]:find(message.group_label(#session.commits), 1, true), lines[4])
+      -- The range, the counts, a blank line, the Comments line, and a blank
+      -- line come first. The group node of the commits follows them.
+      local head = 5
+      assert.is_truthy(lines[head + 1]:find(message.group_label(#session.commits), 1, true), lines[head + 1])
       local oldest = session.commits[#session.commits]
-      assert.is_truthy(lines[5]:find(oldest.subject, 1, true), lines[5])
+      assert.is_truthy(lines[head + 2]:find(oldest.subject, 1, true), lines[head + 2])
     end)
   end)
 

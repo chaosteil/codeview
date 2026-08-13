@@ -291,6 +291,11 @@ reports it. Set `commit_message = false` to leave the commits out.
 
 ## Sidebar
 
+The first line of the sidebar is **Comments**, with the number of comments of
+the review. Press `<CR>` on it, or double-click it, to open the comment
+overview. A double click on a file opens its diff, and a double click on a
+directory folds it.
+
 The sidebar shows the changed files as a tree. A chain of directories with one
 child each becomes one node. Each file line ends with a status mark: `A` added,
 `M` modified, `D` deleted, `R` renamed, `C` copied, `T` type changed, `U`
@@ -500,7 +505,7 @@ a file buffer of your own.
 
 | Action            | Default          | Where     | What it does                       |
 | ----------------- | ---------------- | --------- | ---------------------------------- |
-| `open_file`       | `<CR>`           | S O       | open the file, or toggle the node  |
+| `open_file`       | `<CR>` `2-click` | S O       | open the file, or toggle the node  |
 | `toggle_node`     | `<Tab>`          | S O       | show or hide the children          |
 | `expand_all`      | `zR`             | S O D     | show every hidden line or node     |
 | `collapse_all`    | `zM`             | S O D     | hide every section or node         |
@@ -601,7 +606,7 @@ The defaults are:
     max_comments = 500,
   },
   keymaps = {
-    open_file = "<CR>",
+    open_file = { "<CR>", "<2-LeftMouse>" },
     toggle_node = "<Tab>",
     expand_all = "zR",
     collapse_all = "zM",

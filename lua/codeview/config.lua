@@ -127,7 +127,10 @@ M.defaults = {
     max_comments = 500,
   },
   keymaps = {
-    open_file = "<CR>",
+    -- A double click opens the file under the pointer, like a file tree of an
+    -- editor with a mouse. It needs the 'mouse' option, which holds "a" by
+    -- default.
+    open_file = { "<CR>", "<2-LeftMouse>" },
     toggle_node = "<Tab>",
     expand_all = "zR",
     collapse_all = "zM",
