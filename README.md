@@ -6,9 +6,9 @@ diffs inline or side by side, and write comments on the lines. You can export
 the comments as markdown, and later send them to GitHub.
 
 > Status: early development. This release selects the revisions of a review,
-> lists the changed files in a sidebar, and shows the diff of each file inline
-> or side by side. The comments come with the next milestones.
-> See `MILESTONES.md`.
+> lists the changed files in a sidebar, shows the diff of each file inline or
+> side by side, and holds the comments of the review. The export and the GitHub
+> calls come with the next milestones. See `MILESTONES.md`.
 
 ## Requirements
 
@@ -52,6 +52,22 @@ Select what to review:
 :CodeView!                 " pick the first and the last commit of a range
 :CodeViewClose             " close the session
 ```
+
+On a jj repository the argument is a revset:
+
+```vim
+:CodeView @              " the working-copy commit
+:CodeView ::@            " the whole history of the working copy
+:CodeView trunk()..@     " the commits that trunk does not hold
+```
+
+codeview sends the argument to jj as it is. The head of the revset is the new
+side of the review. The parent of the roots of the revset is the base.
+
+A colocated repository has a `.jj` directory and a `.git` directory. codeview
+takes the jj backend there. codeview always takes the repository with the
+deepest root, so a git clone inside a jj repository keeps the git backend. To
+force one backend, set the `backend` option to `"git"` or `"jj"`.
 
 The session reports the range, the commits, and the changed files. From Lua:
 
@@ -131,7 +147,37 @@ These keys work in the diff buffer:
 | `]f`         | open the next file                        |
 | `[f`         | open the previous file                    |
 | `<leader>ct` | switch the diff style                     |
+| `i` `a` `o` `O` | comment on the line under the cursor   |
+| `I` `A` `c`  | comment on the selected lines (visual)    |
+| `<leader>cc` | comment on the line or on the selection   |
+| `<leader>ce` | edit the comment under the cursor         |
+| `<leader>cd` | delete the comment under the cursor       |
+| `K`          | show the comment under the cursor         |
 | `q`          | close the review session                  |
+
+## Comments
+
+The diff buffer is read-only, so the insert keys are free. They open the
+comment editor instead: `i`, `a`, `o`, and `O` comment on the line under the
+cursor. In the visual mode `I`, `A`, and `c` comment on the selected lines,
+like the GitHub review UI. The visual mode keeps `i` free, so `vi(` still
+selects a text object.
+
+The editor is a float with its own markdown buffer. `:w` saves the comment,
+and `q` or `<Esc><Esc>` discards it. The diff buffer never becomes modifiable.
+A comment shows as extmarks only: a sign on every covered line, and virtual
+lines below the range.
+
+A comment anchors to a file, a line range, a side of the diff, and a commit.
+The line map of the render gives the anchor, so a comment keeps its line in
+both diff styles. A removed line anchors to the old side, and an added or
+unchanged line to the new side.
+
+All comments of a session live in one markdown file, under
+`~/.config/nvim/review/<repo>/<session-key>.md`. The key is a hash of the
+repository root and of the resolved range, so a reopen of the same range shows
+the comments again. codeview writes the file atomically, and it writes no
+other file.
 
 ## Configuration
 
@@ -162,6 +208,9 @@ The defaults are:
     dir = vim.fs.joinpath(vim.fn.stdpath("config"), "review"),
     display = "virtual", -- "virtual" | "float"
     sign = "▌",
+    border = "rounded",
+    width = 72,
+    height = 10,
   },
   export = {
     register = "+",
@@ -179,7 +228,11 @@ The defaults are:
     expand_context = "za",
     toggle_style = "<leader>ct",
     comment = "<leader>cc",
+    comment_insert = { "i", "a", "o", "O" },
+    comment_visual = { "I", "A", "c" },
+    edit_comment = "<leader>ce",
     delete_comment = "<leader>cd",
+    show_comment = "K",
     close = "q",
   },
   log_level = vim.log.levels.WARN,

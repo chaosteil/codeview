@@ -1,8 +1,10 @@
 ---@brief The `:CodeView` and `:CodeViewClose` commands.
 ---
 --- `:CodeView <rev>` reviews one commit. `:CodeView <rev>..<rev>` reviews a
---- range. `:CodeView` without an argument opens the commit picker, and
---- `:CodeView!` opens the picker in the range mode.
+--- range. On a jj repository the argument is a revset, for example
+--- `:CodeView ::@` or `:CodeView trunk()..@`. `:CodeView` without an argument
+--- opens the commit picker, and `:CodeView!` opens the picker in the range
+--- mode.
 ---
 --- The command file in `plugin/` registers the commands. It calls this module
 --- only when a command runs.
@@ -20,7 +22,8 @@ local M = {}
 
 ---@class codeview.command.Args
 ---@field action "review"|"pick" What the argument asks for.
----@field range codeview.vcs.RangeSpec? Revision argument of a review action.
+---@field text string? Revision argument of a review action, as the user wrote it.
+---@field range codeview.vcs.RangeSpec? Form of the revision argument, in git terms.
 ---@field mode "single"|"range"? Number of picks of a pick action.
 
 ---@class codeview.command.RunOpts
@@ -59,8 +62,10 @@ end
 
 ---Read the arguments of `:CodeView`.
 ---
---- The text goes to the backend as it is, because a backend can accept more
---- than one revision name. Only the form of the range is read here.
+--- The text goes to the backend as it is. Each backend reads the revision
+--- language that it knows: git reads `a`, `a..b`, and `a...b`, and jj reads a
+--- revset. `parsed.range` reports the form in git terms, for a caller that
+--- needs it. `parsed.text` holds the argument itself.
 ---@param args string? Text after the command name.
 ---@param bang boolean? True after `:CodeView!`.
 ---@return codeview.command.Args? parsed
@@ -79,7 +84,7 @@ function M.parse(args, bang)
   if not range then
     return nil, err
   end
-  return { action = "review", range = range }, nil
+  return { action = "review", text = text, range = range }, nil
 end
 
 ---Run `:CodeView`.
@@ -100,7 +105,9 @@ function M.run(opts)
     picker.pick({ mode = parsed.mode, dir = opts.dir }, opts.on_open or opened)
     return
   end
-  session.open(parsed.range, { dir = opts.dir }, opts.on_open or opened)
+  -- The text goes to the backend, not the parsed form. A jj revset must reach
+  -- jj without a split on the dots.
+  session.open(parsed.text --[[@as string]], { dir = opts.dir }, opts.on_open or opened)
 end
 
 ---Run `:CodeViewClose`.

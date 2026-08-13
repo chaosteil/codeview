@@ -181,13 +181,12 @@ end
 local function set_keymaps(session, buf)
   local keys = config.get().keymaps
 
-  ---@param lhs string|false Key of the configuration. False disables the map.
+  ---@param value string|string[]|false Key of the configuration. False disables the map.
   ---@param action fun()
-  local function add(lhs, action)
-    if type(lhs) ~= "string" or lhs == "" then
-      return
+  local function add(value, action)
+    for _, lhs in ipairs(config.keys(value)) do
+      vim.keymap.set("n", lhs, action, { buffer = buf, nowait = true, silent = true, desc = "codeview: file view" })
     end
-    vim.keymap.set("n", lhs, action, { buffer = buf, nowait = true, silent = true, desc = "codeview: file view" })
   end
 
   ---@param _ codeview.view.State?
@@ -231,6 +230,9 @@ local function set_keymaps(session, buf)
   add(keys.close, function()
     session:close()
   end)
+
+  -- The comment keys need the visual mode too. The module owns them.
+  require("codeview.comments").set_keymaps(session, buf)
 end
 
 ---Make the buffer of one side of a file.
@@ -461,6 +463,9 @@ local function rerender(view, anchor)
     anchor = anchor_of(view)
   end
   draw(view)
+  -- The comments are extmarks over the new rows. They never change the text of
+  -- the buffer, so the line map of the render stays correct.
+  require("codeview.comments").decorate(view)
   place(view, anchor)
   return view
 end

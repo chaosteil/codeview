@@ -47,6 +47,31 @@ describe("codeview.config", function()
     assert.is_false(cfg.keymaps.close)
   end)
 
+  it("accepts a list of keys for one action", function()
+    local cfg = assert(config.setup({ keymaps = { comment_insert = { "gc", "gC" } } }))
+    assert.are.same({ "gc", "gC" }, cfg.keymaps.comment_insert)
+    -- A list from the user replaces the default list. It does not merge into it.
+    assert.are.same({ "I", "A", "c" }, cfg.keymaps.comment_visual)
+
+    local short = assert(config.setup({ keymaps = { comment_insert = { "gc" } } }))
+    assert.are.same({ "gc" }, short.keymaps.comment_insert)
+  end)
+
+  it("reads the keys of one action", function()
+    assert.are.same({ "]f" }, config.keys("]f"))
+    assert.are.same({ "i", "a" }, config.keys({ "i", "a" }))
+    assert.are.same({}, config.keys(false))
+    assert.are.same({}, config.keys(nil))
+    assert.are.same({}, config.keys(""))
+    assert.are.same({ "gc" }, config.keys({ "gc", "", 1 }))
+  end)
+
+  it("rejects a key that is not a string", function()
+    local cfg, err = config.setup({ keymaps = { comment_insert = { 1 } } })
+    assert.is_nil(cfg)
+    assert.is_truthy(err:find("keymaps.comment_insert", 1, true), err)
+  end)
+
   it("accepts a template function", function()
     local fn = function()
       return "review"

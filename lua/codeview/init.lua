@@ -167,6 +167,49 @@ function M.toggle_context(id, expanded)
   return require("codeview.view").toggle_context(id, expanded)
 end
 
+---Comment on the line under the cursor, or on the selected lines.
+---
+--- The call opens the comment editor. The diff buffer stays read-only.
+---@param opts? { visual?: boolean, first?: integer, last?: integer }
+---@return boolean opened False when the row holds no line of the file.
+function M.comment(opts)
+  return require("codeview.comments").add(opts)
+end
+
+---Open the editor for the comment under the cursor.
+---@param opts? { id?: string }
+---@return boolean opened False when no comment covers the cursor.
+function M.edit_comment(opts)
+  return require("codeview.comments").edit(opts)
+end
+
+---Delete the comment under the cursor, after a question.
+---@param opts? { id?: string, confirm?: boolean } `confirm = false` skips the question.
+---@return boolean removed
+function M.delete_comment(opts)
+  return require("codeview.comments").remove(opts)
+end
+
+---Show the comment under the cursor in a float.
+---@return integer? buf
+---@return integer? win
+function M.show_comment()
+  return require("codeview.comments").show()
+end
+
+---Comments of the session that runs.
+---@return codeview.store.Comment[] comments
+function M.comments()
+  return require("codeview.comments").list()
+end
+
+---Comment store of the session that runs.
+---@return codeview.store.Store? store Nil when no session runs.
+---@return codeview.Error? err
+function M.store()
+  return require("codeview.comments").store()
+end
+
 ---Run the health check of the plugin.
 ---
 --- The same report comes from `:checkhealth codeview`.

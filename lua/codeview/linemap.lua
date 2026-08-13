@@ -13,7 +13,8 @@
 --- The map answers in both directions:
 ---
 --- - row to file line: |codeview.LineMap:file_line()| and |codeview.LineMap:row()|.
---- - file line to row: |codeview.LineMap:buf_row()| and |codeview.LineMap:nearest_row()|.
+--- - file line to row: |codeview.LineMap:buf_row()|, |codeview.LineMap:nearest_row()|,
+---   and |codeview.LineMap:next_row()|.
 ---
 --- The renderer of a diff style builds the map. M5 builds one map per side,
 --- M7 anchors the comments through it, and M11 maps an anchor to a position of
@@ -98,6 +99,24 @@ local function find_le(seq, line)
       lo = mid + 1
     else
       hi = mid - 1
+    end
+  end
+  return found
+end
+
+---Find the first entry whose file line is at or above one line.
+---@param seq codeview.linemap.Entry[]
+---@param line integer
+---@return codeview.linemap.Entry? entry Nil when every entry is below the line.
+local function find_ge(seq, line)
+  local lo, hi, found = 1, #seq, nil
+  while lo <= hi do
+    local mid = math.floor((lo + hi) / 2)
+    if seq[mid].line >= line then
+      found = seq[mid]
+      hi = mid - 1
+    else
+      lo = mid + 1
     end
   end
   return found
@@ -271,6 +290,26 @@ function LineMap:nearest_row(line, side)
     return nil
   end
   local entry = find_le(seq, line)
+  return entry and entry.row or nil
+end
+
+---Buffer row of one file line, or of the closest line below it.
+---
+--- Use this call for a line that the render hides above every row of the side,
+--- for example a line of a collapsed section at the start of the file.
+---@param line integer Line in the file, from 1.
+---@param side codeview.linemap.Side Side that holds the line.
+---@return integer? lnum Nil when no row of the side is at or below the line.
+function LineMap:next_row(line, side)
+  local exact = self:buf_row(line, side)
+  if exact then
+    return exact
+  end
+  local seq = self.seq[side]
+  if not seq or type(line) ~= "number" then
+    return nil
+  end
+  local entry = find_ge(seq, line)
   return entry and entry.row or nil
 end
 

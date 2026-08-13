@@ -235,6 +235,12 @@ function M.open(spec, opts, cb)
       callbacks = {},
     }, Session)
     current = session
+    -- The comments of the range load with the session, so that the first file
+    -- shows its anchors at once.
+    local _, store_err = require("codeview.comments").attach(session)
+    if store_err then
+      vim.notify("codeview: " .. tostring(store_err), vim.log.levels.WARN)
+    end
     announce("CodeViewSessionOpened", session)
     return session
   end

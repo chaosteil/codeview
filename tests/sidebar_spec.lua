@@ -532,6 +532,16 @@ describe("codeview.sidebar", function()
       assert.is_false(vim.tbl_contains(names, "q"))
       assert.is_true(vim.tbl_contains(names, "]f"))
     end)
+
+    it("takes a list of keys for one action", function()
+      config.setup({ keymaps = { open_file = { "<CR>", "o" } } })
+      local bar = open_sidebar()
+      local names = vim.tbl_map(function(map)
+        return map.lhs
+      end, api.nvim_buf_get_keymap(assert(bar.panel:buffer()), "n"))
+      assert.is_true(vim.tbl_contains(names, "<CR>"))
+      assert.is_true(vim.tbl_contains(names, "o"))
+    end)
   end)
 
   describe("close", function()

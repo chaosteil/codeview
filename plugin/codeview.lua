@@ -22,7 +22,7 @@ vim.api.nvim_create_user_command("CodeView", function(opts)
 end, {
   nargs = "*",
   bang = true,
-  desc = "Review a commit (:CodeView <rev>), a range (:CodeView <rev>..<rev>), or pick from the log",
+  desc = "Review a commit, a range, or a jj revset (:CodeView <rev>), or pick from the log",
 })
 
 vim.api.nvim_create_user_command("CodeViewClose", function()

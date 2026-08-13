@@ -10,10 +10,11 @@ CONTENTS                                                     *codeview-contents*
   5. Sessions ............................. |codeview-sessions|
   6. Sidebar .............................. |codeview-sidebar|
   7. Diff view ............................ |codeview-diff|
-  8. Lua API .............................. |codeview-api|
-  9. Configuration ........................ |codeview-config|
-  10. Highlights .......................... |codeview-highlights|
-  11. Health .............................. |codeview-health|
+  8. Comments ............................. |codeview-comments|
+  9. Lua API .............................. |codeview-api|
+  10. Configuration ....................... |codeview-config|
+  11. Highlights .......................... |codeview-highlights|
+  12. Health .............................. |codeview-health|
 
 ==============================================================================
 1. INTRODUCTION                                          *codeview-introduction*
@@ -24,8 +25,9 @@ the changed files in a sidebar, read the diffs inline or side by side, and
 write comments on the lines. You can export the comments as markdown.
 
 This release selects the revisions of a review, lists the changed files in a
-sidebar, and shows the diff of each file inline or side by side. The comments
-come with the next milestones.
+sidebar, shows the diff of each file inline or side by side, and holds the
+comments of the review. The export and the GitHub calls come with the next
+milestones.
 
 ==============================================================================
 2. REQUIREMENTS                                          *codeview-requirements*
@@ -88,6 +90,19 @@ plugin then calls setup() with that table: >lua
 :CodeView {rev}...{rev}
     Review the changes since the merge base of the two revisions.
 
+:CodeView {revset}                                        *codeview-revsets*
+    On a jj repository the argument is a revset. The command sends the text to
+    jj as it is. The head of the revset is the new side of the review. The
+    parent of the roots of the revset is the base.
+
+    A revset that names more than one head is an error. Select one head.
+
+    Examples: >vim
+
+        :CodeView @
+        :CodeView ::@
+        :CodeView trunk()..@
+<
 :CodeView
     Open the commit picker. Select one commit to review it.
 
@@ -331,6 +346,12 @@ The diff buffer holds these maps. |codeview-config| names the keys: >
     ]f          open the next file
     [f          open the previous file
     <leader>ct  switch the diff style
+    i a o O     comment on the line under the cursor
+    I A c       comment on the selected lines, in the visual mode
+    <leader>cc  comment on the line or on the selection
+    <leader>ce  edit the comment under the cursor
+    <leader>cd  delete the comment under the cursor
+    K           show the comment under the cursor in a float
     q           close the review session
 <
 The diff view sends one event: >
@@ -359,7 +380,132 @@ hunk of the row. Read the map with |codeview.view()|: >lua
     print(map:buf_row(12, "new"))              -- 5
 <
 ==============================================================================
-8. LUA API                                                        *codeview-api*
+8. COMMENTS                                                  *codeview-comments*
+
+A comment holds a file, a line range, a side of the diff, a commit, and a
+markdown body. The plugin keeps every comment of a session in one file. A
+reopen of the same range shows the comments again.
+
+The diff buffer stays read-only. A comment never becomes a line of the buffer.
+The view shows a comment with extmarks only: a sign on every covered row, and
+virtual lines below the range. The line count of the diff buffer never
+changes, so the line map of the render stays correct.
+
+                                                     *codeview-comments-keys*
+The insert keys write comments. They do nothing in a read-only buffer, so the
+diff buffer maps them to the comment editor: >
+
+    i a o O     comment on the line under the cursor
+    I A c       comment on the selected lines, in the visual mode
+    <leader>cc  comment on the line, or on the selection
+    <leader>ce  edit the comment under the cursor
+    <leader>cd  delete the comment under the cursor, after a question
+    K           show the comment under the cursor in a float
+<
+The visual mode keeps `i` free, because `i` is the prefix of the text objects.
+`vi(` still selects a text object in the diff buffer. The maps are
+buffer-local. They never reach a file buffer of your own.
+
+Every key comes from the `keymaps` option. Set an entry to false to disable
+it, or give a list of keys for one action: >lua
+
+    require("codeview").setup({
+      keymaps = {
+        comment_insert = { "i", "a" },   -- fewer insert keys
+        comment_visual = false,          -- no visual mode maps
+        show_comment = "gh",
+      },
+    })
+<
+                                                   *codeview-comments-editor*
+The editor is a floating window with its own markdown buffer. This buffer is
+the only modifiable buffer of the comment flow. You never type into the diff
+buffer, and the plugin never writes to a file of the repository.
+
+In the editor: >
+
+    :w          save the comment
+    q           discard the comment
+    <Esc><Esc>  discard the comment
+<
+An empty body counts as a discard. A close of the window discards the comment
+too.
+
+                                                    *codeview-comments-anchor*
+The anchor of a comment comes from the line map of the render. The cursor row
+gives the file line and the side:
+
+    - A removed line anchors to the old side.
+    - An added line anchors to the new side.
+    - An unchanged line anchors to the new side, like the GitHub review UI.
+
+In the side-by-side style the window under the cursor selects the side. The
+left window comments on the old file, and the right window on the new file. A
+comment keeps its anchor across a change of the style, because both styles
+read the same file lines.
+
+A comment on a line of a collapsed section moves its sign to the row above the
+section. A section at the start of the file has no row above it, so the sign
+goes on the row of the section itself. The row of the sign also answers for
+the edit key and for the delete key. Press `za` to show the lines again.
+
+                                                   *codeview-comments-display*
+The `comments.display` option selects the display: >
+
+    virtual   the body shows in virtual lines below the range (default)
+    float     the row keeps the sign only
+<
+The `K` key shows the comment in a float in both cases.
+
+In the side-by-side style a comment keeps the two windows aligned. The other
+side takes virtual lines of the same number, without text, so both windows
+grow by the same height. The sign column of a split window has a fixed width,
+so a sign on one side does not move the text of that side alone.
+
+                                                     *codeview-comments-store*
+The comments of one session live in one markdown file. The directory comes
+from the `comments.dir` option and from the path of the repository. The file
+name is a hash of the repository root and of the resolved range, so a reopen
+of the same range finds the file again: >
+
+    ~/.config/nvim/review/<repo-slug>-<hash>/<session-key>.md
+<
+The frontmatter of the file holds the session data. Each comment is one
+section with a field block and a markdown body: >
+
+    ---
+    version: 1
+    key: 4f1c0a2b8d3e5f60
+    repo: /home/ada/code/demo
+    range: aaaa1111..bbbb2222
+    spec: main..@
+    created_at: 2026-08-12T09:00:00Z
+    updated_at: 2026-08-12T09:30:00Z
+    ---
+
+    # codeview review: main..@
+
+    ## codeview-comment 68a1c2f30b7a
+
+    - file: lua/codeview/store.lua
+    - start_line: 12
+    - end_line: 14
+    - side: new
+    - commit: bbbb2222
+    - state: open
+    - created_at: 2026-08-12T09:10:00Z
+    - updated_at: 2026-08-12T09:10:00Z
+
+    The body of the comment.
+<
+The plugin writes the file atomically. It writes a temporary file in the same
+directory and renames it over the target. A failed write keeps the file of the
+last save.
+
+Read the store from Lua with |codeview.store()|.
+
+==============================================================================
+9. LUA API                                                        *codeview-api*
 
                                                              *codeview.open()*
 codeview.open({spec}, {opts}, {cb})
@@ -451,6 +597,50 @@ codeview.toggle_context({id}, {expanded})
     Show or hide the lines of a collapsed section. Without {id} the call acts
     on the section under the cursor. Return false without a section.
 
+                                                          *codeview.comment()*
+codeview.comment({opts})
+    Open the comment editor for the line under the cursor. With
+    `opts.visual = true` the comment covers the lines of the selection.
+    `opts.first` and `opts.last` name buffer rows of the diff.
+
+    Return false when the row holds no line of the file.
+
+                                                     *codeview.edit_comment()*
+codeview.edit_comment({opts})
+    Open the editor for the comment under the cursor. `opts.id` names another
+    comment. Return false without a comment.
+
+                                                   *codeview.delete_comment()*
+codeview.delete_comment({opts})
+    Delete the comment under the cursor, after a question. `opts.confirm =
+    false` skips the question. `opts.id` names another comment.
+
+                                                     *codeview.show_comment()*
+codeview.show_comment()
+    Show the comment under the cursor in a float. Return the buffer and the
+    window of the float.
+
+                                                         *codeview.comments()*
+codeview.comments()
+    List of the comments of the session that runs.
+
+                                                            *codeview.store()*
+codeview.store()
+    Comment store of the session that runs, or nil and an error. The store
+    answers these calls: >lua
+
+        store.path                    -- path of the session file
+        store.key                     -- session key
+        store:count()                 -- number of comments
+        store:get(id)                 -- one comment
+        store:for_file(path, opts)    -- comments of one file
+        store:at(path, side, line)    -- comments that cover one line
+        store:add(fields)             -- add a comment
+        store:update(id, fields)      -- change a comment
+        store:remove(id)              -- delete a comment
+        store:save()                  -- write the file
+<
+
 A session answers these calls: >lua
 
     session:label()          -- text of the range
@@ -462,7 +652,7 @@ A session answers these calls: >lua
     session:close()          -- close the session
 <
 ==============================================================================
-9. CONFIGURATION                                               *codeview-config*
+10. CONFIGURATION                                              *codeview-config*
 
 Defaults: >lua
 
@@ -489,7 +679,10 @@ Defaults: >lua
       comments = {
         dir = stdpath("config") .. "/review",
         display = "virtual",         -- "virtual" | "float"
-        sign = "▌",
+        sign = "▌",                  -- sign of a commented line
+        border = "rounded",          -- border of the editor and of the float
+        width = 72,                  -- width of the editor, in columns
+        height = 10,                 -- height of the editor, in lines
       },
       export = {
         register = "+",
@@ -507,17 +700,41 @@ Defaults: >lua
         expand_context = "za",
         toggle_style = "<leader>ct",
         comment = "<leader>cc",
+        comment_insert = { "i", "a", "o", "O" },
+        comment_visual = { "I", "A", "c" },
+        edit_comment = "<leader>ce",
         delete_comment = "<leader>cd",
+        show_comment = "K",
         close = "q",
       },
       log_level = vim.log.levels.WARN,
     }
 <
-Set a keymap to false to disable it. setup() rejects an unknown key, and
-reports the name of the key.
+Set a keymap to false to disable it. A list holds more than one key for one
+action, and a list from you replaces the default list. setup() rejects an
+unknown key, and reports the name of the key.
+
+                                                        *codeview-backend*
+The `backend` option selects the version control system. With "auto" the
+plugin looks for a jj repository and for a git repository. It takes the
+repository with the deepest root, so a git clone inside a jj repository keeps
+the git backend. A colocated repository has a `.jj` directory and a `.git`
+directory. Both roots are equal there, and the plugin takes the jj backend,
+because the user drives such a repository with jj. Set the option to "git" or
+to "jj" to force one backend. A forced backend needs its executable in $PATH.
+Without the executable the plugin reports an error.
+
+The jj backend reads the repository only. Every jj call runs with
+`--ignore-working-copy`, so no call snapshots the working copy. A file that
+you changed after the last snapshot keeps its old content in the review. For a
+symbolic link the backend shows the target of the link.
+
+A revset that names no commit gives an error that says so, for example
+`trunk()..@` on a workspace with no new commit. The virtual root commit of jj
+holds no files, so the backend rejects it as a revision.
 
 ==============================================================================
-10. HIGHLIGHTS                                             *codeview-highlights*
+11. HIGHLIGHTS                                             *codeview-highlights*
 
 Every group of codeview links to a standard group. The link is a default
 link, so your own link or your own colors win. The plugin sets the links
@@ -532,6 +749,7 @@ again after a colorscheme change.
                                                         *hl-CodeViewDiffDelete*
                                                         *hl-CodeViewDiffText*
                                                         *hl-CodeViewDiffFiller*
+                                                        *hl-CodeViewComment*
 >
     CodeViewTitle          Title        range in the sidebar header
     CodeViewCount          Comment      counts in the sidebar header
@@ -556,13 +774,16 @@ again after a colorscheme change.
     CodeViewDiffFiller     NonText      filler row of the side-by-side diff
     CodeViewDiffNumber     LineNr       line numbers of the status column
     CodeViewDiffMessage    Comment      note of a file without a text diff
+    CodeViewComment        Comment      body of a comment in the diff
+    CodeViewCommentHeader  Title        header line of a comment
+    CodeViewCommentSign    Special      sign of a commented line
 <
 To change a color, set the group after your colorscheme: >lua
 
     vim.api.nvim_set_hl(0, "CodeViewCurrent", { link = "Visual" })
 <
 ==============================================================================
-11. HEALTH                                                     *codeview-health*
+12. HEALTH                                                     *codeview-health*
 
 Run |:checkhealth| codeview. The report shows: >
 

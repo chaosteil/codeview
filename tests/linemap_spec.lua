@@ -133,6 +133,17 @@ describe("codeview.linemap", function()
       assert.is_nil(map:nearest_row(0, "new"))
     end)
 
+    it("finds the closest row below a hidden line", function()
+      local map = modified()
+      assert.are.equal(7, map:next_row(8, "new"))
+      assert.are.equal(7, map:next_row(15, "old"))
+      assert.are.equal(2, map:next_row(1, "new"))
+      assert.are.equal(2, map:next_row(0, "old"))
+      assert.is_nil(map:next_row(41, "new"))
+      assert.is_nil(map:next_row(1, "both"))
+      assert.is_nil(map:next_row("1", "new"))
+    end)
+
     it("keeps the sequence of a side in order", function()
       local map = linemap.from({
         { kind = "context", old = 5, new = 5 },

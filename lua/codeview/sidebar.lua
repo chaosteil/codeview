@@ -380,10 +380,10 @@ local function keymaps(sidebar)
   ---@type table<string, fun()>
   local maps = {}
 
-  ---@param lhs string|false Key of the configuration. False disables the map.
+  ---@param value string|string[]|false Key of the configuration. False disables the map.
   ---@param action fun()
-  local function add(lhs, action)
-    if type(lhs) == "string" and lhs ~= "" then
+  local function add(value, action)
+    for _, lhs in ipairs(config.keys(value)) do
       maps[lhs] = action
     end
   end

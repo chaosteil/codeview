@@ -477,6 +477,20 @@ describe("codeview.view", function()
       assert.are.equal(44, #lines_of(state.buf))
     end)
 
+    it("takes a list of keys for one action", function()
+      assert(require("codeview.config").setup({ keymaps = { next_hunk = { "]h", "]c" } } }))
+      local state = open_long()
+      api.nvim_set_current_win(state.win)
+
+      api.nvim_win_set_cursor(state.win, { 1, 0 })
+      press("]c")
+      assert.are.equal(10, cursor(state))
+
+      api.nvim_win_set_cursor(state.win, { 1, 0 })
+      press("]h")
+      assert.are.equal(10, cursor(state))
+    end)
+
     it("reports no file for the diff actions", function()
       view.close()
       assert.is_nil(view.next_hunk())

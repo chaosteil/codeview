@@ -70,10 +70,14 @@ M.line_hl = {
 ---
 --- The two windows scroll and move the cursor together. Both sides hold the
 --- same rows, so the same row number names the same change in both windows.
+---
+--- The sign column keeps a fixed width. A sign on one side only, for example
+--- the sign of a comment, would move the text of that side alone.
 ---@type table<string, any>
 M.window_options = vim.tbl_extend("force", layout.window_options, {
   scrollbind = true,
   cursorbind = true,
+  signcolumn = "yes:1",
 })
 
 ---@class codeview.split.Row

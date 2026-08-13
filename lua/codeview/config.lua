@@ -15,7 +15,7 @@ local M = {}
 ---@field sidebar codeview.Config.Sidebar Changed-files sidebar options.
 ---@field comments codeview.Config.Comments Comment editor and storage options.
 ---@field export codeview.Config.Export Export options.
----@field keymaps table<string, string|false> Buffer-local keymaps. Set an entry to false to disable it.
+---@field keymaps table<string, string|string[]|false> Buffer-local keymaps. A list holds more than one key for one action. Set an entry to false to disable it.
 ---@field log_level integer Minimum level for notifications. Use a `vim.log.levels` value.
 
 ---@class codeview.Config.Diff
@@ -41,6 +41,9 @@ local M = {}
 ---@field dir string Directory for the session files. One subdirectory per repo.
 ---@field display "virtual"|"float" How to show a comment body in the diff.
 ---@field sign string Sign text for a commented line.
+---@field border string Border of the comment editor and of the comment float.
+---@field width integer Width of the comment editor, in columns.
+---@field height integer Height of the comment editor, in lines.
 
 ---@class codeview.Config.Export
 ---@field register string Register that receives the exported markdown.
@@ -72,6 +75,9 @@ M.defaults = {
     dir = fs.joinpath(fn.stdpath("config") --[[@as string]], "review"),
     display = "virtual",
     sign = "▌",
+    border = "rounded",
+    width = 72,
+    height = 10,
   },
   export = {
     register = "+",
@@ -89,7 +95,13 @@ M.defaults = {
     expand_context = "za",
     toggle_style = "<leader>ct",
     comment = "<leader>cc",
+    -- The diff buffer is read-only, so the insert keys are free. They open the
+    -- comment editor instead. Visual `i` stays free, because `vi(` must work.
+    comment_insert = { "i", "a", "o", "O" },
+    comment_visual = { "I", "A", "c" },
+    edit_comment = "<leader>ce",
     delete_comment = "<leader>cd",
+    show_comment = "K",
     close = "q",
   },
   log_level = vim.log.levels.WARN,
@@ -120,6 +132,24 @@ local function positive_integer(value)
   return type(value) == "number" and value > 0 and value % 1 == 0
 end
 
+---Report whether a value names one key, a list of keys, or no key.
+---@param value any
+---@return boolean
+local function keys_value(value)
+  if value == false or type(value) == "string" then
+    return true
+  end
+  if not vim.islist(value) then
+    return false
+  end
+  for _, lhs in ipairs(value) do
+    if type(lhs) ~= "string" then
+      return false
+    end
+  end
+  return true
+end
+
 ---Report the keys that are not in the defaults.
 ---@param opts table
 ---@param defaults table
@@ -131,7 +161,9 @@ local function collect_unknown(opts, defaults, path, unknown)
     local default = defaults[key]
     if default == nil then
       unknown[#unknown + 1] = name
-    elseif type(default) == "table" and type(value) == "table" then
+    elseif type(default) == "table" and type(value) == "table" and not vim.islist(default) then
+      -- A list default is one value, for example a list of keys. Its entries
+      -- are not options.
       collect_unknown(value, default, name, unknown)
     end
   end
@@ -163,6 +195,9 @@ function M.validate(opts)
     vim.validate("comments.dir", opts.comments.dir, "string")
     vim.validate("comments.display", opts.comments.display, one_of({ "virtual", "float" }))
     vim.validate("comments.sign", opts.comments.sign, "string")
+    vim.validate("comments.border", opts.comments.border, "string")
+    vim.validate("comments.width", opts.comments.width, positive_integer, "positive integer")
+    vim.validate("comments.height", opts.comments.height, positive_integer, "positive integer")
 
     vim.validate("export", opts.export, "table")
     vim.validate("export.register", opts.export.register, "string")
@@ -172,9 +207,7 @@ function M.validate(opts)
 
     vim.validate("keymaps", opts.keymaps, "table")
     for action, lhs in pairs(opts.keymaps) do
-      vim.validate("keymaps." .. tostring(action), lhs, function(value)
-        return value == false or type(value) == "string"
-      end, "string or false")
+      vim.validate("keymaps." .. tostring(action), lhs, keys_value, "string, list of strings, or false")
     end
 
     vim.validate("log_level", opts.log_level, "number")
@@ -191,7 +224,16 @@ end
 ---@param opts? table
 ---@return codeview.Config
 function M.merge(opts)
-  return vim.tbl_deep_extend("force", vim.deepcopy(M.defaults), opts or {})
+  local merged = vim.tbl_deep_extend("force", vim.deepcopy(M.defaults), opts or {})
+  -- A keymap option is one value, not a table of options. A list from the user
+  -- replaces the default list, entry by entry.
+  local keymaps = opts and opts.keymaps
+  if type(keymaps) == "table" then
+    for action, lhs in pairs(keymaps) do
+      merged.keymaps[action] = vim.deepcopy(lhs)
+    end
+  end
+  return merged
 end
 
 ---Merge, validate, and store the configuration.
@@ -227,6 +269,28 @@ end
 ---@return codeview.Config
 function M.get()
   return M.options
+end
+
+---Read one keymap option as a list of keys.
+---
+--- An option holds one key, a list of keys, or false. The call gives the keys
+--- of the action, and an empty list for an action that the user disabled.
+---@param value string|string[]|false|nil Value of one `keymaps` entry.
+---@return string[] keys
+function M.keys(value)
+  if type(value) == "string" then
+    return value ~= "" and { value } or {}
+  end
+  if type(value) ~= "table" then
+    return {}
+  end
+  local out = {}
+  for _, lhs in ipairs(value) do
+    if type(lhs) == "string" and lhs ~= "" then
+      out[#out + 1] = lhs
+    end
+  end
+  return out
 end
 
 ---Reset the configuration to the defaults.

@@ -106,6 +106,7 @@ map:side(lnum)               -- "old", "new", or nil
 map:file_line(lnum, side)    -- buffer row to file line
 map:buf_row(line, side)      -- file line to buffer row
 map:nearest_row(line, side)  -- closest row at or above a hidden line
+map:next_row(line, side)     -- closest row at or below a hidden line
 map:hunk(lnum)               -- hunk of one row
 map:hunk_starts()            -- first row of every hunk
 map:next_hunk(lnum, opts)    -- row of the next hunk
