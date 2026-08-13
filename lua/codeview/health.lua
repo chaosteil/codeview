@@ -1,5 +1,7 @@
 ---@brief Health report for `:checkhealth codeview`.
 
+local errors = require("codeview.error")
+
 local health = vim.health
 
 local M = {}
@@ -77,6 +79,36 @@ local function check_tool(tool)
   health.ok(string.format("%s: %s", tool.name, line))
 end
 
+---Report the login state of the gh CLI.
+---
+--- The call runs `gh auth status`, which asks GitHub whether the token is
+--- valid. Without gh the check reports nothing, because the tool loop already
+--- reported the missing executable.
+local function check_gh_auth()
+  local gh = require("codeview.gh")
+  if not gh.available() then
+    return
+  end
+
+  local auth, err = gh.auth_status({ timeout = 10000 })
+  if auth and auth.ok then
+    local text = auth.account ~= "" and string.format("%s as %s", auth.host, auth.account) or auth.text
+    health.ok("gh auth: logged in to " .. text)
+    return
+  end
+
+  local reason = err and tostring(err) or (auth and auth.text) or "unknown error"
+  if err and err.code == errors.codes.OFFLINE then
+    health.warn("gh auth: cannot reach GitHub (" .. reason .. ")", {
+      "Pull request review needs a connection to github.com.",
+    })
+    return
+  end
+  health.warn("gh auth: not logged in (" .. reason .. ")", {
+    "Run `gh auth login` to review pull requests.",
+  })
+end
+
 ---Report the state of the plugin and of its external tools.
 function M.check()
   health.start("codeview")
@@ -111,6 +143,7 @@ function M.check()
   for _, tool in ipairs(TOOLS) do
     check_tool(tool)
   end
+  check_gh_auth()
 end
 
 return M

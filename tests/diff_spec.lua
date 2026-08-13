@@ -117,6 +117,34 @@ describe("codeview.diff", function()
       end
     end)
 
+    it("runs the histogram algorithm without the indent heuristic by default", function()
+      local seen
+      local real = vim.diff
+      vim.diff = function(old, new, opts) ---@diagnostic disable-line: duplicate-set-field
+        seen = opts
+        return real(old, new, opts)
+      end
+      local ok = pcall(diff.compute, "one\n", "two\n")
+      vim.diff = real
+      assert.is_true(ok)
+      assert.are.equal("histogram", seen.algorithm)
+      assert.is_false(seen.indent_heuristic)
+    end)
+
+    it("takes the algorithm and the indent heuristic of the options", function()
+      local seen
+      local real = vim.diff
+      vim.diff = function(old, new, opts) ---@diagnostic disable-line: duplicate-set-field
+        seen = opts
+        return real(old, new, opts)
+      end
+      local ok = pcall(diff.compute, "one\n", "two\n", { algorithm = "myers", indent_heuristic = true })
+      vim.diff = real
+      assert.is_true(ok)
+      assert.are.equal("myers", seen.algorithm)
+      assert.is_true(seen.indent_heuristic)
+    end)
+
     it("counts the added and the removed lines", function()
       local result = diff.compute("one\ntwo\n", "one\ntwo changed\nthree\n")
       local added, removed = diff.stat(result)

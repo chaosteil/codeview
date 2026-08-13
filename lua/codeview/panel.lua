@@ -68,6 +68,42 @@ local counter = 0
 ---@field marks codeview.panel.Mark[]? Highlights of parts of the text.
 ---@field data any? Value that belongs to the line.
 
+---@class codeview.panel.Builder
+---@field add fun(chunk: string?, hl?: string) Append a part of the text.
+---@field text fun(): string Text of the line up to here.
+---@field build fun(opts?: { hl?: string, data?: any }): codeview.panel.Line Line of the parts.
+
+---Collect the text and the highlights of one line.
+---
+--- Every panel builds its lines from parts, so the builder counts the columns
+--- of each part. The changed-files sidebar and the comment overview both use
+--- it.
+---@return codeview.panel.Builder
+function M.builder()
+  local text = ""
+  ---@type codeview.panel.Mark[]
+  local marks = {}
+  return {
+    add = function(chunk, hl)
+      if not chunk or chunk == "" then
+        return
+      end
+      local from = #text
+      text = text .. chunk
+      if hl then
+        marks[#marks + 1] = { hl = hl, from = from, to = #text }
+      end
+    end,
+    text = function()
+      return text
+    end,
+    build = function(opts)
+      opts = opts or {}
+      return { text = text, marks = marks, hl = opts.hl, data = opts.data }
+    end,
+  }
+end
+
 ---@class codeview.panel.Opts
 ---@field title string Name of the panel. It names the buffer too.
 ---@field render fun(panel: codeview.Panel): codeview.panel.Line[] Content of the buffer.

@@ -27,6 +27,7 @@
 
 local config = require("codeview.config")
 local errors = require("codeview.error")
+local events = require("codeview.events")
 local highlight = require("codeview.highlight")
 local store_mod = require("codeview.store")
 
@@ -259,6 +260,20 @@ local function comment_rows(map, comment)
   return rows
 end
 
+---Rows of a view that hold the lines of one anchor.
+---
+--- |codeview.remote| places its own marks on the same rows, so the two kinds
+--- of comment sit next to each other.
+---@param view codeview.view.State View that shows the file.
+---@param anchor { start_line: integer, end_line: integer, side: codeview.linemap.Side } Lines of the anchor.
+---@return integer[] rows Rows from 1, in buffer order. Empty when the render hides the lines.
+---@return integer buf Buffer of the side of the anchor.
+---@return codeview.LineMap map Map of that buffer.
+function M.rows(view, anchor)
+  local buf, map = side_of(view, anchor.side)
+  return comment_rows(map, anchor --[[@as codeview.store.Comment]]), buf, map
+end
+
 ---Comments that a collapsed section hides, with their sign on one row.
 ---
 --- The sign of a hidden comment sits on a row that holds another line, or no
@@ -342,28 +357,41 @@ local function header_text(comment)
   if comment.state == "resolved" then
     text = text .. " · resolved"
   end
+  if store_mod.is_synced(comment) then
+    text = text .. " · synced"
+  end
   return text
 end
 
----Sign text of a commented row.
----@return string? text Nil when the option holds no sign.
-local function sign_text()
-  local text = config.get().comments.sign or ""
+---Sign text of one comment.
+---
+--- A resolved comment takes its own sign, so that the diff and the comment
+--- overview both show the state without a word.
+---@param comment codeview.store.Comment
+---@return string text Empty when the option holds no sign.
+function M.sign(comment)
+  local cfg = config.get().comments
+  local text = (comment.state == "resolved" and cfg.resolved_sign or cfg.sign) or ""
   while vim.fn.strdisplaywidth(text) > 2 do
     text = vim.fn.strcharpart(text, 0, vim.fn.strchars(text) - 1)
   end
-  if text == "" then
-    return nil
-  end
   return text
+end
+
+---Highlight group of the sign of one comment.
+---@param comment codeview.store.Comment
+---@return string group
+function M.sign_group(comment)
+  return comment.state == "resolved" and "CodeViewCommentResolved" or "CodeViewCommentSign"
 end
 
 ---Virtual lines of one comment.
 ---@param comment codeview.store.Comment
 ---@return string[][][] lines Chunks of every virtual line.
 local function virt_lines(comment)
-  local prefix = (config.get().comments.sign or "") .. " "
-  local out = { { { prefix .. header_text(comment), "CodeViewCommentHeader" } } }
+  local prefix = M.sign(comment) .. " "
+  local header = comment.state == "resolved" and "CodeViewCommentResolved" or "CodeViewCommentHeader"
+  local out = { { { prefix .. header_text(comment), header } } }
   for _, line in ipairs(vim.split(comment.body, "\n", { plain = true })) do
     out[#out + 1] = { { prefix .. line, "CodeViewComment" } }
   end
@@ -399,6 +427,17 @@ local function mirror_of(view, side)
   return nil
 end
 
+---Buffer of the other side of a side-by-side view.
+---
+--- Virtual lines in that buffer keep the two windows on the same screen row.
+--- |codeview.remote| needs the same alignment for its own marks.
+---@param view codeview.view.State
+---@param side codeview.linemap.Side Side that holds the comment.
+---@return integer? buf Nil outside the split style.
+function M.mirror(view, side)
+  return mirror_of(view, side)
+end
+
 ---Place the marks of one comment.
 ---
 --- In the side-by-side style the other side takes virtual lines of the same
@@ -417,11 +456,11 @@ local function place(view, comment, display)
   if #rows == 0 then
     return false
   end
-  local sign = sign_text()
+  local sign = M.sign(comment)
   for _, row in ipairs(rows) do
     local opts = {
-      sign_text = sign,
-      sign_hl_group = "CodeViewCommentSign",
+      sign_text = sign ~= "" and sign or nil,
+      sign_hl_group = M.sign_group(comment),
       priority = 200,
     }
     if display == "virtual" and row == rows[#rows] then
@@ -512,6 +551,47 @@ local function persist(store)
   return ok
 end
 
+---@class codeview.comments.Context
+---@field session codeview.Session Session that owns the comments.
+---@field store codeview.store.Store Comments of the session.
+---@field view codeview.view.State? Diff view of the session, while a file is open.
+
+---Session, store, and view of one comment action.
+---
+--- The comment overview acts without a diff view, so the session answers when
+--- no file is open.
+---@param opts { view?: codeview.view.State, session?: codeview.Session }
+---@return codeview.comments.Context? context
+---@return codeview.Error? err
+local function context(opts)
+  local view = opts.view or require("codeview.view").current()
+  local session = opts.session or (view and view.session) or require("codeview.session").current()
+  if not session or not session:is_active() then
+    return nil, errors.new(errors.codes.INVALID_ARG, "no review session")
+  end
+  if view and view.session ~= session then
+    view = nil
+  end
+  local store, err = M.store(session)
+  if not store then
+    return nil, err
+  end
+  return { session = session, store = store, view = view }, nil
+end
+
+---Send the event of a change of one comment.
+---@param name codeview.events.Name
+---@param session codeview.Session
+---@param comment codeview.store.Comment
+local function announce(name, session, comment)
+  events.emit(name, {
+    id = comment.id,
+    file = comment.file,
+    session = session.id,
+    state = comment.state,
+  })
+end
+
 ---Title of the editor window for one anchor.
 ---@param target codeview.comments.Target
 ---@param action string
@@ -574,35 +654,61 @@ function M.add(opts)
         return
       end
       persist(live)
-      M.refresh()
+      announce("comment_added", view.session, comment)
     end,
   })
   return true
 end
 
+---Comment of one action.
+---
+--- `opts.id` names a comment of the store. Without an id the comment comes
+--- from the cursor, which needs an open diff view.
+---@param ctx codeview.comments.Context
+---@param opts { id?: string }
+---@return codeview.store.Comment? comment
+local function pick(ctx, opts)
+  if opts.id then
+    return ctx.store:get(opts.id)
+  end
+  if not ctx.view then
+    return nil
+  end
+  return M.at_cursor(ctx.view)[1]
+end
+
+---Message for a cursor that no comment of the store covers.
+---
+--- A comment of a pull request sits at the same anchor, but it lives on
+--- GitHub. The message says so, instead of "no comment on this line".
+---@param ctx codeview.comments.Context
+---@return string
+local function nothing_here(ctx)
+  if ctx.view then
+    local target = M.target(ctx.view)
+    local remote = target and require("codeview.remote").at(ctx.session, target.file, target.side, target.start_line)
+    if remote and #remote > 0 then
+      return "the review comments of GitHub are read-only"
+    end
+  end
+  return "no comment on this line"
+end
+
 ---Open the editor for the comment under the cursor.
----@param opts? { id?: string, view?: codeview.view.State }
+---@param opts? { id?: string, view?: codeview.view.State, session?: codeview.Session }
 ---@return boolean opened False when no comment covers the cursor.
 function M.edit(opts)
   opts = opts or {}
-  local view = opts.view or require("codeview.view").current()
-  if not view then
-    notify("no diff view", vim.log.levels.WARN)
+  local ctx, ctx_err = context(opts)
+  if not ctx then
+    notify(tostring(ctx_err), vim.log.levels.WARN)
     return false
   end
-  local store = M.store(view.session)
-  if not store then
-    return false
-  end
+  local session = ctx.session
 
-  local comment
-  if opts.id then
-    comment = store:get(opts.id)
-  else
-    comment = M.at_cursor(view)[1]
-  end
+  local comment = pick(ctx, opts)
   if not comment then
-    notify("no comment on this line", vim.log.levels.WARN)
+    notify(nothing_here(ctx), vim.log.levels.WARN)
     return false
   end
 
@@ -617,46 +723,38 @@ function M.edit(opts)
     on_save = function(body)
       -- The store comes again from the session, because a session that closes
       -- while the editor is open drops its store.
-      local live, live_err = M.store(view.session)
+      local live, live_err = M.store(session)
       if not live then
         notify(tostring(live_err), vim.log.levels.ERROR)
         return
       end
-      local _, err = live:update(comment.id, { body = body })
-      if err then
+      local changed, err = live:update(comment.id, { body = body })
+      if not changed then
         notify(tostring(err), vim.log.levels.ERROR)
         return
       end
       persist(live)
-      M.refresh()
+      announce("comment_changed", session, changed)
     end,
   })
   return true
 end
 
 ---Delete the comment under the cursor.
----@param opts? { id?: string, confirm?: boolean, view?: codeview.view.State } `confirm = false` skips the question.
+---@param opts? { id?: string, confirm?: boolean, view?: codeview.view.State, session?: codeview.Session } `confirm = false` skips the question.
 ---@return boolean removed False when no comment went away.
 function M.remove(opts)
   opts = opts or {}
-  local view = opts.view or require("codeview.view").current()
-  if not view then
-    notify("no diff view", vim.log.levels.WARN)
+  local ctx, ctx_err = context(opts)
+  if not ctx then
+    notify(tostring(ctx_err), vim.log.levels.WARN)
     return false
   end
-  local store = M.store(view.session)
-  if not store then
-    return false
-  end
+  local store = ctx.store
 
-  local comment
-  if opts.id then
-    comment = store:get(opts.id)
-  else
-    comment = M.at_cursor(view)[1]
-  end
+  local comment = pick(ctx, opts)
   if not comment then
-    notify("no comment on this line", vim.log.levels.WARN)
+    notify(nothing_here(ctx), vim.log.levels.WARN)
     return false
   end
 
@@ -674,15 +772,50 @@ function M.remove(opts)
 
   store:remove(comment.id)
   persist(store)
-  M.refresh()
+  announce("comment_deleted", ctx.session, comment)
   return true
+end
+
+---Set the state of the comment under the cursor.
+---
+--- The state lives in the `state` field of the comment, so it survives a
+--- restart with the rest of the comment.
+---@param opts? { id?: string, state?: codeview.store.State, view?: codeview.view.State, session?: codeview.Session } Without a state the call takes the other state.
+---@return codeview.store.Comment? comment The comment after the change.
+function M.set_state(opts)
+  opts = opts or {}
+  local ctx, ctx_err = context(opts)
+  if not ctx then
+    notify(tostring(ctx_err), vim.log.levels.WARN)
+    return nil
+  end
+
+  local comment = pick(ctx, opts)
+  if not comment then
+    notify(nothing_here(ctx), vim.log.levels.WARN)
+    return nil
+  end
+
+  local state = opts.state
+  if state ~= "open" and state ~= "resolved" then
+    state = comment.state == "resolved" and "open" or "resolved"
+  end
+  local changed, err = ctx.store:update(comment.id, { state = state })
+  if not changed then
+    notify(tostring(err), vim.log.levels.ERROR)
+    return nil
+  end
+  persist(ctx.store)
+  announce("comment_changed", ctx.session, changed)
+  return changed
 end
 
 ---Show the comment under the cursor in a float.
 ---
 --- The float closes on the next cursor move. It is the display for the
 --- `comments.display = "float"` option, and it also works next to the virtual
---- lines.
+--- lines. The float holds the local comments of the line first, and the
+--- read-only comments of a pull request after them.
 ---@param opts? { view?: codeview.view.State }
 ---@return integer? buf Buffer of the float.
 ---@return integer? win Window of the float.
@@ -692,8 +825,10 @@ function M.show(opts)
   if not view then
     return nil, nil
   end
-  local found = M.at_cursor(view)
-  if #found == 0 then
+  local remote_mod = require("codeview.remote")
+  local found, target = M.at_cursor(view)
+  local remote = target and remote_mod.at(view.session, target.file, target.side, target.start_line) or {}
+  if #found == 0 and #remote == 0 then
     notify("no comment on this line", vim.log.levels.INFO)
     return nil, nil
   end
@@ -704,6 +839,14 @@ function M.show(opts)
       lines[#lines + 1] = "---"
     end
     lines[#lines + 1] = "### " .. header_text(comment)
+    lines[#lines + 1] = ""
+    vim.list_extend(lines, vim.split(comment.body, "\n", { plain = true }))
+  end
+  for _, comment in ipairs(remote) do
+    if #lines > 0 then
+      lines[#lines + 1] = "---"
+    end
+    lines[#lines + 1] = "### " .. remote_mod.header(comment)
     lines[#lines + 1] = ""
     vim.list_extend(lines, vim.split(comment.body, "\n", { plain = true }))
   end
@@ -806,9 +949,24 @@ function M.set_keymaps(session, buf)
   add("n", keys.delete_comment, function()
     M.remove({ view = view_of() })
   end, "delete the comment")
+  add("n", keys.resolve_comment, function()
+    M.set_state({ view = view_of() })
+  end, "resolve the comment")
   add("n", keys.show_comment, function()
     M.show({ view = view_of() })
   end, "show the comment")
+  add("n", keys.toggle_overview, function()
+    require("codeview.overview").toggle({ session = session, focus = true })
+  end, "open or close the comment overview")
 end
+
+--- Events ---------------------------------------------------------------------
+
+-- The decorations of the diff follow the store. A change from the comment
+-- overview then reaches the extmarks of the diff view, without a call from the
+-- overview into this module.
+events.on(events.comment, function()
+  M.refresh()
+end)
 
 return M

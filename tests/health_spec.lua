@@ -11,6 +11,26 @@ local function report()
 end
 
 describe("codeview.health", function()
+  ---Answer the login check without a call to GitHub.
+  ---@param auth codeview.gh.Auth?
+  ---@param err codeview.Error?
+  local function stub_auth(auth, err)
+    local gh = require("codeview.gh")
+    gh.available = function() ---@diagnostic disable-line: duplicate-set-field
+      return true
+    end
+    gh.auth_status = function() ---@diagnostic disable-line: duplicate-set-field
+      return auth, err
+    end
+  end
+
+  before_each(function()
+    helpers.unload()
+    -- The report must never reach the network. Every test answers the login
+    -- check itself.
+    stub_auth({ ok = true, host = "github.com", account = "ada", text = "github.com" })
+  end)
+
   after_each(function()
     helpers.unload()
   end)
@@ -45,5 +65,40 @@ describe("codeview.health", function()
     if vim.fn.executable("git") == 1 then
       assert.is_truthy(text:find("git version", 1, true), text)
     end
+  end)
+
+  it("reports the account of the gh login", function()
+    local text = report()
+    assert.is_truthy(text:find("gh auth: logged in to github.com as ada", 1, true), text)
+  end)
+
+  it("reports a gh that is not logged in", function()
+    local errors = require("codeview.error")
+    stub_auth(
+      { ok = false, host = "", account = "", text = "not logged in" },
+      errors.new(errors.codes.NOT_AUTHENTICATED, "gh: no valid GitHub credentials. Run `gh auth login`")
+    )
+    local text = report()
+    assert.is_truthy(text:find("gh auth: not logged in", 1, true), text)
+    assert.is_truthy(text:find("gh auth login", 1, true), text)
+  end)
+
+  it("reports a gh that cannot reach GitHub", function()
+    local errors = require("codeview.error")
+    stub_auth(
+      { ok = false, host = "", account = "", text = "" },
+      errors.new(errors.codes.OFFLINE, "gh: cannot reach github.com")
+    )
+    local text = report()
+    assert.is_truthy(text:find("cannot reach GitHub", 1, true), text)
+  end)
+
+  it("says nothing about the login without gh", function()
+    local gh = require("codeview.gh")
+    gh.available = function() ---@diagnostic disable-line: duplicate-set-field
+      return false
+    end
+    local text = report()
+    assert.is_falsy(text:find("gh auth:", 1, true), text)
   end)
 end)

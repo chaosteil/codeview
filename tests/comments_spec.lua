@@ -234,12 +234,12 @@ describe("codeview.comments", function()
     end)
 
     it("puts the marks of both sides in the side-by-side style", function()
-      local state = open_diff()
+      open_diff()
       comment_on(3, "the old side")
       comment_on(4, "the new side")
 
       assert.are.equal("split", view.set_style("split"))
-      state = assert(view.current())
+      local state = assert(view.current())
       assert.are.same({ 3 }, sign_rows(state.old_buf))
       assert.are.same({ 3 }, sign_rows(state.buf))
       assert.are.same({ "▌ comment L2 (old)", "▌ the old side" }, virt_lines(state.old_buf))
@@ -698,6 +698,36 @@ describe("codeview.comments", function()
       assert.are.equal(1, calls)
       assert.is_false(removed)
       assert.are.equal(1, assert(comments.store()):count())
+    end)
+
+    it("resolves and reopens the comment under the cursor", function()
+      local state = open_diff()
+      local comment = comment_on(4, "please rename this")
+      api.nvim_set_current_win(state.win)
+      api.nvim_win_set_cursor(state.win, { 4, 0 })
+      assert.are.equal("open", comment.state)
+
+      press("<leader>cr")
+      local store = assert(comments.store())
+      assert.are.equal("resolved", store.comments[1].state)
+      assert.are.equal("✓", marks_of(state.buf)[1][4].sign_text:sub(1, 3))
+      assert.are.same({ "✓ comment L2 (new) · resolved", "✓ please rename this" }, virt_lines(state.buf))
+      assert.are.equal(
+        "resolved",
+        assert(store_mod.load({ repo = fixture.root, range = store.range })).comments[1].state
+      )
+
+      press("<leader>cr")
+      assert.are.equal("open", assert(comments.store()).comments[1].state)
+      assert.are.equal("▌", marks_of(state.buf)[1][4].sign_text:sub(1, 3))
+    end)
+
+    it("sets one state without a question", function()
+      open_diff()
+      local comment = comment_on(4, "a note")
+      assert.are.equal("resolved", assert(comments.set_state({ id = comment.id, state = "resolved" })).state)
+      assert.are.equal("resolved", assert(comments.set_state({ id = comment.id, state = "resolved" })).state)
+      assert.is_nil(comments.set_state({ id = "no-such-comment" }))
     end)
 
     it("reads the comments under the cursor", function()

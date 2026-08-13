@@ -62,6 +62,9 @@ local M = {}
 ---@field old_win integer? Window of the old side. Split style only.
 ---@field guards integer[] Autocmds that watch the windows of the style.
 
+---@class codeview.view.OpenOpts
+---@field force boolean? True renders a diff that is above the `diff.max_lines` limit.
+
 ---File that the view shows now.
 ---@type codeview.view.State?
 local state = nil
@@ -464,8 +467,10 @@ local function rerender(view, anchor)
   end
   draw(view)
   -- The comments are extmarks over the new rows. They never change the text of
-  -- the buffer, so the line map of the render stays correct.
+  -- the buffer, so the line map of the render stays correct. The comments of a
+  -- pull request use their own namespace, next to the local ones.
   require("codeview.comments").decorate(view)
+  require("codeview.remote").decorate(view)
   place(view, anchor)
   return view
 end
@@ -532,6 +537,26 @@ local function watch_split(view, wins)
   end
 end
 
+---Map the load key on the buffers of a diff that the line limit stopped.
+---
+--- The key is free in the diff buffer of every other file, because a diff that
+--- the view shows needs no second read. |<CR>| then keeps its own action.
+---@param view codeview.view.State
+local function set_load_key(view)
+  if not view.diff.limited then
+    return
+  end
+  for _, buf in ipairs({ view.buf, view.old_buf }) do
+    if buf and api.nvim_buf_is_valid(buf) then
+      for _, lhs in ipairs(config.keys(config.get().keymaps.load_diff)) do
+        vim.keymap.set("n", lhs, function()
+          M.load_diff()
+        end, { buffer = buf, nowait = true, silent = true, desc = "codeview: file view" })
+      end
+    end
+  end
+end
+
 ---Open the windows and the buffers of one style.
 ---
 --- The split style puts the old side in a new window at the left of the window
@@ -553,6 +578,7 @@ local function mount(view, style, win_hint)
   if style ~= "split" then
     view.old_buf, view.old_win, view.old_map = nil, nil, nil
     inline.attach_window(win)
+    set_load_key(view)
     return
   end
 
@@ -564,6 +590,7 @@ local function mount(view, style, win_hint)
     view.style = "inline"
     view.old_buf, view.old_win, view.old_map = nil, nil, nil
     inline.attach_window(win)
+    set_load_key(view)
     return
   end
   session:add_window(old_win)
@@ -571,6 +598,7 @@ local function mount(view, style, win_hint)
   split.attach_window(old_win)
   split.attach_window(win)
   watch_split(view, { old_win, win })
+  set_load_key(view)
 end
 
 ---Bring the view back after the user closes one window of the split style.
@@ -611,10 +639,29 @@ function repair_split(view)
   announce(view)
 end
 
+---Report whether a view still holds a buffer.
+---
+--- The buffers of a view wipe when their window closes. A view without a
+--- buffer shows nothing, and it cannot come back.
+---@param view codeview.view.State
+---@return boolean
+local function alive(view)
+  if api.nvim_buf_is_valid(view.buf) then
+    return true
+  end
+  -- The split style keeps the diff while one side lives. |repair_split()|
+  -- moves it into the window that stays.
+  return view.old_buf ~= nil and api.nvim_buf_is_valid(view.old_buf)
+end
+
 ---Read the file that the view shows.
 ---@return codeview.view.State? view Nil when no file is open.
 function M.current()
   if state and not state.session:is_active() then
+    state = nil
+  end
+  if state and not alive(state) then
+    unmount(state)
     state = nil
   end
   return state
@@ -669,10 +716,15 @@ end
 --- that another call cancels does not run.
 ---@param session codeview.Session
 ---@param index integer Position of the file in the file list of the session.
+---@param opts? codeview.view.OpenOpts
 ---@param cb? fun(view: codeview.view.State?, err: codeview.Error?)
 ---@return codeview.view.State? view
 ---@return codeview.Error? err
-function M.open(session, index, cb)
+function M.open(session, index, opts, cb)
+  if type(opts) == "function" then
+    cb, opts = opts, nil
+  end
+  opts = opts or {}
   if type(session) ~= "table" or type(session.file) ~= "function" then
     return done(cb, nil, errors.new(errors.codes.INVALID_ARG, "the first argument must be a session"))
   end
@@ -728,9 +780,11 @@ function M.open(session, index, cb)
   end
 
   local ticket = ticket_of()
+  -- A forced open removes the line limit, so the diff of a large file renders.
+  local diff_opts = opts.force and { max_lines = 0 } or nil
 
   if not cb then
-    local result, err = diff_mod.for_file(session, file)
+    local result, err = diff_mod.for_file(session, file, diff_opts)
     if not result then
       return nil, err
     end
@@ -738,7 +792,7 @@ function M.open(session, index, cb)
   end
 
   pending = { session = session, index = index, ticket = ticket }
-  diff_mod.for_file(session, file, function(result, err)
+  diff_mod.for_file(session, file, diff_opts, function(result, err)
     if not fresh(ticket) then
       return
     end
@@ -824,6 +878,65 @@ function M.toggle_context(id, expanded)
   return true
 end
 
+---Collapsed section that hides one line of a side.
+---@param view codeview.view.State
+---@param line integer Line in the file, from 1.
+---@param side codeview.linemap.Side Side that holds the line.
+---@return codeview.layout.Gap? gap Nil when no section hides the line.
+local function gap_over(view, line, side)
+  for _, gap in ipairs(renderer(view).gaps(view.buf)) do
+    local first = gap[side]
+    if first and not view.expanded[gap.id] and line >= first and line < first + gap.count then
+      return gap
+    end
+  end
+  return nil
+end
+
+---Move the cursor to one line of the file that the view shows.
+---
+--- A collapsed section that hides the line shows its lines again, so that the
+--- cursor lands on the line itself. Without a row for the line the cursor goes
+--- to the closest row.
+---@param line integer Line in the file, from 1.
+---@param side codeview.linemap.Side? Side that holds the line. "new" by default.
+---@param opts? { focus?: boolean } `focus = true` puts the cursor in the diff window.
+---@return integer? row Buffer row of the cursor. Nil when no file is open.
+function M.go_to_line(line, side, opts)
+  opts = opts or {}
+  local view = M.current()
+  if not view or type(line) ~= "number" then
+    return nil
+  end
+  side = side == "old" and "old" or "new"
+
+  if not map_of(view, side):buf_row(line, side) then
+    local gap = gap_over(view, line, side)
+    if gap then
+      view.expanded[gap.id] = true
+      rerender(view)
+    end
+  end
+
+  local map = map_of(view, side)
+  local row = map:buf_row(line, side) or map:nearest_row(line, side) or map:next_row(line, side)
+  if not row then
+    return nil
+  end
+  go_to(view, row)
+
+  if opts.focus then
+    local win = view.win
+    if side == "old" and view.old_win and api.nvim_win_is_valid(view.old_win) then
+      win = view.old_win
+    end
+    if api.nvim_win_is_valid(win) then
+      api.nvim_set_current_win(win)
+    end
+  end
+  return row
+end
+
 ---Show the hidden lines of every collapsed section.
 ---@return boolean changed False when no file is open.
 function M.expand_all()
@@ -898,6 +1011,25 @@ function M.prev(session, cb)
     return done(cb, nil, errors.new(errors.codes.NOT_FOUND, "no file before this one"))
   end
   return M.open(session, index, cb)
+end
+
+---Render the diff of the file that the line limit stopped.
+---
+--- The call reads the file again, without the limit. It does nothing on a diff
+--- that the view shows already.
+---@param cb? fun(view: codeview.view.State?, err: codeview.Error?)
+---@return boolean started False when the view shows no limited diff.
+function M.load_diff(cb)
+  local view = M.current()
+  if not view or not view.diff.limited then
+    return false
+  end
+  M.open(view.session, view.index, { force = true }, cb or function(_, err)
+    if err then
+      notify(tostring(err))
+    end
+  end)
+  return true
 end
 
 --- Diff style ------------------------------------------------------------------

@@ -10,3 +10,4 @@ doc/tags
 # Editor and OS files.
 *.swp
 .DS_Store
+.commit-queue/

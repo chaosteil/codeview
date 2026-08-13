@@ -26,6 +26,8 @@ local M = {}
 ---@field spec string Text that names the range.
 ---@field files codeview.vcs.FileChange[] Files that the range changes.
 ---@field commits codeview.vcs.Commit[] Commits of the range, newest first.
+---@field store_key string? Key text of the comment store. A pull request session sets it.
+---@field pr codeview.pr.Info? Pull request that the session reviews. Nil for a local range.
 ---@field opened_at integer Time of the open call, in seconds since the epoch.
 ---@field closed boolean True after |codeview.Session:close()|.
 ---@field private windows integer[] Windows that close with the session.
@@ -140,8 +142,12 @@ end
 --- of short commit ids, because its resolved ids are long.
 ---@param range codeview.vcs.Range Range with resolved revisions.
 ---@param input string|codeview.vcs.Range|codeview.vcs.RangeSpec Argument of the open call.
+---@param label string? Text of the caller. It wins over the argument.
 ---@return string
-local function label_of(range, input)
+local function label_of(range, input, label)
+  if type(label) == "string" and vim.trim(label) ~= "" then
+    return vim.trim(label)
+  end
   if type(input) == "string" and vim.trim(input) ~= "" then
     return vim.trim(input)
   end
@@ -179,6 +185,9 @@ end
 ---@field repo codeview.vcs.Repo? Repository handle. Without it the session detects one.
 ---@field dir string? Directory for the detection. The current directory by default.
 ---@field backend "auto"|"git"|"jj"? Backend for the detection. The configuration value by default.
+---@field label string? Text that names the session. The revision argument by default.
+---@field store_key string? Key text of the comment store. The resolved range by default.
+---@field pr codeview.pr.Info? Pull request that the session reviews.
 
 ---Open a review session.
 ---
@@ -225,9 +234,11 @@ function M.open(spec, opts, cb)
       id = counter,
       repo = state.repo,
       range = state.range,
-      spec = label_of(state.range, spec),
+      spec = label_of(state.range, spec, opts.label),
       files = state.files,
       commits = state.commits,
+      store_key = opts.store_key,
+      pr = opts.pr,
       opened_at = os.time(),
       closed = false,
       windows = {},

@@ -1,7 +1,7 @@
 ---@brief codeview — review commits and ranges of commits inside Neovim.
 ---
---- The public API of the plugin. Later milestones add the session, sidebar,
---- diff, and comment functions to this table.
+--- The public API of the plugin. Every call of this table is stable. The
+--- modules under `codeview.*` hold the work.
 
 local config = require("codeview.config")
 
@@ -9,7 +9,7 @@ local M = {}
 
 ---Plugin version.
 ---@type string
-M.version = "0.1.0-dev"
+M.version = "0.1.0"
 
 ---True after a successful `setup()` call.
 ---@type boolean
@@ -58,6 +58,32 @@ function M.pick(opts, cb)
   require("codeview.picker").pick(opts, cb)
 end
 
+---Open a review session for a GitHub pull request.
+---
+--- The call reads the pull request with the gh CLI, fetches its commits into
+--- the refs of the plugin, and opens the range `base...head`. The working copy
+--- does not change. The command `:CodeView pr <number>` calls this function.
+---@param number integer? Number of the pull request. Nil takes the pull request of the branch.
+---@param opts? { dir?: string, repo?: string, remote?: string, comments?: boolean }
+---@param cb? fun(session: codeview.Session?, err: codeview.Error?) Callback for the async form.
+---@return codeview.Session? session
+---@return codeview.Error? err
+function M.open_pr(number, opts, cb)
+  return require("codeview.pr").open(number, opts, cb)
+end
+
+---Read the pull request that the session reviews.
+---@return codeview.pr.Info? info Nil for a session of a local range.
+function M.pr()
+  return require("codeview.pr").current()
+end
+
+---Review comments that the pull request of the session already holds.
+---@return codeview.remote.Comment[] comments
+function M.remote_comments()
+  return require("codeview.remote").list()
+end
+
 ---Read the session that runs.
 ---@return codeview.Session? session Nil when no session runs.
 function M.session()
@@ -97,6 +123,33 @@ function M.toggle_sidebar(opts)
   return require("codeview.sidebar").toggle(opts)
 end
 
+---Read the comment overview.
+---@return codeview.Overview? overview Nil when no overview runs.
+function M.overview()
+  return require("codeview.overview").get()
+end
+
+---Open the comment overview for the session that runs.
+---@param opts? { session?: codeview.Session, focus?: boolean }
+---@return codeview.Overview? overview
+---@return codeview.Error? err
+function M.open_overview(opts)
+  return require("codeview.overview").open(opts)
+end
+
+---Close the comment overview. The session stays open.
+---@return boolean closed False when no overview is open.
+function M.close_overview()
+  return require("codeview.overview").close()
+end
+
+---Close the overview when it is open, and open it when it is closed.
+---@param opts? { session?: codeview.Session, focus?: boolean }
+---@return boolean open State after the call.
+function M.toggle_overview(opts)
+  return require("codeview.overview").toggle(opts)
+end
+
 ---Read the file view of the session that runs.
 ---@return codeview.view.State? view Nil when no file is open.
 function M.view()
@@ -105,12 +158,13 @@ end
 
 ---Open one changed file of the session in the diff view.
 ---@param index integer Position of the file in the file list of the session.
----@param opts? { session?: codeview.Session }
+---@param opts? { session?: codeview.Session, force?: boolean } `force = true` renders a diff above the `diff.max_lines` limit.
 ---@param cb? fun(view: codeview.view.State?, err: codeview.Error?) Callback for the async form.
 ---@return codeview.view.State? view
 ---@return codeview.Error? err
 function M.open_file(index, opts, cb)
-  local session = (opts or {}).session or require("codeview.session").current()
+  opts = opts or {}
+  local session = opts.session or require("codeview.session").current()
   if not session then
     local errors = require("codeview.error")
     local err = errors.new(errors.codes.INVALID_ARG, "no review session")
@@ -120,7 +174,14 @@ function M.open_file(index, opts, cb)
     end
     return nil, err
   end
-  return require("codeview.view").open(session, index, cb)
+  return require("codeview.view").open(session, index, { force = opts.force }, cb)
+end
+
+---Render the diff that the `diff.max_lines` limit stopped.
+---@param cb? fun(view: codeview.view.State?, err: codeview.Error?) Callback for the async form.
+---@return boolean started False when the view shows no limited diff.
+function M.load_diff(cb)
+  return require("codeview.view").load_diff(cb)
 end
 
 ---Move the cursor to the first row of the next hunk.
@@ -190,6 +251,13 @@ function M.delete_comment(opts)
   return require("codeview.comments").remove(opts)
 end
 
+---Set the state of the comment under the cursor.
+---@param opts? { id?: string, state?: "open"|"resolved" } Without a state the call takes the other state.
+---@return codeview.store.Comment? comment The comment after the change.
+function M.resolve_comment(opts)
+  return require("codeview.comments").set_state(opts)
+end
+
 ---Show the comment under the cursor in a float.
 ---@return integer? buf
 ---@return integer? win
@@ -208,6 +276,38 @@ end
 ---@return codeview.Error? err
 function M.store()
   return require("codeview.comments").store()
+end
+
+---Export the comments of the session that runs.
+---
+--- The call renders the markdown, writes it into the register of the
+--- `export.register` option, and shows it in a scratch buffer. The command
+--- `:CodeViewExport` calls this function.
+---@param opts? codeview.export.Opts
+---@return codeview.export.Result? result
+---@return codeview.Error? err
+function M.export(opts)
+  return require("codeview.export").run(opts)
+end
+
+---Render the comments of the session that runs as markdown.
+---
+--- The call writes no register and opens no buffer.
+---@param opts? codeview.export.Opts Only `session` matters here.
+---@return string? text
+---@return codeview.Error? err
+function M.export_text(opts)
+  return require("codeview.export").render(opts)
+end
+
+---Send the comments of the session that runs to the pull request.
+---
+--- The call shows a summary and posts only after the user confirms it. The
+--- command `:CodeViewSubmit` calls this function.
+---@param opts? codeview.submit.Opts
+---@param cb? fun(result: codeview.submit.Result?, err: codeview.Error?) Handler of the answer.
+function M.submit(opts, cb)
+  return require("codeview.submit").run(opts, cb)
 end
 
 ---Run the health check of the plugin.

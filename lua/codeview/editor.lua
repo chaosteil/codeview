@@ -5,9 +5,9 @@
 --- text goes to the comment store, never into a diff buffer and never into a
 --- file of the repository.
 ---
---- `:w` saves the comment. `q` and `<Esc><Esc>` discard it. A close of the
---- window discards it too. An empty body counts as a discard, so a save of an
---- empty buffer writes nothing.
+--- `:w` saves the comment. The `editor_cancel` keys discard it, and a close of
+--- the window discards it too. An empty body counts as a discard, so a save of
+--- an empty buffer writes nothing.
 ---
 --- One editor is open at a time. A second |codeview.editor.open()| discards
 --- the editor that is open.
@@ -148,12 +148,19 @@ local function window_config()
 end
 
 ---Set the buffer-local keymaps of the editor.
+---
+--- `:w` also saves. It runs from the `BufWriteCmd` autocmd, not from a map, so
+--- the write of a modified buffer never leaves the comment behind.
 ---@param buf integer
 local function set_keymaps(buf)
+  local keys = config.get().keymaps
   local opts = { buffer = buf, nowait = true, silent = true, desc = "codeview: comment editor" }
-  vim.keymap.set("n", "q", M.cancel, opts)
-  vim.keymap.set("n", "<Esc><Esc>", M.cancel, opts)
-  vim.keymap.set("n", "ZZ", M.submit, opts)
+  for _, lhs in ipairs(config.keys(keys.editor_cancel)) do
+    vim.keymap.set("n", lhs, M.cancel, opts)
+  end
+  for _, lhs in ipairs(config.keys(keys.editor_save)) do
+    vim.keymap.set("n", lhs, M.submit, opts)
+  end
 end
 
 ---Open the comment editor.
@@ -185,8 +192,9 @@ function M.open(opts)
   vim.bo[buf].modified = false
 
   local win_config = window_config()
+  local cancel = config.keys(config.get().keymaps.editor_cancel)[1]
   win_config.title = " " .. (opts.title or "Comment") .. " "
-  win_config.footer = " :w saves · q discards "
+  win_config.footer = cancel and (" :w saves · " .. cancel .. " discards ") or " :w saves "
   win_config.footer_pos = "right"
   local ok, win = pcall(api.nvim_open_win, buf, true, win_config)
   if not ok then

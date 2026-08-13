@@ -273,6 +273,34 @@ describe("codeview.panel", function()
     end)
   end)
 
+  describe("the line builder", function()
+    it("collects the text and the columns of every part", function()
+      local line = panel.builder()
+      line.add("▾ ", "CodeViewDir")
+      line.add("name")
+      line.add(nil)
+      line.add("")
+      line.add(" 2", "CodeViewCount")
+      assert.are.equal("▾ name 2", line.text())
+
+      local built = line.build({ hl = "CodeViewCurrent", data = { kind = "dir" } })
+      assert.are.equal("▾ name 2", built.text)
+      assert.are.equal("CodeViewCurrent", built.hl)
+      assert.are.equal("dir", built.data.kind)
+      assert.are.same({
+        { hl = "CodeViewDir", from = 0, to = 4 },
+        { hl = "CodeViewCount", from = 8, to = 10 },
+      }, built.marks)
+    end)
+
+    it("builds an empty line", function()
+      local built = panel.builder().build()
+      assert.are.equal("", built.text)
+      assert.are.same({}, built.marks)
+      assert.is_nil(built.data)
+    end)
+  end)
+
   describe("keymaps", function()
     it("runs an action of the keymap table", function()
       local seen = 0

@@ -451,6 +451,186 @@ function M.git_comments()
   }
 end
 
+---Build a git repository that holds a pull request.
+---
+--- The fixture makes three directories:
+---
+---     origin.git   bare repository. It holds `main` and `refs/pull/12/head`.
+---     seed         work repository that pushes the history.
+---     local        clone of `origin.git`. The review runs in this one.
+---
+--- The history is:
+---
+---     base -> main_two            (main)
+---     base -> pr_one -> pr_two    (refs/pull/12/head)
+---
+--- The merge base of `main` and the pull request is `base`, so the review
+--- range holds the two commits of the pull request only. `main_two` is not
+--- part of it.
+---@return tests.Fixture
+function M.git_pr()
+  local dir = M.tempdir("codeview-pr")
+  local env = git_env(dir)
+
+  local origin = vim.fs.joinpath(dir, "origin.git")
+  vim.fn.mkdir(origin, "p")
+  run({ "git", "init", "--bare", "--quiet", "--initial-branch=main", "." }, origin, env)
+
+  local seed = vim.fs.joinpath(dir, "seed")
+  vim.fn.mkdir(seed, "p")
+  git_init(seed, "main", env)
+
+  ---Write one file and commit it in the seed repository.
+  ---@param path string
+  ---@param content string
+  ---@param day integer Day of the commit date.
+  ---@param message string
+  ---@return string id
+  local function commit(path, content, day, message)
+    write_file(vim.fs.joinpath(seed, path), content)
+    run({ "git", "add", "--", path }, seed, env)
+    run(
+      { "git", "commit", "--quiet", "-m", message },
+      seed,
+      at_date(env, string.format("2024-05-0%dT10:00:00+00:00", day))
+    )
+    return vim.trim(run({ "git", "rev-parse", "HEAD" }, seed, env))
+  end
+
+  local ids = {}
+  ids.base = commit("a.txt", "one\ntwo\nthree\n", 1, "base: add a.txt")
+  run({ "git", "remote", "add", "origin", origin }, seed, env)
+  run({ "git", "push", "--quiet", "origin", "main" }, seed, env)
+
+  run({ "git", "checkout", "--quiet", "-b", "pr" }, seed, env)
+  ids.pr_one = commit("feature.txt", "feature one\nfeature two\n", 2, "pr: add feature.txt")
+  ids.pr_two = commit("a.txt", "one\ntwo changed\nthree\n", 3, "pr: change a.txt")
+  run({ "git", "push", "--quiet", "origin", "pr:refs/pull/12/head" }, seed, env)
+
+  run({ "git", "checkout", "--quiet", "main" }, seed, env)
+  ids.main_two = commit("main.txt", "main two\n", 4, "main: add main.txt")
+  run({ "git", "push", "--quiet", "origin", "main" }, seed, env)
+
+  run({ "git", "clone", "--quiet", origin, "local" }, dir, env)
+  local work = vim.fs.joinpath(dir, "local")
+  local root = vim.trim(run({ "git", "rev-parse", "--show-toplevel" }, work, env))
+
+  return {
+    root = vim.fs.normalize(root),
+    dir = work,
+    ids = ids,
+    names = { "base", "pr_one", "pr_two", "main_two" },
+    branch = "main",
+    env = env,
+    cleanup = function()
+      vim.fn.delete(dir, "rf")
+    end,
+  }
+end
+
+---Build a git repository with a large range.
+---
+--- The range `base..change` holds:
+---
+---     lua/mod<n>/part<n>/file<n>.lua   `files` files of 60 lines, 6 lines changed
+---     big.txt                          `lines` lines, every second one changed
+---
+--- `big.txt` is the hard shape for a diff algorithm: it holds one hunk per two
+--- lines. The performance test measures the render of this range.
+---@param opts? { files?: integer, lines?: integer }
+---@return tests.Fixture
+function M.git_large(opts)
+  opts = opts or {}
+  local files = opts.files or 200
+  local lines = opts.lines or 8000
+
+  local dir = M.tempdir("codeview-large")
+  local env = git_env(dir)
+  git_init(dir, "main", env)
+
+  ---Path of one of the many small files.
+  ---@param index integer
+  ---@return string
+  local function small_path(index)
+    return string.format("lua/mod%02d/part%02d/file%03d.lua", index % 12, index % 7, index)
+  end
+
+  ---Commit everything in the working copy.
+  ---@param day integer
+  ---@param message string
+  ---@return string id
+  local function commit(day, message)
+    run({ "git", "add", "-A" }, dir, env)
+    run(
+      { "git", "commit", "--quiet", "-m", message },
+      dir,
+      at_date(env, string.format("2024-06-0%dT10:00:00+00:00", day))
+    )
+    return vim.trim(run({ "git", "rev-parse", "HEAD" }, dir, env))
+  end
+
+  local body = {}
+  for index = 1, 60 do
+    body[index] = string.format("line %03d of the file", index)
+  end
+  local big = {}
+  for index = 1, lines do
+    big[index] = string.format("big line %05d", index)
+  end
+
+  local ids = {}
+  for index = 1, files do
+    write_file(vim.fs.joinpath(dir, small_path(index)), table.concat(body, "\n") .. "\n")
+  end
+  write_file(vim.fs.joinpath(dir, "big.txt"), table.concat(big, "\n") .. "\n")
+  ids.base = commit(1, "base: add the files")
+
+  for index = 1, files do
+    local changed = vim.deepcopy(body)
+    for line = 10, 60, 10 do
+      changed[line] = string.format("line %03d changed %d", line, index)
+    end
+    write_file(vim.fs.joinpath(dir, small_path(index)), table.concat(changed, "\n") .. "\n")
+  end
+  for index = 2, lines, 2 do
+    big[index] = big[index] .. " changed"
+  end
+  write_file(vim.fs.joinpath(dir, "big.txt"), table.concat(big, "\n") .. "\n")
+  ids.change = commit(2, "change: edit every file")
+
+  local root = vim.trim(run({ "git", "rev-parse", "--show-toplevel" }, dir, env))
+
+  return {
+    root = vim.fs.normalize(root),
+    dir = dir,
+    ids = ids,
+    names = { "base", "change" },
+    branch = "main",
+    cleanup = function()
+      vim.fn.delete(dir, "rf")
+    end,
+  }
+end
+
+---Read a recorded gh answer.
+---@param name string File name under `tests/fixtures/gh`.
+---@return string text Content of the file.
+function M.gh_text(name)
+  local here = vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":p:h")
+  local path = vim.fs.joinpath(here, "fixtures", "gh", name)
+  local handle = assert(io.open(path, "rb"), "no gh fixture: " .. path)
+  local text = handle:read("*a")
+  handle:close()
+  return text
+end
+
+---Read a recorded gh answer as a value.
+---@param name string File name under `tests/fixtures/gh`.
+---@return any value Decoded JSON.
+function M.gh_json(name)
+  return vim.json.decode(M.gh_text(name), { luanil = { object = true, array = true } })
+end
+
 ---Content of a file after a commit, as the history describes it.
 ---@param upto string Name of the last commit to apply.
 ---@param path string

@@ -29,6 +29,8 @@
 ---     - side: new
 ---     - commit: bbbb2222
 ---     - state: open
+---     - synced_at:
+---     - review_id:
 ---     - created_at: 2026-08-12T09:10:00Z
 ---     - updated_at: 2026-08-12T09:10:00Z
 ---
@@ -73,6 +75,8 @@ M.marker = "## codeview-comment "
 ---@field side codeview.linemap.Side Side of the diff that holds the lines.
 ---@field commit string Revision that the lines come from. Empty when unknown.
 ---@field state codeview.store.State State of the comment.
+---@field synced_at integer Time of the post to the review host, in seconds since the epoch. 0 while the comment is local.
+---@field review_id string Id of the review that holds the comment on the host. Empty while the comment is local.
 ---@field created_at integer Time of the first save, in seconds since the epoch.
 ---@field updated_at integer Time of the last change, in seconds since the epoch.
 ---@field body string Markdown text of the comment.
@@ -99,6 +103,8 @@ local FIELDS = {
   side = "string",
   commit = "string",
   state = "string",
+  synced_at = "time",
+  review_id = "string",
   created_at = "time",
   updated_at = "time",
 }
@@ -112,6 +118,8 @@ local FIELD_ORDER = {
   "side",
   "commit",
   "state",
+  "synced_at",
+  "review_id",
   "created_at",
   "updated_at",
 }
@@ -217,6 +225,21 @@ local function flat(value)
   return (tostring(value or ""):gsub("[\r\n]+", " "))
 end
 
+---Text of a time field.
+---
+--- A time of 0 stands for "not set", for example the sync time of a comment
+--- that no submit sent yet. It writes an empty value, and |M.from_iso()| reads
+--- it back as 0.
+---@param value any Seconds since the epoch.
+---@return string text
+local function time_text(value)
+  local time = math.floor(tonumber(value) or 0)
+  if time <= 0 then
+    return ""
+  end
+  return M.to_iso(time)
+end
+
 ---Escape a body line that reads as a section heading.
 ---@param line string
 ---@return string
@@ -276,9 +299,11 @@ function M.encode(store)
     for _, name in ipairs(FIELD_ORDER) do
       local value = comment[name]
       if FIELDS[name] == "time" then
-        value = M.to_iso(value)
+        value = time_text(value)
       end
-      out[#out + 1] = "- " .. name .. ": " .. flat(value)
+      -- A field without a value keeps no trailing space, so that the file
+      -- holds no whitespace at the end of a line.
+      out[#out + 1] = vim.trim("- " .. name .. ": " .. flat(value))
     end
     out[#out + 1] = ""
     for _, line in ipairs(vim.split(comment.body or "", "\n", { plain = true })) do
@@ -305,6 +330,8 @@ local function decode_comment(id, lines)
     side = "new",
     commit = "",
     state = "open",
+    synced_at = 0,
+    review_id = "",
     created_at = 0,
     updated_at = 0,
     body = "",
@@ -335,6 +362,7 @@ local function decode_comment(id, lines)
   comment.end_line = math.max(math.floor(comment.end_line), comment.start_line)
   comment.side = comment.side == "old" and "old" or "new"
   comment.state = comment.state == "resolved" and "resolved" or "open"
+  comment.synced_at = math.max(math.floor(comment.synced_at), 0)
   return comment
 end
 
@@ -521,6 +549,11 @@ function M.load(opts)
 end
 
 ---Read the session file of a review session.
+---
+--- The key comes from the resolved range. A session with a `store_key` field
+--- names its file itself: a pull request review keys its comments by the
+--- number of the pull request and its head commit, so that a new push writes
+--- its own file.
 ---@param session codeview.Session
 ---@return codeview.store.Store? store
 ---@return codeview.Error? err
@@ -528,9 +561,10 @@ function M.for_session(session)
   if type(session) ~= "table" or type(session.repo) ~= "table" then
     return nil, errors.new(errors.codes.INVALID_ARG, "the call needs a review session")
   end
+  local key = type(session.store_key) == "string" and vim.trim(session.store_key) or ""
   return M.load({
     repo = session.repo.root,
-    range = session.range,
+    range = key ~= "" and key or session.range,
     spec = session.spec,
   })
 end
@@ -612,6 +646,8 @@ local function build_comment(fields)
     side = side,
     commit = type(fields.commit) == "string" and fields.commit or "",
     state = fields.state == "resolved" and "resolved" or "open",
+    synced_at = math.max(math.floor(tonumber(fields.synced_at) or 0), 0),
+    review_id = type(fields.review_id) == "string" and fields.review_id or "",
     created_at = tonumber(fields.created_at) or now,
     updated_at = tonumber(fields.updated_at) or now,
     body = vim.trim(fields.body),
@@ -639,6 +675,9 @@ function Store:add(fields)
 end
 
 ---Change the fields of one comment.
+---
+--- A new body clears the sync mark of the comment. The text on the review host
+--- is the text of the last submit, so the comment needs a new submit.
 ---@param id string Id of the comment.
 ---@param fields table Fields to set. `body`, `state`, and the anchor fields.
 ---@return codeview.store.Comment? comment
@@ -655,7 +694,14 @@ function Store:update(id, fields)
     if type(fields.body) ~= "string" or vim.trim(fields.body) == "" then
       return nil, errors.new(errors.codes.INVALID_ARG, "the comment needs a body")
     end
-    comment.body = vim.trim(fields.body)
+    local body = vim.trim(fields.body)
+    -- A submit sent the held text, not this one. The comment loses the sync
+    -- mark, so that the next submit sends the new text. `review_id` stays as
+    -- the record of the review that took the comment first.
+    if body ~= comment.body then
+      comment.synced_at = 0
+    end
+    comment.body = body
   end
   if fields.state ~= nil then
     comment.state = fields.state == "resolved" and "resolved" or "open"
@@ -678,6 +724,49 @@ function Store:update(id, fields)
   end
   comment.updated_at = os.time()
   return comment, nil
+end
+
+---Report whether a comment went to the review host already.
+---@param comment codeview.store.Comment
+---@return boolean synced
+function M.is_synced(comment)
+  return type(comment) == "table" and (tonumber(comment.synced_at) or 0) > 0
+end
+
+---Mark one comment as sent to the review host.
+---
+--- |codeview.submit| calls this after the API confirms the post. The call does
+--- not touch `updated_at`, because a sync is not an edit of the text.
+---
+--- The call does not write the file. Call |codeview.store.Store:save()| after
+--- it.
+---@param id string Id of the comment.
+---@param opts? { time?: integer, review_id?: string|integer } `time` is the sync time. The current time by default.
+---@return codeview.store.Comment? comment
+---@return codeview.Error? err
+function Store:mark_synced(id, opts)
+  opts = opts or {}
+  local comment = self:get(id)
+  if not comment then
+    return nil, errors.new(errors.codes.NOT_FOUND, "no comment with the id " .. tostring(id))
+  end
+  comment.synced_at = math.max(math.floor(tonumber(opts.time) or os.time()), 1)
+  if opts.review_id ~= nil then
+    comment.review_id = tostring(opts.review_id)
+  end
+  return comment, nil
+end
+
+---Comments that no submit sent to the review host yet.
+---@return codeview.store.Comment[] comments In the order of the file.
+function Store:unsynced()
+  local out = {}
+  for _, comment in ipairs(self.comments) do
+    if not M.is_synced(comment) then
+      out[#out + 1] = comment
+    end
+  end
+  return out
 end
 
 ---Delete one comment.

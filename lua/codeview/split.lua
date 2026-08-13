@@ -240,6 +240,11 @@ function M.build(diff, opts)
 
   if diff.binary then
     build.rows = { { kind = "message", text = { old = "Binary file. It has no text diff.", new = "" } } }
+  elseif diff.limited then
+    build.rows = {}
+    for index, text in ipairs(layout.limit_lines(diff)) do
+      build.rows[index] = { kind = "message", text = { old = text, new = text } }
+    end
   elseif #diff.hunks == 0 then
     local empty = #diff.old_lines == 0 and #diff.new_lines == 0
     local note = empty and "The file is empty." or "The file has no changes."

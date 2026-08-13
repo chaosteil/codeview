@@ -13,6 +13,15 @@
 ---
 --- A file with a NUL byte on one side is binary. The result then holds no
 --- hunks, and the renderer shows a note.
+---
+--- The display runs the histogram algorithm, which reads better. `algorithm`
+--- and `indent_heuristic` select the settings of git instead. |codeview.submit|
+--- needs them, because GitHub accepts only the lines of the diff of git.
+---
+--- Two limits keep a large file fast. |codeview.diff.algorithm()| selects the
+--- algorithm from the size of the two sides. `max_lines` stops the comparison
+--- of a file that holds more lines than the reader wants to see. The result
+--- then holds no hunk and the field `limited`, and the renderer shows a note.
 
 local config = require("codeview.config")
 local errors = require("codeview.error")
@@ -38,11 +47,20 @@ local M = {}
 ---@field new_lines string[] Lines of the new side, without the line breaks.
 ---@field hunks codeview.diff.Hunk[] Hunks, in file order.
 ---@field binary boolean True when one side holds a NUL byte.
+---@field limited boolean True when the two sides hold more lines than `max_lines`.
+---@field line_count integer Number of lines of the two sides together.
+---@field max_lines integer Limit that applied. 0 when no limit applied.
 ---@field context integer Context length for the renderer.
 
 ---@class codeview.diff.Opts
 ---@field context integer? Context length. The `diff.context` option by default.
----@field algorithm string? Algorithm of |vim.diff()|. "histogram" by default.
+---@field algorithm string? Algorithm of |vim.diff()|. |codeview.diff.algorithm()| by default.
+---@field indent_heuristic boolean? True moves a change to the line that the indent suggests. False by default.
+---@field max_lines integer? Highest number of lines of the two sides together. 0 removes the limit. The `diff.max_lines` option by default.
+
+---Highest number of lines of one side for the histogram algorithm.
+---@type integer
+M.histogram_limit = 4000
 
 ---Split file content into lines.
 ---
@@ -66,6 +84,22 @@ end
 ---@return boolean
 function M.is_binary(content)
   return type(content) == "string" and content:find("\0", 1, true) ~= nil
+end
+
+---Algorithm of |vim.diff()| for two sides of a given size.
+---
+--- The histogram algorithm reads better, so a file of a normal size takes it.
+--- Its cost grows with the square of the number of hunks: a file of 16000
+--- lines that changes every second line costs 1300 ms, against 2 ms for the
+--- myers algorithm. A large file therefore takes myers, the algorithm of git.
+---@param old integer Number of lines of the old side.
+---@param new integer Number of lines of the new side.
+---@return string algorithm Name for the `algorithm` field of |vim.diff()|.
+function M.algorithm(old, new)
+  if math.max(old, new) > M.histogram_limit then
+    return "myers"
+  end
+  return "histogram"
 end
 
 ---Revisions of the two sides of a changed file.
@@ -104,8 +138,13 @@ end
 ---@return codeview.diff.File diff Path, status, and revisions hold their empty values.
 function M.compute(old_text, new_text, opts)
   opts = opts or {}
-  local context = opts.context or config.get().diff.context
+  local cfg = config.get().diff
+  local context = opts.context or cfg.context
+  local max_lines = opts.max_lines or cfg.max_lines
   local binary = M.is_binary(old_text) or M.is_binary(new_text)
+
+  local old_lines = binary and {} or M.split(old_text)
+  local new_lines = binary and {} or M.split(new_text)
 
   ---@type codeview.diff.File
   local out = {
@@ -114,13 +153,25 @@ function M.compute(old_text, new_text, opts)
     status = "modified",
     old_rev = nil,
     new_rev = nil,
-    old_lines = binary and {} or M.split(old_text),
-    new_lines = binary and {} or M.split(new_text),
+    old_lines = old_lines,
+    new_lines = new_lines,
     hunks = {},
     binary = binary,
+    limited = false,
+    line_count = #old_lines + #new_lines,
+    max_lines = 0,
     context = context,
   }
   if binary then
+    return out
+  end
+
+  -- The comparison of a file above the limit costs more than the reader wants
+  -- to wait. The lines go away with it, because nothing shows them.
+  if max_lines > 0 and out.line_count > max_lines then
+    out.limited = true
+    out.max_lines = max_lines
+    out.old_lines, out.new_lines = {}, {}
     return out
   end
 
@@ -129,7 +180,8 @@ function M.compute(old_text, new_text, opts)
   local indices = vim.diff(old_text or "", new_text or "", {
     result_type = "indices",
     ctxlen = 0,
-    algorithm = opts.algorithm or "histogram",
+    algorithm = opts.algorithm or M.algorithm(#old_lines, #new_lines),
+    indent_heuristic = opts.indent_heuristic == true,
   }) --[[@as integer[][] ]]
 
   for index, hunk in ipairs(indices or {}) do
@@ -265,7 +317,14 @@ end
 ---@param diff codeview.diff.File
 ---@return boolean
 function M.is_empty(diff)
-  return not diff.binary and #diff.hunks == 0
+  return not diff.binary and not diff.limited and #diff.hunks == 0
+end
+
+---Text that says why a diff shows no line.
+---@param diff codeview.diff.File
+---@return string message
+function M.limit_message(diff)
+  return string.format("The diff holds %d lines. The limit diff.max_lines is %d.", diff.line_count, diff.max_lines)
 end
 
 ---Number of added lines and removed lines of a diff.

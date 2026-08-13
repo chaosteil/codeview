@@ -174,3 +174,24 @@ keeps its own indexes.
 This repository uses jj (jujutsu). Do not use git for versioning here. Write
 the commit messages in the conventional commit style, for example
 `feat(config): add the diff style option`.
+
+## Release
+
+Do these steps for a new version:
+
+1. Set `M.version` in `lua/codeview/init.lua`.
+2. Move the entries of `## Unreleased` in `CHANGELOG.md` into a section with
+   the new version and the date.
+3. Update the version in `doc/codeview.txt` and in `README.md`.
+4. Run `make`. `tests/docs_spec.lua` checks that the changelog holds the
+   version.
+5. Run `nvim --headless -c 'helptags doc' -c quit` to write `doc/tags`.
+6. Set the tag and push it:
+
+   ```sh
+   jj bookmark set v0.1.0 -r @-
+   jj git push --bookmark v0.1.0
+   ```
+
+7. Open a GitHub release for the tag. Paste the section of `CHANGELOG.md`.
+8. Post the text of `ANNOUNCEMENT.md`.

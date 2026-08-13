@@ -133,6 +133,21 @@ function M.filler_text(gap)
   return string.format("⋯ %d unchanged %s", gap.count, gap.count == 1 and "line" or "lines")
 end
 
+---Rows that a diff above the line limit shows.
+---
+--- The second row names the key that renders the diff anyway. Without that
+--- key it names the option, so the reader always has one way forward.
+---@param diff codeview.diff.File Diff with the field `limited`.
+---@return string[] lines Two rows of text.
+function M.limit_lines(diff)
+  local config = require("codeview.config")
+  local key = config.keys(config.get().keymaps.load_diff)[1]
+  return {
+    require("codeview.diff").limit_message(diff),
+    key and ("Press " .. key .. " to show it.") or "Set diff.max_lines higher to show it.",
+  }
+end
+
 --- Word ranges -----------------------------------------------------------------
 
 ---Report whether a byte continues a multi-byte character.

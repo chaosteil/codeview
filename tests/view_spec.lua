@@ -548,9 +548,9 @@ describe("codeview.view", function()
     end)
 
     it("binds the scrolling and the cursor of the two windows", function()
-      local state = open_long()
+      open_long()
       view.set_style("split")
-      state = assert(view.current())
+      local state = assert(view.current())
       local old_win = state.old_win --[[@as integer]]
       assert.is_true(vim.wo[state.win][0].scrollbind)
       assert.is_true(vim.wo[state.win][0].cursorbind)
@@ -629,9 +629,9 @@ describe("codeview.view", function()
     end)
 
     it("takes the inline style after a window of the split closes", function()
-      local state = open_long()
+      open_long()
       view.set_style("split")
-      state = assert(view.current())
+      local state = assert(view.current())
       local old_win = state.old_win --[[@as integer]]
 
       api.nvim_win_close(old_win, true)
@@ -732,9 +732,9 @@ describe("codeview.view", function()
     end)
 
     it("closes both buffers and the window of the old side", function()
-      local state = open_long()
+      open_long()
       view.set_style("split")
-      state = assert(view.current())
+      local state = assert(view.current())
       local old_win, old_buf, buf = state.old_win, state.old_buf, state.buf
 
       assert.is_true(view.close())

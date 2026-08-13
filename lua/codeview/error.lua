@@ -15,6 +15,8 @@ local M = {}
 ---| "timeout" # The command took longer than the time limit.
 ---| "invalid_arg" # A caller passed an argument of the wrong shape.
 ---| "unsupported" # The backend does not support the operation.
+---| "not_authenticated" # The tool holds no valid credentials for the host.
+---| "offline" # The call did not reach the host.
 
 ---Error codes. Compare `err.code` against these values.
 ---@type table<string, codeview.ErrorCode>
@@ -27,6 +29,8 @@ M.codes = {
   TIMEOUT = "timeout",
   INVALID_ARG = "invalid_arg",
   UNSUPPORTED = "unsupported",
+  NOT_AUTHENTICATED = "not_authenticated",
+  OFFLINE = "offline",
 }
 
 ---@class codeview.Error

@@ -11,10 +11,15 @@ CONTENTS                                                     *codeview-contents*
   6. Sidebar .............................. |codeview-sidebar|
   7. Diff view ............................ |codeview-diff|
   8. Comments ............................. |codeview-comments|
-  9. Lua API .............................. |codeview-api|
-  10. Configuration ....................... |codeview-config|
-  11. Highlights .......................... |codeview-highlights|
-  12. Health .............................. |codeview-health|
+  9. Comment overview ..................... |codeview-overview|
+  10. Export .............................. |codeview-export|
+  11. Pull requests ....................... |codeview-github|
+  12. Submit .............................. |codeview-submit|
+  13. Lua API ............................. |codeview-api|
+  14. Configuration ....................... |codeview-config|
+  15. Keymaps ............................. |codeview-keymaps|
+  16. Highlights .......................... |codeview-highlights|
+  17. Health .............................. |codeview-health|
 
 ==============================================================================
 1. INTRODUCTION                                          *codeview-introduction*
@@ -22,12 +27,18 @@ CONTENTS                                                     *codeview-contents*
 
 codeview shows the changes of a commit, or of a range of commits. You browse
 the changed files in a sidebar, read the diffs inline or side by side, and
-write comments on the lines. You can export the comments as markdown.
+write comments on the lines. You export the comments as markdown, and you send
+them to a GitHub pull request.
 
-This release selects the revisions of a review, lists the changed files in a
-sidebar, shows the diff of each file inline or side by side, and holds the
-comments of the review. The export and the GitHub calls come with the next
-milestones.
+The plugin works on a git repository and on a jj repository, through one
+backend interface. It writes no file of your repository: the comments of a
+review live in one markdown file of their own. See |codeview-comments-store|.
+
+Version 0.1.0. Start here: >vim
+
+    :CodeView HEAD~3..HEAD
+<
+Then press <CR> on a file of the sidebar. |codeview-keymaps| holds every key.
 
 ==============================================================================
 2. REQUIREMENTS                                          *codeview-requirements*
@@ -103,6 +114,17 @@ plugin then calls setup() with that table: >lua
         :CodeView ::@
         :CodeView trunk()..@
 <
+                                                              *:CodeView-pr*
+:CodeView pr [{number}]
+    Review the GitHub pull request {number}. Without {number} the command
+    takes the pull request of the branch that the repository has checked out.
+    The command needs the gh CLI. See |codeview-github|.
+
+    Examples: >vim
+
+        :CodeView pr 128
+        :CodeView pr
+<
 :CodeView
     Open the commit picker. Select one commit to review it.
 
@@ -120,6 +142,32 @@ plugin then calls setup() with that table: >lua
 :CodeViewFiles
     Open the changed-files sidebar and put the cursor in it. The command
     closes the sidebar when the sidebar is open.
+
+                                                           *:CodeViewComments*
+:CodeViewComments
+    Open the comment overview and put the cursor in it. The command closes the
+    overview when the overview is open. See |codeview-overview|.
+
+                                                             *:CodeViewExport*
+:CodeViewExport [{register}]
+    Render the comments of the session as markdown. The text goes into a
+    scratch buffer and into the register of the `export.register` option.
+    {register} replaces the option for this call, for example
+    `:CodeViewExport z`. See |codeview-export|.
+
+:CodeViewExport!
+    Write the register only. The command opens no scratch buffer.
+
+                                                             *:CodeViewSubmit*
+:CodeViewSubmit [{event}]
+    Send the comments of the session to the pull request, as one review. The
+    command shows a summary and posts only after you confirm it. {event} is
+    `comment`, `approve`, or `request-changes`. Without {event} the command
+    asks for it. See |codeview-submit|.
+
+:CodeViewSubmit!
+    Post with the default text of the review. The command asks no question
+    about the text.
 
 ==============================================================================
 5. SESSIONS                                                  *codeview-sessions*
@@ -159,8 +207,10 @@ in that handler.
 6. SIDEBAR                                                    *codeview-sidebar*
 
 The sidebar shows the files that the range of the session changes, as a tree.
-It opens with the session, at the side that `sidebar.position` names. Set
-`sidebar.auto_open` to false to open the sidebar with |:CodeViewFiles| only.
+|:CodeView| opens it with the session, at the side that `sidebar.position`
+names. Set `sidebar.auto_open` to false to open the sidebar with
+|:CodeViewFiles| only. A session that starts from |codeview.open()| opens no
+panel.
 
 The first two lines are the header. The first line holds the range. The
 second line holds the number of files and the number of commits. The tree
@@ -208,6 +258,7 @@ The sidebar buffer holds these maps. |codeview-config| names the keys: >
     ]f          open the next file
     [f          open the previous file
     <leader>ct  switch the diff style
+    <leader>co  open or close the comment overview
     q           close the review session
 <
 The next-file key and the previous-file key follow the order of the tree.
@@ -294,6 +345,25 @@ A file without a text diff shows one note instead of a diff: >
     The file is empty.          both sides hold no line
     Binary file. It has no text diff.
 <
+                                                          *codeview-diff-limit*
+The view reads the file of one row of the sidebar, and no other file. A range
+of 400 files therefore opens as fast as a range of four.
+
+A file can still be too large to compare. The `diff.max_lines` option holds the
+highest number of lines that the two sides may hold together. Above that number
+the view compares nothing and shows two rows: >
+
+    The diff holds 48210 lines. The limit diff.max_lines is 20000.
+    Press <CR> to show it.
+<
+The `load_diff` key reads the file again, without the limit. The key maps on
+such a diff only, so `<CR>` keeps its own action in every other diff. The limit
+applies to one file at a time, and the next file opens as usual. Set
+`diff.max_lines` to 0 to remove the limit for every file.
+
+|:CodeViewSubmit| never sees the limit. It maps the position of a comment on
+the full diff of the file, whether the view rendered that diff or not.
+
                                                           *codeview-diff-split*
 The side-by-side style shows the old version at the left and the new version
 at the right: >
@@ -328,8 +398,8 @@ Press `<leader>ct` in the diff view or in the sidebar to switch the style. The
 switch keeps the diff, so the backend reads no file again, and it keeps the
 cursor on the same line of the file. A cursor on a removed line moves to the
 left window. A cursor on a hunk header, or on the row of a collapsed section,
-stays on that header or on that row. The new style also becomes the `diff.style` option, so the next
-file opens in the same style.
+stays on that header or on that row. The new style also becomes the
+`diff.style` option, so the next file opens in the same style.
 
 To start every review in the side-by-side style, set the option: >lua
 
@@ -345,15 +415,20 @@ The diff buffer holds these maps. |codeview-config| names the keys: >
     zM          hide every section again
     ]f          open the next file
     [f          open the previous file
+    <CR>        render a diff above the `diff.max_lines` limit, on such a diff
     <leader>ct  switch the diff style
     i a o O     comment on the line under the cursor
     I A c       comment on the selected lines, in the visual mode
     <leader>cc  comment on the line or on the selection
     <leader>ce  edit the comment under the cursor
     <leader>cd  delete the comment under the cursor
+    <leader>cr  resolve the comment, or open it again
+    <leader>co  open or close the comment overview
     K           show the comment under the cursor in a float
     q           close the review session
 <
+|codeview-keymaps| holds the full list, with the option name of each key.
+
 The diff view sends one event: >
 
     User CodeViewFileOpened    a file opened in the view
@@ -369,6 +444,7 @@ The `data` field of the event holds these values: >
 <
 The event also comes after a change of the style, because the buffer of the
 file is a new buffer then.
+
                                                         *codeview-diff-linemap*
 The view keeps a line map. The map holds one record per buffer row, with the
 kind of the row, the line in the old file, the line in the new file, and the
@@ -400,6 +476,8 @@ diff buffer maps them to the comment editor: >
     <leader>cc  comment on the line, or on the selection
     <leader>ce  edit the comment under the cursor
     <leader>cd  delete the comment under the cursor, after a question
+    <leader>cr  resolve the comment under the cursor, or open it again
+    <leader>co  open or close the comment overview
     K           show the comment under the cursor in a float
 <
 The visual mode keeps `i` free, because `i` is the prefix of the text objects.
@@ -425,11 +503,13 @@ buffer, and the plugin never writes to a file of the repository.
 In the editor: >
 
     :w          save the comment
+    ZZ          save the comment
     q           discard the comment
     <Esc><Esc>  discard the comment
 <
 An empty body counts as a discard. A close of the window discards the comment
-too.
+too. The `editor_save` option and the `editor_cancel` option name the two keys.
+The `:w` write runs from an autocmd, so it saves with any key of your own.
 
                                                     *codeview-comments-anchor*
 The anchor of a comment comes from the line map of the render. The cursor row
@@ -456,6 +536,14 @@ The `comments.display` option selects the display: >
     float     the row keeps the sign only
 <
 The `K` key shows the comment in a float in both cases.
+
+                                                     *codeview-comments-state*
+A comment holds a state: "open" or "resolved". The resolve key changes the
+state, and the state goes into the `state` field of the comment, so it
+survives a restart. A resolved comment takes the sign of the
+`comments.resolved_sign` option, and its header line says "resolved". Use the
+comment overview to walk the open comments of the review. See
+|codeview-overview|.
 
 In the side-by-side style a comment keeps the two windows aligned. The other
 side takes virtual lines of the same number, without text, so both windows
@@ -493,11 +581,29 @@ section with a field block and a markdown body: >
     - side: new
     - commit: bbbb2222
     - state: open
+    - synced_at:
+    - review_id:
     - created_at: 2026-08-12T09:10:00Z
     - updated_at: 2026-08-12T09:10:00Z
 
     The body of the comment.
 <
+The fields hold: >
+
+    file          path of the file in the new revision
+    start_line    first line of the comment, in the file at `commit`
+    end_line      last line of the comment
+    side          "old" for a removed line, "new" for every other line
+    commit        revision that the lines come from
+    state         "open" or "resolved"
+    synced_at     time of the submit that sent the comment to GitHub
+    review_id     review of GitHub that holds the comment
+    created_at    time of the first save
+    updated_at    time of the last change
+<
+The two sync fields stay empty until a |:CodeViewSubmit| confirms the post. See
+|codeview-submit-state|.
+
 The plugin writes the file atomically. It writes a temporary file in the same
 directory and renames it over the target. A failed write keeps the file of the
 last save.
@@ -505,7 +611,305 @@ last save.
 Read the store from Lua with |codeview.store()|.
 
 ==============================================================================
-9. LUA API                                                        *codeview-api*
+9. COMMENT OVERVIEW                                          *codeview-overview*
+
+The comment overview lists every comment of the session in one panel. Open it
+with |:CodeViewComments|, or with `<leader>co` from the sidebar and from the
+diff. Set `overview.auto_open` to true to open it with every |:CodeView|.
+
+The overview groups the comments in the same tree as the changed-files
+sidebar. A comment is a child of its file. Every node shows the number of
+comments below it: >
+
+    9b2688a5..ec056be0
+    3 comments, 1 resolved
+
+      ▾ lua/codeview 1
+      │ ▾ store.lua 1
+      │ │ ✓ L5 new 4f1c0a2 rename this function
+      ▾ call.lua 2
+      │ ▌ L1 new 4f1c0a2 the first note
+      │ ▌ L2-3 old 4f1c0a2 two lines
+<
+One comment line holds the sign of the state, the line range, the side, the
+short commit, and the first line of the body. A body that is wider than the
+panel ends with an ellipsis. The sign comes from the `comments.sign` option
+for an open comment, and from the `comments.resolved_sign` option for a
+resolved comment.
+
+                                                    *codeview-overview-keymaps*
+The overview buffer holds these maps. |codeview-config| names the keys: >
+
+    <CR>        open the comment in the diff, or toggle a directory
+    <Tab>       show or hide the comments of the file under the cursor
+    zR          show the comments of every file
+    zM          hide the children of every node
+    <leader>ce  edit the comment under the cursor
+    <leader>cd  delete the comment under the cursor, after a question
+    <leader>cr  resolve the comment under the cursor, or open it again
+    <leader>co  close the overview
+    q           close the overview
+<
+`q` closes the overview only. The session stays open, and the changed-files
+sidebar stays open.
+
+                                                      *codeview-overview-jump*
+`<CR>` on a comment opens the diff of its file and moves the cursor to the
+anchor of the comment. A collapsed section that hides the line shows its lines
+again. In the side-by-side style the cursor goes to the window of the side of
+the comment. `<CR>` on a file line opens the first comment of the file.
+
+A file that the range does not change any more keeps its comments, but the
+jump key cannot open it. The overview shows the name of such a file dim.
+
+                                                    *codeview-overview-events*
+Every change of a comment sends an event. The overview and the diff view
+subscribe to it, so a delete in the overview clears the extmarks of the diff
+at once, and a comment in the diff shows in the overview at once. Each event
+also runs a |User| autocmd: >
+
+    CodeViewCommentAdded      a new comment went into the store
+    CodeViewCommentChanged    the body or the state of a comment changed
+    CodeViewCommentDeleted    a comment left the store
+    CodeViewReviewSubmitted   a submit sent comments to GitHub
+<
+The payload holds the id of the comment, the file, the id of the session, and
+the state: >lua
+
+    vim.api.nvim_create_autocmd("User", {
+      pattern = "CodeViewCommentAdded",
+      callback = function(event)
+        vim.print(event.data.file, event.data.id)
+      end,
+    })
+<
+==============================================================================
+10. EXPORT                                                     *codeview-export*
+
+The export renders the comments of the session as markdown. Run
+|:CodeViewExport|. The text goes into a scratch buffer and into a register, so
+you paste the review into a chat window or into a pull request description.
+
+The default template is plain markdown: >markdown
+
+    # codeview review: main..@
+
+    - range: `9b2688a5..ec056be0`
+    - commits: 2
+    - comments: 3 on 2 files, 1 resolved
+
+    ## call.lua
+
+    ### L1 · new · ec056be0
+
+    the first note
+
+    ### L2-3 · old · 9b2688a5 · resolved
+
+    two lines
+<
+Each comment holds its line range, its side, and the commit of the lines. A
+reader finds the code with those three values, without the plugin. `L1` is the
+line in the file at that commit. The side is "new" for an added line or for an
+unchanged line, and "old" for a removed line. A resolved comment holds the word
+"resolved" in its header.
+
+The files come in the order of the changed-files sidebar, and the comments of
+one file come in line order. A file with comments that the range does not
+change any more comes last, with the note "(outside the range)".
+
+`q` closes the window of the export buffer. A second export of the same session
+replaces the buffer of the first one. |:CodeViewClose| closes the export window
+with the other windows of the session.
+
+                                                     *codeview-export-register*
+The `export.register` option names the register. The default is "+", the
+system clipboard. Set the option to another name to keep the clipboard free:
+>lua
+
+    require("codeview").setup({ export = { register = "z" } })
+<
+An argument of the command wins over the option. An empty option writes no
+register. The name must be one register character. A longer text writes no
+register and gives a warning. "+" and "*" need a clipboard tool. Without one
+the export writes no register and gives a warning. See |clipboard|.
+
+                                                     *codeview-export-template*
+The `export.template` option replaces the default template. The function gets
+the session and the data of the export, and returns the text: >lua
+
+    require("codeview").setup({
+      export = {
+        template = function(session, data)
+          local lines = { "# " .. session:label() }
+          for _, comment in ipairs(data.comments) do
+            local at = comment.file .. ":" .. comment.start_line
+            lines[#lines + 1] = at .. " " .. comment.body
+          end
+          return table.concat(lines, "\n")
+        end,
+      },
+    })
+<
+The data table holds these fields: >lua
+
+    data.session    -- session of the export
+    data.store      -- comment store of the session
+    data.spec       -- text that names the range
+    data.range      -- resolved range, with short revision ids
+    data.repo       -- absolute path of the repository root
+    data.files      -- files with comments, each with its comment list
+    data.comments   -- every comment, in the order of the render
+    data.count      -- number of comments
+    data.resolved   -- number of resolved comments
+<
+A template that fails, or that gives a value that is not a text, falls back to
+the default template. The plugin reports the problem.
+
+==============================================================================
+11. PULL REQUESTS                                              *codeview-github*
+
+`:CodeView pr {number}` reviews a pull request of GitHub. The review reads and
+writes nothing on GitHub: it holds your comments in the session file, like a
+local review. |:CodeViewExport| gives you the text for the web page.
+
+The command needs the gh CLI in $PATH, and a login. Run `gh auth login` once.
+`:checkhealth codeview` reports both. See |codeview-health|.
+
+                                                        *codeview-github-refs*
+The working copy does not change. The command fetches two refs of the plugin
+and checks out no branch: >
+
+    refs/codeview/pr/{number}/head    the commits of the pull request
+    refs/codeview/pr/{number}/base    the tip of the base branch
+<
+The review range is `base...head`, so it starts at the merge base of the two
+refs. That is the range of the "Files changed" tab of GitHub. The sidebar
+header shows the number and the title of the pull request.
+
+A pull request review needs a git repository. A colocated jj repository holds
+one, so it works there too.
+
+The `github.remote` option names the git remote of the fetch. An empty text
+takes `origin`, or the first remote of the repository.
+
+                                                       *codeview-github-store*
+The session key of the comment file is `pr-{number}-{head commit}`. A new push
+to the pull request gives a new head commit, so the next review starts with an
+empty comment file and your notes on the older push stay where they are. See
+|codeview-comments-store|.
+
+                                                     *codeview-github-remote*
+The review comments of the pull request come in after the session opens. The
+diff shows them under their line, with the sign of the `comments.remote_sign`
+option, the login of the author, and the word "read-only". The comment
+overview lists them in a section of their own, under the local comments.
+
+A remote comment is read-only. The edit key, the delete key, and the resolve
+key report that and change nothing. `<CR>` on a remote comment opens its line
+in the diff, like a local comment.
+
+GitHub reports the position of a comment in three ways, and the mapping takes
+the first one that answers: the lines of the newest version of the diff, the
+lines of the version that the comment was written on, and the last line of the
+diff hunk. A comment that a later push moved shows the word "outdated".
+
+A comment that a submit of this session sent lives on GitHub and in the
+session file. The review drops the copy of GitHub and keeps the local comment
+with the word "synced", so the comment shows once.
+
+Set `github.comments` to false to leave the review comments out. The option
+`github.max_comments` limits the number of comments of one fetch.
+
+A failed fetch of the comments gives one message. The review itself stays
+open, because it needs no network after the fetch of the refs.
+
+|:CodeViewSubmit| sends your comments to the pull request. See
+|codeview-submit|.
+
+==============================================================================
+12. SUBMIT                                                     *codeview-submit*
+
+|:CodeViewSubmit| sends the comments of the session to the pull request. The
+comments go out as one review. The pull request then shows one entry with all
+the lines.
+
+The command needs a session of |:CodeView| pr. A local review has no pull
+request, so the command reports that and stops.
+
+The post is always explicit: >
+
+    1. The command collects the comments that no submit sent yet.
+    2. It asks for the event of the review.
+    3. It asks for the text of the review.
+    4. It shows the summary: every comment that goes out, and every comment
+       that stays local.
+    5. It posts after you pick "submit".
+<
+Nothing reaches GitHub before that pick. No autocommand, no write of a file,
+and no keymap posts by itself.
+
+`:CodeViewSubmit {event}` skips the question about the event. The events are: >
+
+    comment           the review adds comments only
+    approve           the review approves the pull request
+    request-changes   the review asks for changes
+<
+`:CodeViewSubmit!` skips the question about the text of the review. GitHub
+needs a text for the comment event and for the request-changes event, so the
+review then holds one default line.
+
+                                                    *codeview-submit-position*
+The position of a comment comes from a line map of the diff. The map runs with
+the diff settings of git, the myers algorithm with the indent heuristic,
+because GitHub takes only the lines of the diff of git. The review itself
+shows the histogram diff, which reads better. The map gives the fields of the
+review API of GitHub: >
+
+    side          LEFT for the old side, RIGHT for the new side
+    line          last line of the comment
+    start_line    first line of a comment over more than one line
+    start_side    side of the first line
+<
+GitHub takes a comment only on a line of its diff. A comment on another line
+stays local. The summary names that comment with the reason. These comments do
+not map: >
+
+    - the pull request does not change the file any more
+    - the diff of the pull request does not hold the line
+    - the line range of the comment is not one block of the diff
+<
+Move such a comment to a line of the diff, or read it with |:CodeViewExport|.
+
+The diff of GitHub keeps three unchanged lines around each change. The review
+buffer can show one line more, because it hides no section of one line. A
+comment on such a line stays local, and the summary names it. The submit
+reports the line before the post. It does not send a line that GitHub rejects.
+
+                                                       *codeview-submit-state*
+A comment carries its sync state in the session file: >
+
+    - synced_at: 2026-08-13T09:41:12Z
+    - review_id: 2371558991
+<
+A comment gets both fields only after GitHub confirms the post. The next
+submit then leaves this comment out, so no comment goes out twice. The diff
+and the comment overview show the word "synced" on it.
+
+An edit of the text clears the sync state. The pull request holds the text of
+the last submit, so the next submit sends the new text. GitHub takes it as a
+new comment, because the review API writes no comment a second time.
+
+A failed post writes nothing. No comment gets the fields, and the session file
+does not change. The report holds the answer of the server, for example the
+line that GitHub did not take. Correct the comment, then run the command
+again.
+
+A submit sends the event CodeViewReviewSubmitted. See
+|codeview-overview-events|.
+
+==============================================================================
+13. LUA API                                                       *codeview-api*
 
                                                              *codeview.open()*
 codeview.open({spec}, {opts}, {cb})
@@ -522,6 +926,36 @@ codeview.open({spec}, {opts}, {cb})
 <
     Without {cb} the call blocks and returns `session, err`. With {cb} the
     call returns at once and calls `cb(session, err)`.
+
+                                                          *codeview.open_pr()*
+codeview.open_pr({number}, {opts}, {cb})
+    Open a review session for the GitHub pull request {number}. Without
+    {number} the call takes the pull request of the branch that the repository
+    has checked out.
+
+    {opts} accepts these fields: >lua
+
+        {
+          dir = nil,       -- directory for the detection, cwd by default
+          repo = nil,      -- "owner/name" of another repository
+          remote = nil,    -- git remote, the config value by default
+          comments = true, -- read the review comments of the pull request
+        }
+<
+    Without {cb} the call blocks and returns `session, err`. With {cb} the
+    call returns at once and calls `cb(session, err)`.
+
+                                                                *codeview.pr()*
+codeview.pr()
+    Return the pull request of the session that runs, or nil. The table holds
+    the number, the title, the state, the author, the branches, the commits,
+    and the head commit.
+
+                                                   *codeview.remote_comments()*
+codeview.remote_comments()
+    Return the review comments that the pull request of the session already
+    holds. Each comment has a file, a line range, a side, an author, a body,
+    and an `outdated` field. The list is empty for a local review.
 
                                                              *codeview.pick()*
 codeview.pick({opts}, {cb})
@@ -555,6 +989,37 @@ codeview.toggle_sidebar({opts})
     Close the sidebar when it is open, and open it when it is closed. Return
     the state after the call.
 
+                                                         *codeview.overview()*
+codeview.overview()
+    Return the comment overview that runs, or nil.
+
+                                                    *codeview.open_overview()*
+codeview.open_overview({opts})
+    Open the comment overview for the session that runs. {opts} accepts a
+    `session` field and a `focus` field. The call returns `overview, err`.
+
+    The overview answers these calls: >lua
+
+        overview:comments()        -- comments in the order of the render
+        overview:cursor_comment()  -- comment of the line under the cursor
+        overview:jump(comment)     -- open the anchor of a comment in the diff
+        overview:go_to(id)         -- move the cursor to the line of a comment
+        overview:edit()            -- edit the comment under the cursor
+        overview:remove(opts)      -- delete the comment under the cursor
+        overview:set_state(state)  -- resolve the comment, or open it again
+        overview:render()          -- render the panel again
+        overview:close()           -- close the panel
+<
+                                                   *codeview.close_overview()*
+codeview.close_overview()
+    Close the comment overview. The session stays open. Return false when no
+    overview is open.
+
+                                                  *codeview.toggle_overview()*
+codeview.toggle_overview({opts})
+    Close the overview when it is open, and open it when it is closed. Return
+    the state after the call.
+
                                                              *codeview.view()*
 codeview.view()
     Return the state of the diff view, or nil when no file is open. The state
@@ -566,7 +1031,15 @@ codeview.view()
                                                         *codeview.open_file()*
 codeview.open_file({index}, {opts}, {cb})
     Open one changed file of the session in the diff view. {index} is the
-    position of the file in the file list. {opts} accepts a `session` field.
+    position of the file in the file list. {opts} accepts a `session` field and
+    a `force` field. With `force = true` the call renders a diff above the
+    `diff.max_lines` limit. See |codeview-diff-limit|.
+
+                                                        *codeview.load_diff()*
+codeview.load_diff({cb})
+    Render the diff that the `diff.max_lines` limit stopped. The call reads the
+    file of the view again, without the limit. It returns false when the view
+    shows no limited diff.
 
                                                         *codeview.next_hunk()*
 codeview.next_hunk({opts})
@@ -615,6 +1088,12 @@ codeview.delete_comment({opts})
     Delete the comment under the cursor, after a question. `opts.confirm =
     false` skips the question. `opts.id` names another comment.
 
+                                                  *codeview.resolve_comment()*
+codeview.resolve_comment({opts})
+    Set the state of the comment under the cursor. `opts.state` is "open" or
+    "resolved". Without a state the call takes the other state. `opts.id`
+    names another comment. Return the comment after the change.
+
                                                      *codeview.show_comment()*
 codeview.show_comment()
     Show the comment under the cursor in a float. Return the buffer and the
@@ -638,8 +1117,57 @@ codeview.store()
         store:add(fields)             -- add a comment
         store:update(id, fields)      -- change a comment
         store:remove(id)              -- delete a comment
+        store:unsynced()              -- comments that no submit sent yet
+        store:mark_synced(id, opts)   -- mark a comment as sent
         store:save()                  -- write the file
 <
+                                                           *codeview.export()*
+codeview.export({opts})
+    Export the comments of the session that runs. {opts} accepts these
+    fields: >lua
+
+        {
+          session = nil,   -- session to export, the active session by default
+          register = nil,  -- register for the text, false writes no register
+          buffer = true,   -- false skips the scratch buffer
+          focus = true,    -- false keeps the cursor outside the buffer
+          notify = true,   -- false silences the report of the call
+        }
+<
+    The call returns `result, err`. The result holds the text, the number of
+    comments, the register, the buffer, and the window. See |codeview-export|.
+
+                                                           *codeview.submit()*
+codeview.submit({opts}, {cb})
+    Send the comments of the session that runs to the pull request. The call
+    shows a summary and posts only after the user confirms it.
+
+    {opts} accepts these fields: >lua
+
+        {
+          session = nil,  -- session to submit, the active session by default
+          event = nil,    -- "comment" | "approve" | "request-changes"
+          body = nil,     -- text of the review, the prompt asks without it
+          dir = nil,      -- directory that gh runs in, the repo root by default
+          notify = true,  -- false silences the reports of the call
+        }
+<
+    {cb} gets `result, err`. The result holds the number of comments that
+    GitHub took, the number of comments that stay local, the review of the
+    answer, and its address. See |codeview-submit|.
+
+                                                      *codeview.export_text()*
+codeview.export_text({opts})
+    Render the comments of the session as markdown. The call writes no
+    register and opens no buffer. It returns `text, err`.
+
+                                                           *codeview.health()*
+codeview.health()
+    Run the health check. |:checkhealth| codeview gives the same report.
+
+                                                          *codeview.version*
+codeview.version
+    Version of the plugin, as text.
 
 A session answers these calls: >lua
 
@@ -652,7 +1180,7 @@ A session answers these calls: >lua
     session:close()          -- close the session
 <
 ==============================================================================
-10. CONFIGURATION                                              *codeview-config*
+14. CONFIGURATION                                              *codeview-config*
 
 Defaults: >lua
 
@@ -661,7 +1189,7 @@ Defaults: >lua
       diff = {
         style = "inline",            -- "inline" | "split"
         context = 3,                 -- unchanged lines around a hunk
-        max_lines = 20000,           -- ask before a larger diff
+        max_lines = 20000,           -- lines of both sides, 0 removes the limit
         word_diff = true,            -- highlight changed words
       },
       sidebar = {
@@ -676,10 +1204,17 @@ Defaults: >lua
           current = "▸",             -- file that the diff view shows
         },
       },
+      overview = {
+        position = "right",          -- "left" | "right"
+        width = 48,
+        auto_open = false,           -- open the overview with the session
+      },
       comments = {
         dir = stdpath("config") .. "/review",
         display = "virtual",         -- "virtual" | "float"
         sign = "▌",                  -- sign of a commented line
+        resolved_sign = "✓",         -- sign of a resolved comment
+        remote_sign = "▏",           -- sign of a comment from GitHub
         border = "rounded",          -- border of the editor and of the float
         width = 72,                  -- width of the editor, in columns
         height = 10,                 -- height of the editor, in lines
@@ -687,6 +1222,11 @@ Defaults: >lua
       export = {
         register = "+",
         template = false,            -- false uses the built-in renderer
+      },
+      github = {
+        remote = "",                 -- git remote, "" takes origin
+        comments = true,             -- read the review comments of the PR
+        max_comments = 500,          -- highest number of comments of a fetch
       },
       keymaps = {
         open_file = "<CR>",
@@ -698,13 +1238,18 @@ Defaults: >lua
         next_hunk = "]h",
         prev_hunk = "[h",
         expand_context = "za",
+        load_diff = "<CR>",
         toggle_style = "<leader>ct",
         comment = "<leader>cc",
         comment_insert = { "i", "a", "o", "O" },
         comment_visual = { "I", "A", "c" },
         edit_comment = "<leader>ce",
         delete_comment = "<leader>cd",
+        resolve_comment = "<leader>cr",
         show_comment = "K",
+        toggle_overview = "<leader>co",
+        editor_save = "ZZ",
+        editor_cancel = { "q", "<Esc><Esc>" },
         close = "q",
       },
       log_level = vim.log.levels.WARN,
@@ -712,7 +1257,8 @@ Defaults: >lua
 <
 Set a keymap to false to disable it. A list holds more than one key for one
 action, and a list from you replaces the default list. setup() rejects an
-unknown key, and reports the name of the key.
+unknown key, and reports the name of the key. |codeview-keymaps| lists every
+action with its surface.
 
                                                         *codeview-backend*
 The `backend` option selects the version control system. With "auto" the
@@ -734,7 +1280,69 @@ A revset that names no commit gives an error that says so, for example
 holds no files, so the backend rejects it as a revision.
 
 ==============================================================================
-11. HIGHLIGHTS                                             *codeview-highlights*
+15. KEYMAPS                                                   *codeview-keymaps*
+
+Every key of codeview is buffer-local. The plugin sets no global map, and it
+maps no key in a file buffer of your own. The `keymaps` option holds one entry
+per action. |codeview-config| lists the defaults.
+
+The table names the surface of each action: >
+
+    S   the changed-files sidebar          |codeview-sidebar|
+    D   the diff view, both styles         |codeview-diff|
+    O   the comment overview               |codeview-overview|
+    E   the comment editor                 |codeview-comments-editor|
+    X   the buffer of an export            |codeview-export|
+<
+                                                       *codeview-keymaps-list*
+>
+    Action            Default        Where  What it does
+    ────────────────  ─────────────  ─────  ──────────────────────────────────
+    open_file         <CR>           S O    open the file, or toggle the node
+    toggle_node       <Tab>          S O    show or hide the children
+    expand_all        zR             S O D  show every hidden line or node
+    collapse_all      zM             S O D  hide every section or node
+    next_file         ]f             S   D  open the next file
+    prev_file         [f             S   D  open the previous file
+    next_hunk         ]h                 D  jump to the next hunk
+    prev_hunk         [h                 D  jump to the previous hunk
+    expand_context    za                 D  show or hide the section
+    load_diff         <CR>               D  render a diff above the limit *
+    toggle_style      <leader>ct     S   D  switch inline and side by side
+    comment           <leader>cc         D  comment on the line or selection
+    comment_insert    i a o O            D  comment on the line
+    comment_visual    I A c              D  comment on the selected lines
+    edit_comment      <leader>ce       O D  edit the comment
+    delete_comment    <leader>cd       O D  delete the comment
+    resolve_comment   <leader>cr       O D  resolve the comment, or reopen it
+    show_comment      K                  D  show the comment in a float
+    toggle_overview   <leader>co     S O D  open or close the overview
+    editor_save       ZZ                   E  save the comment
+    editor_cancel     q  <Esc><Esc>       E  discard the comment
+    close             q              S O D  close the session or the panel
+                                         X  close the export window
+<
+(*) The load key maps on a diff that the `diff.max_lines` limit stopped, and on
+no other diff. `<CR>` keeps its own action in every diff that the view shows.
+See |codeview-diff-limit|.
+
+The comment editor also saves with `:w`. That write runs from an autocmd, not
+from a map, so it works with any key of your own.
+
+An entry takes one key, a list of keys, or false: >lua
+
+    require("codeview").setup({
+      keymaps = {
+        show_comment = "gh",              -- one key
+        comment_insert = { "i", "a" },    -- two keys for one action
+        comment_visual = false,           -- no map for this action
+      },
+    })
+<
+A list of yours replaces the default list. It does not extend it.
+
+==============================================================================
+16. HIGHLIGHTS                                             *codeview-highlights*
 
 Every group of codeview links to a standard group. The link is a default
 link, so your own link or your own colors win. The plugin sets the links
@@ -777,13 +1385,18 @@ again after a colorscheme change.
     CodeViewComment        Comment      body of a comment in the diff
     CodeViewCommentHeader  Title        header line of a comment
     CodeViewCommentSign    Special      sign of a commented line
+    CodeViewCommentResolved DiagnosticOk sign of a resolved comment
+    CodeViewRemote         Comment      body of a comment from GitHub
+    CodeViewRemoteHeader   DiagnosticInfo header line of a remote comment
+    CodeViewRemoteSign     DiagnosticInfo sign of a remote comment
+    CodeViewRemoteOutdated DiagnosticWarn sign of an outdated remote comment
 <
 To change a color, set the group after your colorscheme: >lua
 
     vim.api.nvim_set_hl(0, "CodeViewCurrent", { link = "Visual" })
 <
 ==============================================================================
-12. HEALTH                                                     *codeview-health*
+17. HEALTH                                                     *codeview-health*
 
 Run |:checkhealth| codeview. The report shows: >
 
@@ -791,5 +1404,8 @@ Run |:checkhealth| codeview. The report shows: >
     - the plugin version and the state of setup()
     - the result of the configuration validation
     - the git, jj, and gh executables with their versions
+    - the login state of gh, from `gh auth status`
 <
+The login check asks GitHub whether the token is valid, so it needs a
+connection. Without a login the report says how to get one.
 vim:tw=78:ts=8:noet:ft=help:norl:

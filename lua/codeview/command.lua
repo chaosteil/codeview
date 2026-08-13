@@ -1,4 +1,4 @@
----@brief The `:CodeView` and `:CodeViewClose` commands.
+---@brief The user commands of codeview.
 ---
 --- `:CodeView <rev>` reviews one commit. `:CodeView <rev>..<rev>` reviews a
 --- range. On a jj repository the argument is a revset, for example
@@ -11,6 +11,8 @@
 
 local config = require("codeview.config")
 local errors = require("codeview.error")
+local export = require("codeview.export")
+local overview = require("codeview.overview")
 local picker = require("codeview.picker")
 local session = require("codeview.session")
 local sidebar = require("codeview.sidebar")
@@ -21,10 +23,11 @@ local api = vim.api
 local M = {}
 
 ---@class codeview.command.Args
----@field action "review"|"pick" What the argument asks for.
+---@field action "review"|"pick"|"pr" What the argument asks for.
 ---@field text string? Revision argument of a review action, as the user wrote it.
 ---@field range codeview.vcs.RangeSpec? Form of the revision argument, in git terms.
 ---@field mode "single"|"range"? Number of picks of a pick action.
+---@field number integer? Number of the pull request of a pr action. Nil for the pull request of the branch.
 
 ---@class codeview.command.RunOpts
 ---@field args string? Text after the command name.
@@ -50,8 +53,16 @@ local function opened(review, err)
   if not review then
     return
   end
-  if config.get().sidebar.auto_open then
+  local cfg = config.get()
+  if cfg.sidebar.auto_open then
     local _, open_err = sidebar.open({ session = review })
+    if open_err then
+      report(open_err)
+      return
+    end
+  end
+  if cfg.overview.auto_open then
+    local _, open_err = overview.open({ session = review })
     if open_err then
       report(open_err)
       return
@@ -66,6 +77,9 @@ end
 --- language that it knows: git reads `a`, `a..b`, and `a...b`, and jj reads a
 --- revset. `parsed.range` reports the form in git terms, for a caller that
 --- needs it. `parsed.text` holds the argument itself.
+---
+--- `pr <number>` reviews a GitHub pull request. `pr` without a number takes
+--- the pull request of the branch that the repository has checked out.
 ---@param args string? Text after the command name.
 ---@param bang boolean? True after `:CodeView!`.
 ---@return codeview.command.Args? parsed
@@ -78,6 +92,17 @@ function M.parse(args, bang)
   local text = vim.trim(args or "")
   if text == "" then
     return { action = "pick", mode = bang and "range" or "single" }, nil
+  end
+
+  if text:lower() == "pr" then
+    return { action = "pr", text = text }, nil
+  end
+  local number = text:lower():match("^pr%s+#?(%d+)$")
+  if number then
+    return { action = "pr", text = text, number = tonumber(number) }, nil
+  end
+  if text:lower():match("^pr%s") then
+    return nil, errors.new(errors.codes.INVALID_ARG, "the pr argument needs a number: :CodeView pr <number>")
   end
 
   local range, err = vcs.parse_range(text)
@@ -105,6 +130,11 @@ function M.run(opts)
     picker.pick({ mode = parsed.mode, dir = opts.dir }, opts.on_open or opened)
     return
   end
+
+  if parsed.action == "pr" then
+    require("codeview.pr").open(parsed.number, { dir = opts.dir }, opts.on_open or opened)
+    return
+  end
   -- The text goes to the backend, not the parsed form. A jj revset must reach
   -- jj without a split on the dots.
   session.open(parsed.text --[[@as string]], { dir = opts.dir }, opts.on_open or opened)
@@ -130,6 +160,59 @@ function M.files()
   if err then
     report(err)
   end
+end
+
+---Run `:CodeViewComments`.
+---
+--- The command closes the comment overview when it is open. Otherwise it opens
+--- the overview and puts the cursor in it.
+function M.overview()
+  if overview.is_open() then
+    overview.close()
+    return
+  end
+  local _, err = overview.open({ focus = true })
+  if err then
+    report(err)
+  end
+end
+
+---Run `:CodeViewExport`.
+---
+--- The argument names the register that receives the markdown. Without an
+--- argument the call takes the `export.register` option. After `!` the export
+--- opens no scratch buffer.
+---@param opts? { args?: string, bang?: boolean }
+---@return codeview.export.Result? result
+function M.export(opts)
+  opts = opts or {}
+  local register = vim.trim(opts.args or "")
+  local result, err = export.run({
+    register = register ~= "" and register or nil,
+    buffer = not opts.bang,
+  })
+  if err then
+    report(err)
+    return nil
+  end
+  return result
+end
+
+---Run `:CodeViewSubmit`.
+---
+--- The argument names the event of the review: `comment`, `approve`, or
+--- `request-changes`. Without an argument the call asks for the event. After
+--- `!` the review takes the default text, without a prompt.
+---
+--- The command shows a summary and posts only after the user confirms it.
+---@param opts? { args?: string, bang?: boolean, on_done?: fun(result: codeview.submit.Result?, err: codeview.Error?) }
+function M.submit(opts)
+  opts = opts or {}
+  local event = vim.trim(opts.args or "")
+  require("codeview.submit").run({
+    event = event ~= "" and event or nil,
+    body = opts.bang and "" or nil,
+  }, opts.on_done)
 end
 
 return M

@@ -72,6 +72,31 @@ describe("codeview.config", function()
     assert.is_truthy(err:find("keymaps.comment_insert", 1, true), err)
   end)
 
+  it("keeps the comment overview options apart from the sidebar options", function()
+    local cfg = assert(config.setup({ overview = { width = 60, auto_open = true } }))
+    assert.are.equal(60, cfg.overview.width)
+    assert.are.equal("right", cfg.overview.position)
+    assert.is_true(cfg.overview.auto_open)
+    assert.are.equal(40, cfg.sidebar.width)
+    assert.are.equal("left", cfg.sidebar.position)
+  end)
+
+  it("rejects an invalid overview option", function()
+    local cfg, err = config.setup({ overview = { position = "top" } })
+    assert.is_nil(cfg)
+    assert.is_truthy(err:find("overview.position", 1, true), err)
+
+    cfg, err = config.setup({ overview = { size = 10 } })
+    assert.is_nil(cfg)
+    assert.is_truthy(err:find("unknown option: overview.size", 1, true), err)
+  end)
+
+  it("holds a sign for each comment state", function()
+    local cfg = assert(config.setup({}))
+    assert.are.equal("▌", cfg.comments.sign)
+    assert.are.equal("✓", cfg.comments.resolved_sign)
+  end)
+
   it("accepts a template function", function()
     local fn = function()
       return "review"

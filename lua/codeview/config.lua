@@ -13,15 +13,17 @@ local M = {}
 ---@field backend "auto"|"git"|"jj" Which VCS backend to use. "auto" detects the repo type.
 ---@field diff codeview.Config.Diff Diff view options.
 ---@field sidebar codeview.Config.Sidebar Changed-files sidebar options.
+---@field overview codeview.Config.Overview Comment overview sidebar options.
 ---@field comments codeview.Config.Comments Comment editor and storage options.
 ---@field export codeview.Config.Export Export options.
+---@field github codeview.Config.GitHub Pull request options.
 ---@field keymaps table<string, string|string[]|false> Buffer-local keymaps. A list holds more than one key for one action. Set an entry to false to disable it.
 ---@field log_level integer Minimum level for notifications. Use a `vim.log.levels` value.
 
 ---@class codeview.Config.Diff
 ---@field style "inline"|"split" Default diff style. "inline" is a unified diff, "split" is side by side.
 ---@field context integer Number of unchanged lines kept around each hunk.
----@field max_lines integer Diffs above this line count need a manual confirmation.
+---@field max_lines integer Highest number of lines of the two sides together. A larger diff needs the load key. 0 removes the limit.
 ---@field word_diff boolean Highlight the changed words inside a modified line.
 
 ---@class codeview.Config.Sidebar
@@ -37,17 +39,29 @@ local M = {}
 ---@field guide string Indent guide of one tree level.
 ---@field current string Marker of the file that the diff view shows.
 
+---@class codeview.Config.Overview
+---@field position "left"|"right" Side of the tab page for the comment overview.
+---@field width integer Width of the comment overview in columns.
+---@field auto_open boolean Open the overview when a session starts.
+
 ---@class codeview.Config.Comments
 ---@field dir string Directory for the session files. One subdirectory per repo.
 ---@field display "virtual"|"float" How to show a comment body in the diff.
 ---@field sign string Sign text for a commented line.
+---@field resolved_sign string Sign text for a line with a resolved comment.
+---@field remote_sign string Sign text for a line with a comment from GitHub.
 ---@field border string Border of the comment editor and of the comment float.
 ---@field width integer Width of the comment editor, in columns.
 ---@field height integer Height of the comment editor, in lines.
 
 ---@class codeview.Config.Export
----@field register string Register that receives the exported markdown.
----@field template fun(session: table): string|false Custom renderer. False uses the built-in renderer.
+---@field register string Register that receives the exported markdown. An empty text writes no register.
+---@field template fun(session: codeview.Session, data: codeview.export.Data): string|false Custom renderer. False uses the built-in renderer.
+
+---@class codeview.Config.GitHub
+---@field remote string Git remote that holds the pull requests. An empty text takes origin, or the first remote.
+---@field comments boolean Read the review comments of the pull request and show them in the diff.
+---@field max_comments integer Highest number of review comments that one fetch reads.
 
 ---Default configuration.
 ---@type codeview.Config
@@ -71,10 +85,17 @@ M.defaults = {
       current = "▸",
     },
   },
+  overview = {
+    position = "right",
+    width = 48,
+    auto_open = false,
+  },
   comments = {
     dir = fs.joinpath(fn.stdpath("config") --[[@as string]], "review"),
     display = "virtual",
     sign = "▌",
+    resolved_sign = "✓",
+    remote_sign = "▏",
     border = "rounded",
     width = 72,
     height = 10,
@@ -82,6 +103,11 @@ M.defaults = {
   export = {
     register = "+",
     template = false,
+  },
+  github = {
+    remote = "",
+    comments = true,
+    max_comments = 500,
   },
   keymaps = {
     open_file = "<CR>",
@@ -93,6 +119,7 @@ M.defaults = {
     next_hunk = "]h",
     prev_hunk = "[h",
     expand_context = "za",
+    load_diff = "<CR>",
     toggle_style = "<leader>ct",
     comment = "<leader>cc",
     -- The diff buffer is read-only, so the insert keys are free. They open the
@@ -101,7 +128,11 @@ M.defaults = {
     comment_visual = { "I", "A", "c" },
     edit_comment = "<leader>ce",
     delete_comment = "<leader>cd",
+    resolve_comment = "<leader>cr",
     show_comment = "K",
+    toggle_overview = "<leader>co",
+    editor_save = "ZZ",
+    editor_cancel = { "q", "<Esc><Esc>" },
     close = "q",
   },
   log_level = vim.log.levels.WARN,
@@ -130,6 +161,12 @@ end
 ---@return boolean
 local function positive_integer(value)
   return type(value) == "number" and value > 0 and value % 1 == 0
+end
+
+---@param value any
+---@return boolean
+local function whole_number(value)
+  return type(value) == "number" and value >= 0 and value % 1 == 0
 end
 
 ---Report whether a value names one key, a list of keys, or no key.
@@ -179,7 +216,7 @@ function M.validate(opts)
     vim.validate("diff", opts.diff, "table")
     vim.validate("diff.style", opts.diff.style, one_of({ "inline", "split" }))
     vim.validate("diff.context", opts.diff.context, positive_integer, "positive integer")
-    vim.validate("diff.max_lines", opts.diff.max_lines, positive_integer, "positive integer")
+    vim.validate("diff.max_lines", opts.diff.max_lines, whole_number, "positive integer, or 0")
     vim.validate("diff.word_diff", opts.diff.word_diff, "boolean")
 
     vim.validate("sidebar", opts.sidebar, "table")
@@ -191,10 +228,17 @@ function M.validate(opts)
       vim.validate("sidebar.icons." .. tostring(name), icon, "string")
     end
 
+    vim.validate("overview", opts.overview, "table")
+    vim.validate("overview.position", opts.overview.position, one_of({ "left", "right" }))
+    vim.validate("overview.width", opts.overview.width, positive_integer, "positive integer")
+    vim.validate("overview.auto_open", opts.overview.auto_open, "boolean")
+
     vim.validate("comments", opts.comments, "table")
     vim.validate("comments.dir", opts.comments.dir, "string")
     vim.validate("comments.display", opts.comments.display, one_of({ "virtual", "float" }))
     vim.validate("comments.sign", opts.comments.sign, "string")
+    vim.validate("comments.resolved_sign", opts.comments.resolved_sign, "string")
+    vim.validate("comments.remote_sign", opts.comments.remote_sign, "string")
     vim.validate("comments.border", opts.comments.border, "string")
     vim.validate("comments.width", opts.comments.width, positive_integer, "positive integer")
     vim.validate("comments.height", opts.comments.height, positive_integer, "positive integer")
@@ -204,6 +248,11 @@ function M.validate(opts)
     vim.validate("export.template", opts.export.template, function(value)
       return value == false or type(value) == "function"
     end, "function or false")
+
+    vim.validate("github", opts.github, "table")
+    vim.validate("github.remote", opts.github.remote, "string")
+    vim.validate("github.comments", opts.github.comments, "boolean")
+    vim.validate("github.max_comments", opts.github.max_comments, positive_integer, "positive integer")
 
     vim.validate("keymaps", opts.keymaps, "table")
     for action, lhs in pairs(opts.keymaps) do

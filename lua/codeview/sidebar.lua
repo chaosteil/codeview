@@ -9,8 +9,8 @@
 --- commits.
 ---
 --- The sidebar uses |codeview.panel| for the window and |codeview.tree| for
---- the tree. It holds the file list only, so the panel stays free for the
---- comment overview of M8.
+--- the tree. It holds the file list only. |codeview.overview| builds the
+--- comment overview from the same two modules.
 ---
 --- The plugin keeps one sidebar. It belongs to the session that runs, and it
 --- closes with that session.
@@ -56,30 +56,6 @@ local current = nil
 
 --- Lines ------------------------------------------------------------------
 
----Collect the text and the highlights of one line.
----@return { add: fun(chunk: string, hl?: string), build: fun(opts?: { hl?: string, data?: any }): codeview.panel.Line }
-local function builder()
-  local text = ""
-  ---@type codeview.panel.Mark[]
-  local marks = {}
-  return {
-    add = function(chunk, hl)
-      if not chunk or chunk == "" then
-        return
-      end
-      local from = #text
-      text = text .. chunk
-      if hl then
-        marks[#marks + 1] = { hl = hl, from = from, to = #text }
-      end
-    end,
-    build = function(opts)
-      opts = opts or {}
-      return { text = text, marks = marks, hl = opts.hl, data = opts.data }
-    end,
-  }
-end
-
 ---Status mark of one status.
 ---@param status codeview.vcs.Status?
 ---@return string
@@ -122,7 +98,7 @@ end
 ---@return codeview.panel.Line
 local function node_line(node, is_current)
   local icons = config.get().sidebar.icons
-  local line = builder()
+  local line = panel.builder()
 
   line.add(is_current and icons.current .. " " or "  ", is_current and "CodeViewMarker" or nil)
   line.add(string.rep(icons.guide .. " ", node.depth), "CodeViewIndent")
@@ -317,7 +293,8 @@ function Sidebar:toggle_node(node)
   if not dir or dir.kind ~= "dir" or dir.path == "" then
     return false
   end
-  self.expanded[dir.path] = not (self.expanded[dir.path] ~= false)
+  -- A path without an entry is expanded, so the toggle answers false for it.
+  self.expanded[dir.path] = self.expanded[dir.path] == false
   self:render()
   self:go_to(dir.path)
   return true
@@ -408,6 +385,9 @@ local function keymaps(sidebar)
   end)
   add(keys.toggle_style, function()
     view.set_style()
+  end)
+  add(keys.toggle_overview, function()
+    require("codeview.overview").toggle({ session = sidebar.session, focus = true })
   end)
   add(keys.close, function()
     sidebar.session:close()

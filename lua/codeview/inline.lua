@@ -135,6 +135,12 @@ function M.build(diff, opts)
     emit("Binary file. It has no text diff.", { kind = "message" })
     return build
   end
+  if diff.limited then
+    for _, text in ipairs(layout.limit_lines(diff)) do
+      emit(text, { kind = "message" })
+    end
+    return build
+  end
   if #diff.hunks == 0 then
     local empty = #diff.old_lines == 0 and #diff.new_lines == 0
     emit(empty and "The file is empty." or "The file has no changes.", { kind = "message" })
