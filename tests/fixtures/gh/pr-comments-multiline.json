@@ -1,0 +1,71 @@
+[
+    {
+        "url": "https://api.github.com/repos/neovim/neovim/pulls/comments/3765926271",
+        "pull_request_review_id": 4915907312,
+        "id": 3765926271,
+        "node_id": "PRRC_kwDOAPphoM7gd3l_",
+        "diff_hunk": "@@ -1549,84 +1582,62 @@ void u_read_undo(char *name, const uint8_t *hash, const char *orig_name FUNC_ATT\n # define SET_FLAG(j)\n #endif\n \n-  // We have put all of the headers into a table. Now we iterate through the\n-  // table and swizzle each sequence number we have stored in uh_*_seq into\n-  // a pointer corresponding to the header with that sequence number.\n-  int16_t old_idx = -1;\n-  int16_t new_idx = -1;\n-  int16_t cur_idx = -1;\n+  // We have put all of the headers into a table.  Each header stores the\n+  // sequence numbers of the headers it links to; resolve those into\n+  // pointers.  Sort the table on uh_seq once, so that every lookup is a\n+  // binary search instead of a linear scan, which would be quadratic\n+  // overall.  Every entry is non-NULL: a header that failed to\n+  // unserialize or a count mismatch was an error above.",
+        "path": "src/nvim/undo.c",
+        "commit_id": "1e4cdfdf950c901550580d00276307446e830eb2",
+        "original_commit_id": "1e4cdfdf950c901550580d00276307446e830eb2",
+        "user": {
+            "login": "justinmk",
+            "id": 1359421,
+            "node_id": "MDQ6VXNlcjEzNTk0MjE=",
+            "avatar_url": "https://avatars.githubusercontent.com/u/1359421?v=4",
+            "gravatar_id": "",
+            "url": "https://api.github.com/users/justinmk",
+            "html_url": "https://github.com/justinmk",
+            "followers_url": "https://api.github.com/users/justinmk/followers",
+            "following_url": "https://api.github.com/users/justinmk/following{/other_user}",
+            "gists_url": "https://api.github.com/users/justinmk/gists{/gist_id}",
+            "starred_url": "https://api.github.com/users/justinmk/starred{/owner}{/repo}",
+            "subscriptions_url": "https://api.github.com/users/justinmk/subscriptions",
+            "organizations_url": "https://api.github.com/users/justinmk/orgs",
+            "repos_url": "https://api.github.com/users/justinmk/repos",
+            "events_url": "https://api.github.com/users/justinmk/events{/privacy}",
+            "received_events_url": "https://api.github.com/users/justinmk/received_events",
+            "type": "User",
+            "user_view_type": "public",
+            "site_admin": false
+        },
+        "body": "vim does not seem to be editing AI comments at all. \"binary search instead of a linear scan, which would be quadratic\" is typical AI over-explanation / chatter.",
+        "created_at": "2026-08-12T11:24:28Z",
+        "updated_at": "2026-08-12T11:24:28Z",
+        "html_url": "https://github.com/neovim/neovim/pull/41285#discussion_r3765926271",
+        "pull_request_url": "https://api.github.com/repos/neovim/neovim/pulls/41285",
+        "_links": {
+            "self": {
+                "href": "https://api.github.com/repos/neovim/neovim/pulls/comments/3765926271"
+            },
+            "html": {
+                "href": "https://github.com/neovim/neovim/pull/41285#discussion_r3765926271"
+            },
+            "pull_request": {
+                "href": "https://api.github.com/repos/neovim/neovim/pulls/41285"
+            }
+        },
+        "reactions": {
+            "url": "https://api.github.com/repos/neovim/neovim/pulls/comments/3765926271/reactions",
+            "total_count": 0,
+            "+1": 0,
+            "-1": 0,
+            "laugh": 0,
+            "hooray": 0,
+            "confused": 0,
+            "heart": 0,
+            "rocket": 0,
+            "eyes": 0
+        },
+        "start_line": 1585,
+        "original_start_line": 1585,
+        "start_side": "RIGHT",
+        "line": 1590,
+        "original_line": 1590,
+        "side": "RIGHT",
+        "author_association": "MEMBER",
+        "original_position": 62,
+        "position": 62,
+        "subject_type": "line"
+    }
+]

@@ -1,0 +1,419 @@
+[
+    {
+        "url": "https://api.github.com/repos/neovim/neovim/pulls/comments/3745425897",
+        "pull_request_review_id": 4892676268,
+        "id": 3745425897,
+        "node_id": "PRRC_kwDOAPphoM7fPqnp",
+        "diff_hunk": "@@ -70,7 +70,7 @@ GLOBAL MAPPINGS                                                 *dir-mappings*\n BUFFER-LOCAL MAPPINGS                                    *dir-buffer-mappings*\n \n \u2022 <CR> opens the file or directory under the cursor.\n-\u2022 - opens the parent directory.\n+\u2022 1- opens the current working directory (exlcuding buffer-local).",
+        "path": "runtime/doc/plugins.txt",
+        "commit_id": "3b05d27cbc41f7bf6ffff9890cddfd8ad054f5ab",
+        "original_commit_id": "aae84443b6a6b81de32ced9ec8376371151d7d9a",
+        "user": {
+            "login": "justinmk",
+            "id": 1359421,
+            "node_id": "MDQ6VXNlcjEzNTk0MjE=",
+            "avatar_url": "https://avatars.githubusercontent.com/u/1359421?v=4",
+            "gravatar_id": "",
+            "url": "https://api.github.com/users/justinmk",
+            "html_url": "https://github.com/justinmk",
+            "followers_url": "https://api.github.com/users/justinmk/followers",
+            "following_url": "https://api.github.com/users/justinmk/following{/other_user}",
+            "gists_url": "https://api.github.com/users/justinmk/gists{/gist_id}",
+            "starred_url": "https://api.github.com/users/justinmk/starred{/owner}{/repo}",
+            "subscriptions_url": "https://api.github.com/users/justinmk/subscriptions",
+            "organizations_url": "https://api.github.com/users/justinmk/orgs",
+            "repos_url": "https://api.github.com/users/justinmk/repos",
+            "events_url": "https://api.github.com/users/justinmk/events{/privacy}",
+            "received_events_url": "https://api.github.com/users/justinmk/received_events",
+            "type": "User",
+            "user_view_type": "public",
+            "site_admin": false
+        },
+        "body": "i think we probably don't need to change the doc. but at least the existing line shouldn't be deleted",
+        "created_at": "2026-08-09T21:59:16Z",
+        "updated_at": "2026-08-09T21:59:16Z",
+        "html_url": "https://github.com/neovim/neovim/pull/41254#discussion_r3745425897",
+        "pull_request_url": "https://api.github.com/repos/neovim/neovim/pulls/41254",
+        "_links": {
+            "self": {
+                "href": "https://api.github.com/repos/neovim/neovim/pulls/comments/3745425897"
+            },
+            "html": {
+                "href": "https://github.com/neovim/neovim/pull/41254#discussion_r3745425897"
+            },
+            "pull_request": {
+                "href": "https://api.github.com/repos/neovim/neovim/pulls/41254"
+            }
+        },
+        "reactions": {
+            "url": "https://api.github.com/repos/neovim/neovim/pulls/comments/3745425897/reactions",
+            "total_count": 0,
+            "+1": 0,
+            "-1": 0,
+            "laugh": 0,
+            "hooray": 0,
+            "confused": 0,
+            "heart": 0,
+            "rocket": 0,
+            "eyes": 0
+        },
+        "start_line": null,
+        "original_start_line": null,
+        "start_side": null,
+        "line": null,
+        "original_line": 73,
+        "side": "RIGHT",
+        "author_association": "MEMBER",
+        "original_position": 5,
+        "position": 1,
+        "subject_type": "line"
+    },
+    {
+        "url": "https://api.github.com/repos/neovim/neovim/pulls/comments/3745841374",
+        "pull_request_review_id": 4892972208,
+        "id": 3745841374,
+        "node_id": "PRRC_kwDOAPphoM7fRQDe",
+        "diff_hunk": "@@ -12,6 +12,9 @@ end, { silent = true, desc = 'Open directory entry' })\n \n vim.keymap.set('n', '<Plug>(nvim-dir-up)', function()\n   if vim.v.count == 1 then\n+    if vim.b.nvim_dir ~= nil then\n+      vim.cmd('bcd!')\n+    end",
+        "path": "runtime/plugin/dir.lua",
+        "commit_id": "ac888660ee1de8a9e2cfeb65475bcbc61e57db5c",
+        "original_commit_id": "aae84443b6a6b81de32ced9ec8376371151d7d9a",
+        "user": {
+            "login": "superatomic",
+            "id": 51250849,
+            "node_id": "MDQ6VXNlcjUxMjUwODQ5",
+            "avatar_url": "https://avatars.githubusercontent.com/u/51250849?v=4",
+            "gravatar_id": "",
+            "url": "https://api.github.com/users/superatomic",
+            "html_url": "https://github.com/superatomic",
+            "followers_url": "https://api.github.com/users/superatomic/followers",
+            "following_url": "https://api.github.com/users/superatomic/following{/other_user}",
+            "gists_url": "https://api.github.com/users/superatomic/gists{/gist_id}",
+            "starred_url": "https://api.github.com/users/superatomic/starred{/owner}{/repo}",
+            "subscriptions_url": "https://api.github.com/users/superatomic/subscriptions",
+            "organizations_url": "https://api.github.com/users/superatomic/orgs",
+            "repos_url": "https://api.github.com/users/superatomic/repos",
+            "events_url": "https://api.github.com/users/superatomic/events{/privacy}",
+            "received_events_url": "https://api.github.com/users/superatomic/received_events",
+            "type": "User",
+            "user_view_type": "public",
+            "site_admin": false
+        },
+        "body": "This will break the `:bcd` behavior for that buffer permanently, right? What if the user switches back and wants to run `:!`?\n\nAlso, I think its actually fine if `1-` is useless; it will still do something if the user has an autocommand which changes the buffer-local directory (e.g. to the project root), and changing the behavior of `1-` in directory buffers could actually mess that up.",
+        "created_at": "2026-08-10T00:36:33Z",
+        "updated_at": "2026-08-10T00:36:33Z",
+        "html_url": "https://github.com/neovim/neovim/pull/41254#discussion_r3745841374",
+        "pull_request_url": "https://api.github.com/repos/neovim/neovim/pulls/41254",
+        "_links": {
+            "self": {
+                "href": "https://api.github.com/repos/neovim/neovim/pulls/comments/3745841374"
+            },
+            "html": {
+                "href": "https://github.com/neovim/neovim/pull/41254#discussion_r3745841374"
+            },
+            "pull_request": {
+                "href": "https://api.github.com/repos/neovim/neovim/pulls/41254"
+            }
+        },
+        "reactions": {
+            "url": "https://api.github.com/repos/neovim/neovim/pulls/comments/3745841374/reactions",
+            "total_count": 0,
+            "+1": 0,
+            "-1": 0,
+            "laugh": 0,
+            "hooray": 0,
+            "confused": 0,
+            "heart": 0,
+            "rocket": 0,
+            "eyes": 0
+        },
+        "start_line": null,
+        "original_start_line": null,
+        "start_side": null,
+        "line": null,
+        "original_line": 17,
+        "side": "RIGHT",
+        "author_association": "MEMBER",
+        "original_position": 6,
+        "position": 1,
+        "subject_type": "line"
+    },
+    {
+        "url": "https://api.github.com/repos/neovim/neovim/pulls/comments/3746483589",
+        "pull_request_review_id": 4893565547,
+        "id": 3746483589,
+        "node_id": "PRRC_kwDOAPphoM7fTs2F",
+        "diff_hunk": "@@ -12,6 +12,9 @@ end, { silent = true, desc = 'Open directory entry' })\n \n vim.keymap.set('n', '<Plug>(nvim-dir-up)', function()\n   if vim.v.count == 1 then\n+    if vim.b.nvim_dir ~= nil then\n+      vim.cmd('bcd!')\n+    end",
+        "path": "runtime/plugin/dir.lua",
+        "commit_id": "ac888660ee1de8a9e2cfeb65475bcbc61e57db5c",
+        "original_commit_id": "aae84443b6a6b81de32ced9ec8376371151d7d9a",
+        "user": {
+            "login": "nathanzeng",
+            "id": 121571396,
+            "node_id": "U_kgDOBz8IRA",
+            "avatar_url": "https://avatars.githubusercontent.com/u/121571396?v=4",
+            "gravatar_id": "",
+            "url": "https://api.github.com/users/nathanzeng",
+            "html_url": "https://github.com/nathanzeng",
+            "followers_url": "https://api.github.com/users/nathanzeng/followers",
+            "following_url": "https://api.github.com/users/nathanzeng/following{/other_user}",
+            "gists_url": "https://api.github.com/users/nathanzeng/gists{/gist_id}",
+            "starred_url": "https://api.github.com/users/nathanzeng/starred{/owner}{/repo}",
+            "subscriptions_url": "https://api.github.com/users/nathanzeng/subscriptions",
+            "organizations_url": "https://api.github.com/users/nathanzeng/orgs",
+            "repos_url": "https://api.github.com/users/nathanzeng/repos",
+            "events_url": "https://api.github.com/users/nathanzeng/events{/privacy}",
+            "received_events_url": "https://api.github.com/users/nathanzeng/received_events",
+            "type": "User",
+            "user_view_type": "public",
+            "site_admin": false
+        },
+        "body": ">This will break the :bcd behavior\r\n>\r\nGood point, I switched it to `vim.fn.getcwd(-1, -1, -1)` now.\r\n\r\n>if the user has an autocommand which changes the buffer-local directory (e.g. to the project root)\r\n>\r\nThat seems like it would be unusual to me. But, can close this if we wanna keep things the way they are.",
+        "created_at": "2026-08-10T03:49:49Z",
+        "updated_at": "2026-08-10T03:49:50Z",
+        "html_url": "https://github.com/neovim/neovim/pull/41254#discussion_r3746483589",
+        "pull_request_url": "https://api.github.com/repos/neovim/neovim/pulls/41254",
+        "_links": {
+            "self": {
+                "href": "https://api.github.com/repos/neovim/neovim/pulls/comments/3746483589"
+            },
+            "html": {
+                "href": "https://github.com/neovim/neovim/pull/41254#discussion_r3746483589"
+            },
+            "pull_request": {
+                "href": "https://api.github.com/repos/neovim/neovim/pulls/41254"
+            }
+        },
+        "reactions": {
+            "url": "https://api.github.com/repos/neovim/neovim/pulls/comments/3746483589/reactions",
+            "total_count": 0,
+            "+1": 0,
+            "-1": 0,
+            "laugh": 0,
+            "hooray": 0,
+            "confused": 0,
+            "heart": 0,
+            "rocket": 0,
+            "eyes": 0
+        },
+        "start_line": null,
+        "original_start_line": null,
+        "start_side": null,
+        "line": null,
+        "original_line": 17,
+        "side": "RIGHT",
+        "in_reply_to_id": 3745841374,
+        "author_association": "CONTRIBUTOR",
+        "original_position": 6,
+        "position": 1,
+        "subject_type": "line"
+    },
+    {
+        "url": "https://api.github.com/repos/neovim/neovim/pulls/comments/3746515767",
+        "pull_request_review_id": 4893592196,
+        "id": 3746515767,
+        "node_id": "PRRC_kwDOAPphoM7fT0s3",
+        "diff_hunk": "@@ -12,6 +12,9 @@ end, { silent = true, desc = 'Open directory entry' })\n \n vim.keymap.set('n', '<Plug>(nvim-dir-up)', function()\n   if vim.v.count == 1 then\n+    if vim.b.nvim_dir ~= nil then\n+      vim.cmd('bcd!')\n+    end",
+        "path": "runtime/plugin/dir.lua",
+        "commit_id": "ac888660ee1de8a9e2cfeb65475bcbc61e57db5c",
+        "original_commit_id": "aae84443b6a6b81de32ced9ec8376371151d7d9a",
+        "user": {
+            "login": "superatomic",
+            "id": 51250849,
+            "node_id": "MDQ6VXNlcjUxMjUwODQ5",
+            "avatar_url": "https://avatars.githubusercontent.com/u/51250849?v=4",
+            "gravatar_id": "",
+            "url": "https://api.github.com/users/superatomic",
+            "html_url": "https://github.com/superatomic",
+            "followers_url": "https://api.github.com/users/superatomic/followers",
+            "following_url": "https://api.github.com/users/superatomic/following{/other_user}",
+            "gists_url": "https://api.github.com/users/superatomic/gists{/gist_id}",
+            "starred_url": "https://api.github.com/users/superatomic/starred{/owner}{/repo}",
+            "subscriptions_url": "https://api.github.com/users/superatomic/subscriptions",
+            "organizations_url": "https://api.github.com/users/superatomic/orgs",
+            "repos_url": "https://api.github.com/users/superatomic/repos",
+            "events_url": "https://api.github.com/users/superatomic/events{/privacy}",
+            "received_events_url": "https://api.github.com/users/superatomic/received_events",
+            "type": "User",
+            "user_view_type": "public",
+            "site_admin": false
+        },
+        "body": "> Good point, I switched it to `vim.fn.getcwd(-1, -1, -1)` now.\r\n\r\nGreat, that should work wonderfully.\r\n\r\n> > if the user has an autocommand which changes the buffer-local directory (e.g. to the project root)\r\n> \r\n> That seems like it would be unusual to me. But, can close this if we wanna keep things the way they are.\r\n\r\nI mean, it's definitely a matter of opinion, but I think keeping `1-` consistent is the way to go. It's unfortunate that by default `1-` is a bit useless, but as mentioned, it's not always useless if the user is using something like `:h workspace-dir`.\r\n",
+        "created_at": "2026-08-10T03:58:58Z",
+        "updated_at": "2026-08-10T03:58:58Z",
+        "html_url": "https://github.com/neovim/neovim/pull/41254#discussion_r3746515767",
+        "pull_request_url": "https://api.github.com/repos/neovim/neovim/pulls/41254",
+        "_links": {
+            "self": {
+                "href": "https://api.github.com/repos/neovim/neovim/pulls/comments/3746515767"
+            },
+            "html": {
+                "href": "https://github.com/neovim/neovim/pull/41254#discussion_r3746515767"
+            },
+            "pull_request": {
+                "href": "https://api.github.com/repos/neovim/neovim/pulls/41254"
+            }
+        },
+        "reactions": {
+            "url": "https://api.github.com/repos/neovim/neovim/pulls/comments/3746515767/reactions",
+            "total_count": 0,
+            "+1": 0,
+            "-1": 0,
+            "laugh": 0,
+            "hooray": 0,
+            "confused": 0,
+            "heart": 0,
+            "rocket": 0,
+            "eyes": 0
+        },
+        "start_line": null,
+        "original_start_line": null,
+        "start_side": null,
+        "line": null,
+        "original_line": 17,
+        "side": "RIGHT",
+        "in_reply_to_id": 3745841374,
+        "author_association": "MEMBER",
+        "original_position": 6,
+        "position": 1,
+        "subject_type": "line"
+    },
+    {
+        "url": "https://api.github.com/repos/neovim/neovim/pulls/comments/3746664233",
+        "pull_request_review_id": 4893731842,
+        "id": 3746664233,
+        "node_id": "PRRC_kwDOAPphoM7fUY8p",
+        "diff_hunk": "@@ -12,6 +12,9 @@ end, { silent = true, desc = 'Open directory entry' })\n \n vim.keymap.set('n', '<Plug>(nvim-dir-up)', function()\n   if vim.v.count == 1 then\n+    if vim.b.nvim_dir ~= nil then\n+      vim.cmd('bcd!')\n+    end",
+        "path": "runtime/plugin/dir.lua",
+        "commit_id": "ac888660ee1de8a9e2cfeb65475bcbc61e57db5c",
+        "original_commit_id": "aae84443b6a6b81de32ced9ec8376371151d7d9a",
+        "user": {
+            "login": "nathanzeng",
+            "id": 121571396,
+            "node_id": "U_kgDOBz8IRA",
+            "avatar_url": "https://avatars.githubusercontent.com/u/121571396?v=4",
+            "gravatar_id": "",
+            "url": "https://api.github.com/users/nathanzeng",
+            "html_url": "https://github.com/nathanzeng",
+            "followers_url": "https://api.github.com/users/nathanzeng/followers",
+            "following_url": "https://api.github.com/users/nathanzeng/following{/other_user}",
+            "gists_url": "https://api.github.com/users/nathanzeng/gists{/gist_id}",
+            "starred_url": "https://api.github.com/users/nathanzeng/starred{/owner}{/repo}",
+            "subscriptions_url": "https://api.github.com/users/nathanzeng/subscriptions",
+            "organizations_url": "https://api.github.com/users/nathanzeng/orgs",
+            "repos_url": "https://api.github.com/users/nathanzeng/repos",
+            "events_url": "https://api.github.com/users/nathanzeng/events{/privacy}",
+            "received_events_url": "https://api.github.com/users/nathanzeng/received_events",
+            "type": "User",
+            "user_view_type": "public",
+            "site_admin": false
+        },
+        "body": ">keeping `1-` consistent is the way to go\r\n>\r\nNow I made it open `vim.fn.getcwd(-1, -1, -1)` in all scenarios to maintain consistency.\r\n\r\n@justinmk @barrettruth Does this seem like a useful change? I like having a way to shortcut to my global CWD when I'm browsing my filesystem but I guess it's also trivial to implement this yourself.",
+        "created_at": "2026-08-10T04:39:46Z",
+        "updated_at": "2026-08-10T04:39:47Z",
+        "html_url": "https://github.com/neovim/neovim/pull/41254#discussion_r3746664233",
+        "pull_request_url": "https://api.github.com/repos/neovim/neovim/pulls/41254",
+        "_links": {
+            "self": {
+                "href": "https://api.github.com/repos/neovim/neovim/pulls/comments/3746664233"
+            },
+            "html": {
+                "href": "https://github.com/neovim/neovim/pull/41254#discussion_r3746664233"
+            },
+            "pull_request": {
+                "href": "https://api.github.com/repos/neovim/neovim/pulls/41254"
+            }
+        },
+        "reactions": {
+            "url": "https://api.github.com/repos/neovim/neovim/pulls/comments/3746664233/reactions",
+            "total_count": 2,
+            "+1": 2,
+            "-1": 0,
+            "laugh": 0,
+            "hooray": 0,
+            "confused": 0,
+            "heart": 0,
+            "rocket": 0,
+            "eyes": 0
+        },
+        "start_line": null,
+        "original_start_line": null,
+        "start_side": null,
+        "line": null,
+        "original_line": 17,
+        "side": "RIGHT",
+        "in_reply_to_id": 3745841374,
+        "author_association": "CONTRIBUTOR",
+        "original_position": 6,
+        "position": 1,
+        "subject_type": "line"
+    },
+    {
+        "url": "https://api.github.com/repos/neovim/neovim/pulls/comments/3752645868",
+        "pull_request_review_id": 4900205336,
+        "id": 3752645868,
+        "node_id": "PRRC_kwDOAPphoM7frNTs",
+        "diff_hunk": "@@ -14,7 +14,7 @@ vim.keymap.set('n', '<Plug>(nvim-dir-up)', function()\n   if vim.v.count == 1 then\n     api.nvim_cmd({\n       cmd = 'edit',\n-      args = { '.' },\n+      args = { vim.fn.getcwd(-1, -1, -1) },",
+        "path": "runtime/plugin/dir.lua",
+        "commit_id": "a456d242e154ed8ab4fe5a88a2113a6f7ff3ca3d",
+        "original_commit_id": "a07e6e9f40f096358a9c981749fc7a66c11a3dfc",
+        "user": {
+            "login": "barrettruth",
+            "id": 62671086,
+            "node_id": "MDQ6VXNlcjYyNjcxMDg2",
+            "avatar_url": "https://avatars.githubusercontent.com/u/62671086?v=4",
+            "gravatar_id": "",
+            "url": "https://api.github.com/users/barrettruth",
+            "html_url": "https://github.com/barrettruth",
+            "followers_url": "https://api.github.com/users/barrettruth/followers",
+            "following_url": "https://api.github.com/users/barrettruth/following{/other_user}",
+            "gists_url": "https://api.github.com/users/barrettruth/gists{/gist_id}",
+            "starred_url": "https://api.github.com/users/barrettruth/starred{/owner}{/repo}",
+            "subscriptions_url": "https://api.github.com/users/barrettruth/subscriptions",
+            "organizations_url": "https://api.github.com/users/barrettruth/orgs",
+            "repos_url": "https://api.github.com/users/barrettruth/repos",
+            "events_url": "https://api.github.com/users/barrettruth/events{/privacy}",
+            "received_events_url": "https://api.github.com/users/barrettruth/received_events",
+            "type": "User",
+            "user_view_type": "public",
+            "site_admin": false
+        },
+        "body": "this is fine, id just prefer a comment clarifying this",
+        "created_at": "2026-08-10T19:20:30Z",
+        "updated_at": "2026-08-10T19:20:30Z",
+        "html_url": "https://github.com/neovim/neovim/pull/41254#discussion_r3752645868",
+        "pull_request_url": "https://api.github.com/repos/neovim/neovim/pulls/41254",
+        "_links": {
+            "self": {
+                "href": "https://api.github.com/repos/neovim/neovim/pulls/comments/3752645868"
+            },
+            "html": {
+                "href": "https://github.com/neovim/neovim/pull/41254#discussion_r3752645868"
+            },
+            "pull_request": {
+                "href": "https://api.github.com/repos/neovim/neovim/pulls/41254"
+            }
+        },
+        "reactions": {
+            "url": "https://api.github.com/repos/neovim/neovim/pulls/comments/3752645868/reactions",
+            "total_count": 1,
+            "+1": 1,
+            "-1": 0,
+            "laugh": 0,
+            "hooray": 0,
+            "confused": 0,
+            "heart": 0,
+            "rocket": 0,
+            "eyes": 0
+        },
+        "start_line": null,
+        "original_start_line": null,
+        "start_side": null,
+        "line": 18,
+        "original_line": 17,
+        "side": "RIGHT",
+        "author_association": "CONTRIBUTOR",
+        "original_position": 5,
+        "position": 8,
+        "subject_type": "line"
+    }
+]

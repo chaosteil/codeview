@@ -1,0 +1,22 @@
+{
+  "id": 2371558991,
+  "node_id": "PRR_kwDOAPphoM6NTvXP",
+  "user": {
+    "login": "ada",
+    "id": 1024,
+    "node_id": "MDQ6VXNlcjEwMjQ=",
+    "type": "User",
+    "site_admin": false
+  },
+  "body": "Review from codeview.",
+  "state": "CHANGES_REQUESTED",
+  "html_url": "https://github.com/ada/demo/pull/12#pullrequestreview-2371558991",
+  "pull_request_url": "https://api.github.com/repos/ada/demo/pulls/12",
+  "author_association": "CONTRIBUTOR",
+  "_links": {
+    "html": { "href": "https://github.com/ada/demo/pull/12#pullrequestreview-2371558991" },
+    "pull_request": { "href": "https://api.github.com/repos/ada/demo/pulls/12" }
+  },
+  "submitted_at": "2026-08-13T09:41:12Z",
+  "commit_id": "c1f0b4a2e8d6c3b1a09f7e5d4c3b2a1908f7e6d5"
+}

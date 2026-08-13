@@ -1,0 +1,49 @@
+{
+    "additions": 10,
+    "author": {
+        "id": "U_kgDOBz8IRA",
+        "is_bot": false,
+        "login": "nathanzeng",
+        "name": "Nathan Zeng"
+    },
+    "baseRefName": "master",
+    "baseRefOid": "2757f6eef92a99812d5ad12408d03592bd54f10c",
+    "body": "Problem:\r\n`1-` does nothing from a directory buffer, because we are already in the\r\nbuffer-local CWD. It's also unintuitive that this mapping behaves\r\ndifferently based on the resolved CWD.\r\n\r\nSolution:\r\nHave `1-` open the global CWD.\r\n",
+    "changedFiles": 3,
+    "commits": [
+        {
+            "authoredDate": "2026-08-09T21:17:48Z",
+            "authors": [
+                {
+                    "email": "nathan.j.zeng@gmail.com",
+                    "id": "U_kgDOBz8IRA",
+                    "login": "nathanzeng",
+                    "name": "Nathan Zeng"
+                }
+            ],
+            "committedDate": "2026-08-11T05:36:03Z",
+            "messageBody": "Problem:\n`1-` does nothing from a directory buffer, because we are already in the\nbuffer-local CWD. It's also unintuitive that this mapping behaves\ndifferently based on the resolved CWD.\n\nSolution:\nHave `1-` open the global CWD.",
+            "messageHeadline": "refactor(defaults): edit global cwd on `1-`",
+            "oid": "a456d242e154ed8ab4fe5a88a2113a6f7ff3ca3d"
+        }
+    ],
+    "deletions": 2,
+    "headRefName": "dir-cwd",
+    "headRefOid": "a456d242e154ed8ab4fe5a88a2113a6f7ff3ca3d",
+    "headRepository": {
+        "id": "R_kgDORcMFkA",
+        "name": "neovim",
+        "nameWithOwner": "nathanzeng/neovim"
+    },
+    "headRepositoryOwner": {
+        "id": "U_kgDOBz8IRA",
+        "name": "Nathan Zeng",
+        "login": "nathanzeng"
+    },
+    "isCrossRepository": true,
+    "isDraft": false,
+    "number": 41254,
+    "state": "MERGED",
+    "title": "refactor(defaults): edit global cwd on `1-`",
+    "url": "https://github.com/neovim/neovim/pull/41254"
+}
