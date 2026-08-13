@@ -30,3 +30,9 @@ vim.api.nvim_create_user_command("CodeViewClose", function()
 end, {
   desc = "Close the review session",
 })
+
+vim.api.nvim_create_user_command("CodeViewFiles", function()
+  require("codeview.command").files()
+end, {
+  desc = "Open or close the changed-files sidebar",
+})

@@ -3,6 +3,23 @@
 Goal: leave comments in the diff.
 Done when: a comment survives a Neovim restart and shows at the correct line.
 
+## Hard constraints
+
+These rules hold for every task in this milestone. A review that finds a violation
+must report it as high severity.
+
+1. The diff buffer stays `nomodifiable` at all times. Never set `modifiable = true` on a
+   diff buffer to insert comment text, not even for one moment.
+2. A comment never becomes a real line. Show comments only as extmark decorations:
+   `virt_lines`, `virt_text`, `sign_text`, and highlights. The line count of the diff
+   buffer never changes when you add, edit, or delete a comment.
+3. Comment input happens in a separate floating scratch buffer with its own modifiable
+   buffer. The user never types into the diff buffer.
+4. The comment file is the only write target. Never write to the reviewed source files,
+   never write to the diff buffers, never touch the working copy of the repository.
+5. The M4 line map stays correct after a comment appears. Virtual lines must not shift
+   the mapping between buffer rows and file lines.
+
 ## Tasks
 
 - [ ] **T7.1 — Data model**
@@ -18,8 +35,9 @@ Done when: a comment survives a Neovim restart and shows at the correct line.
   Parse it back without loss. Write atomically (temp file, then rename).
 
 - [ ] **T7.4 — Comment editor**
-  A key opens a small floating window with a markdown buffer. Save on write, discard on quit.
+  A key opens a small floating window with its own markdown scratch buffer. Save on write, discard on quit.
   In normal mode the comment targets the current line. In visual mode it targets the selected range, like the GitHub UI.
+  The diff buffer stays read-only through the whole flow. The float holds the only modifiable buffer.
 
 - [ ] **T7.5 — Anchors in the diff**
   Place an extmark over the comment range. Show a sign on each covered line.
@@ -38,3 +56,9 @@ Done when: a comment survives a Neovim restart and shows at the correct line.
 
 - [ ] **T7.9 — Tests**
   Round-trip test for the store. Key stability test across reopens. Anchor position tests on fixture diffs.
+
+- [ ] **T7.10 — Read-only guarantee tests**
+  Assert that the diff buffer keeps `modifiable = false` before, during, and after the comment flow.
+  Assert that the line count and the text of the diff buffer do not change when a comment is
+  added, edited, and deleted. Assert that only extmarks change.
+  Assert that the reviewed source files on disk do not change during a comment flow.

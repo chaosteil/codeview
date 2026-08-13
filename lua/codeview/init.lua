@@ -70,6 +70,33 @@ function M.close()
   return require("codeview.session").close()
 end
 
+---Read the changed-files sidebar.
+---@return codeview.Sidebar? sidebar Nil when no sidebar runs.
+function M.sidebar()
+  return require("codeview.sidebar").get()
+end
+
+---Open the changed-files sidebar for the session that runs.
+---@param opts? { session?: codeview.Session, focus?: boolean }
+---@return codeview.Sidebar? sidebar
+---@return codeview.Error? err
+function M.open_sidebar(opts)
+  return require("codeview.sidebar").open(opts)
+end
+
+---Close the changed-files sidebar. The session stays open.
+---@return boolean closed False when no sidebar is open.
+function M.close_sidebar()
+  return require("codeview.sidebar").close()
+end
+
+---Close the sidebar when it is open, and open it when it is closed.
+---@param opts? { session?: codeview.Session, focus?: boolean }
+---@return boolean open State after the call.
+function M.toggle_sidebar(opts)
+  return require("codeview.sidebar").toggle(opts)
+end
+
 ---Run the health check of the plugin.
 ---
 --- The same report comes from `:checkhealth codeview`.

@@ -8,9 +8,11 @@ CONTENTS                                                     *codeview-contents*
   3. Setup ................................ |codeview-setup|
   4. Commands ............................. |codeview-commands|
   5. Sessions ............................. |codeview-sessions|
-  6. Lua API .............................. |codeview-api|
-  7. Configuration ........................ |codeview-config|
-  8. Health ............................... |codeview-health|
+  6. Sidebar .............................. |codeview-sidebar|
+  7. Lua API .............................. |codeview-api|
+  8. Configuration ........................ |codeview-config|
+  9. Highlights ........................... |codeview-highlights|
+  10. Health .............................. |codeview-health|
 
 ==============================================================================
 1. INTRODUCTION                                          *codeview-introduction*
@@ -20,8 +22,8 @@ codeview shows the changes of a commit, or of a range of commits. You browse
 the changed files in a sidebar, read the diffs inline or side by side, and
 write comments on the lines. You can export the comments as markdown.
 
-This release selects the revisions of a review. The sidebar, the diff views,
-and the comments come with the next milestones.
+This release selects the revisions of a review and lists the changed files in
+a sidebar. The diff views and the comments come with the next milestones.
 
 ==============================================================================
 2. REQUIREMENTS                                          *codeview-requirements*
@@ -97,6 +99,11 @@ plugin then calls setup() with that table: >lua
     Close the review session. The command closes the windows and the buffers
     of the session.
 
+                                                              *:CodeViewFiles*
+:CodeViewFiles
+    Open the changed-files sidebar and put the cursor in it. The command
+    closes the sidebar when the sidebar is open.
+
 ==============================================================================
 5. SESSIONS                                                  *codeview-sessions*
 
@@ -132,7 +139,103 @@ The close event comes after the session ended. |codeview.session()| gives nil
 in that handler.
 
 ==============================================================================
-6. LUA API                                                        *codeview-api*
+6. SIDEBAR                                                    *codeview-sidebar*
+
+The sidebar shows the files that the range of the session changes, as a tree.
+It opens with the session, at the side that `sidebar.position` names. Set
+`sidebar.auto_open` to false to open the sidebar with |:CodeViewFiles| only.
+
+The first two lines are the header. The first line holds the range. The
+second line holds the number of files and the number of commits. The tree
+comes after an empty line: >
+
+    9b2688a5..ec056be0
+    4 files, 2 commits
+
+      ▾ dir
+      │   renamed.txt ← nested.txt R
+    ▸   a.txt M
+        added.txt A
+        keep.txt D
+<
+The tree holds one node per directory and one node per file. A chain of
+directories with one child each becomes one node, for example
+`lua/codeview/vcs`. Directories come before files, and both come in
+alphabetical order.
+
+Each file line ends with a status mark: >
+
+    A    the range adds the file
+    M    the range changes the file
+    D    the range deletes the file
+    R    the range renames the file
+    C    the range copies the file
+    T    the range changes the type of the file
+    U    the file is unmerged
+    ?    the backend gave another status
+<
+A rename line and a copy line also show the old path, after an arrow. A
+directory that hides its children shows the marks of the files below it.
+
+The marker "▸" and the highlight group |hl-CodeViewCurrent| mark the file that
+the file view shows. The marker moves with every file that you open. A
+directory that hides the marked file opens again.
+
+                                                     *codeview-sidebar-keymaps*
+The sidebar buffer holds these maps. |codeview-config| names the keys: >
+
+    <CR>    open the file under the cursor, or toggle a directory
+    <Tab>   toggle the directory of the line under the cursor
+    zR      show the children of every directory
+    zM      hide the children of every directory
+    ]f      open the next file
+    [f      open the previous file
+    q       close the review session
+<
+The next-file key and the previous-file key follow the order of the tree.
+They step over the directory nodes, and they also reach a file in a directory
+that hides its children.
+
+The buffer of the file view holds the maps `]f`, `[f`, and `q`. You walk
+through the files without a move back to the sidebar. Each key press moves one
+file, also while the backend still reads the file of the last press.
+
+                                                       *codeview-sidebar-icons*
+The tree uses text icons from `sidebar.icons`. The plugin needs no icon font
+and no devicons plugin. For a terminal without support for the default
+icons, set plain characters: >lua
+
+    require("codeview").setup({
+      sidebar = {
+        icons = {
+          expanded = "-",
+          collapsed = "+",
+          file = " ",
+          guide = "|",
+          current = ">",
+        },
+      },
+    })
+<
+
+This release shows the content of the file at the head revision of the range.
+For a file that the range deletes, it shows the content at the base revision.
+The diff view comes with the next milestone.
+
+The file view sends one event: >
+
+    User CodeViewFileOpened    a file opened in the view
+<
+The `data` field of the event holds these values: >
+
+    data.session    number of the session
+    data.index      position of the file in the file list
+    data.path       path of the file
+    data.status     status of the file in the range
+    data.buf        buffer that holds the content
+<
+==============================================================================
+7. LUA API                                                        *codeview-api*
 
                                                              *codeview.open()*
 codeview.open({spec}, {opts}, {cb})
@@ -163,6 +266,25 @@ codeview.session()
 codeview.close()
     Close the session that runs. Return false when no session runs.
 
+                                                          *codeview.sidebar()*
+codeview.sidebar()
+    Return the sidebar that runs, or nil.
+
+                                                     *codeview.open_sidebar()*
+codeview.open_sidebar({opts})
+    Open the changed-files sidebar for the session that runs. {opts} accepts
+    a `session` field and a `focus` field. The call returns `sidebar, err`.
+
+                                                    *codeview.close_sidebar()*
+codeview.close_sidebar()
+    Close the sidebar. The session stays open. Return false when no sidebar
+    is open.
+
+                                                   *codeview.toggle_sidebar()*
+codeview.toggle_sidebar({opts})
+    Close the sidebar when it is open, and open it when it is closed. Return
+    the state after the call.
+
 A session answers these calls: >lua
 
     session:label()          -- text of the range
@@ -174,7 +296,7 @@ A session answers these calls: >lua
     session:close()          -- close the session
 <
 ==============================================================================
-7. CONFIGURATION                                               *codeview-config*
+8. CONFIGURATION                                               *codeview-config*
 
 Defaults: >lua
 
@@ -190,6 +312,13 @@ Defaults: >lua
         position = "left",           -- "left" | "right"
         width = 40,
         auto_open = true,
+        icons = {
+          expanded = "▾",            -- directory that shows its children
+          collapsed = "▸",           -- directory that hides its children
+          file = " ",                -- file, to keep the names in one column
+          guide = "│",               -- indent guide of one tree level
+          current = "▸",             -- file that the diff view shows
+        },
       },
       comments = {
         dir = stdpath("config") .. "/review",
@@ -202,6 +331,9 @@ Defaults: >lua
       },
       keymaps = {
         open_file = "<CR>",
+        toggle_node = "<Tab>",
+        expand_all = "zR",
+        collapse_all = "zM",
         next_file = "]f",
         prev_file = "[f",
         next_hunk = "]h",
@@ -218,7 +350,40 @@ Set a keymap to false to disable it. setup() rejects an unknown key, and
 reports the name of the key.
 
 ==============================================================================
-8. HEALTH                                                      *codeview-health*
+9. HIGHLIGHTS                                              *codeview-highlights*
+
+Every group of codeview links to a standard group. The link is a default
+link, so your own link or your own colors win. The plugin sets the links
+again after a colorscheme change.
+
+                                                        *hl-CodeViewCurrent*
+                                                        *hl-CodeViewAdded*
+                                                        *hl-CodeViewModified*
+                                                        *hl-CodeViewDeleted*
+                                                        *hl-CodeViewRenamed*
+>
+    CodeViewTitle          Title        range in the sidebar header
+    CodeViewCount          Comment      counts in the sidebar header
+    CodeViewHint           Comment      text of an empty list
+    CodeViewDir            Directory    directory node, icon, and old path
+    CodeViewIndent         NonText      indent guides of the tree
+    CodeViewCurrent        CursorLine   line of the file in the view
+    CodeViewMarker         Special      marker of the file in the view
+    CodeViewAdded          Added        status mark A
+    CodeViewModified       Changed      status mark M
+    CodeViewDeleted        Removed      status mark D
+    CodeViewRenamed        Special      status mark R
+    CodeViewCopied         Special      status mark C
+    CodeViewTypechanged    WarningMsg   status mark T
+    CodeViewUnmerged       ErrorMsg     status mark U
+    CodeViewUnknown        Comment      status mark ?
+<
+To change a color, set the group after your colorscheme: >lua
+
+    vim.api.nvim_set_hl(0, "CodeViewCurrent", { link = "Visual" })
+<
+==============================================================================
+10. HEALTH                                                     *codeview-health*
 
 Run |:checkhealth| codeview. The report shows: >
 

@@ -207,6 +207,7 @@ describe("codeview.command", function()
       assert.is_truthy(commands.CodeView.bang)
       assert.are.equal("*", commands.CodeView.nargs)
       assert.is_truthy(commands.CodeViewClose)
+      assert.is_truthy(commands.CodeViewFiles)
     end)
 
     it("opens a session from the command line", function()

@@ -7,9 +7,11 @@
 --- The command file in `plugin/` registers the commands. It calls this module
 --- only when a command runs.
 
+local config = require("codeview.config")
 local errors = require("codeview.error")
 local picker = require("codeview.picker")
 local session = require("codeview.session")
+local sidebar = require("codeview.sidebar")
 local vcs = require("codeview.vcs")
 
 local api = vim.api
@@ -42,9 +44,17 @@ local function opened(review, err)
     return
   end
   -- No session and no error: the user closed the picker.
-  if review then
-    api.nvim_echo({ { "codeview: " .. review:summary() } }, false, {})
+  if not review then
+    return
   end
+  if config.get().sidebar.auto_open then
+    local _, open_err = sidebar.open({ session = review })
+    if open_err then
+      report(open_err)
+      return
+    end
+  end
+  api.nvim_echo({ { "codeview: " .. review:summary() } }, false, {})
 end
 
 ---Read the arguments of `:CodeView`.
@@ -97,6 +107,21 @@ end
 function M.close()
   if not session.close() then
     vim.notify("codeview: no review session", vim.log.levels.WARN)
+  end
+end
+
+---Run `:CodeViewFiles`.
+---
+--- The command closes the sidebar when it is open. Otherwise it opens the
+--- sidebar and puts the cursor in it.
+function M.files()
+  if sidebar.is_open() then
+    sidebar.close()
+    return
+  end
+  local _, err = sidebar.open({ focus = true })
+  if err then
+    report(err)
   end
 end
 

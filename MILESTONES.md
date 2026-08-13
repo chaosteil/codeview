@@ -47,8 +47,9 @@ Done when: you can pick a commit or range from the log and the session reports i
 
 Goal: browse the changed files of the session.
 
-- A sidebar window that lists the changed files with status marks (added, modified, deleted, renamed).
-- `<CR>` opens the diff for the file. Keys for next/previous file.
+- A sidebar window that shows the changed files as a tree, like neo-tree: directory nodes, indent guides, and expand/collapse.
+- Status marks per file (added, modified, deleted, renamed), rolled up to collapsed directories.
+- `<CR>` opens the diff for a file, or toggles a directory. Keys for next/previous file.
 - The sidebar shows the selected range in its header.
 
 Done when: you can walk through all changed files of a range from the sidebar.
@@ -87,6 +88,7 @@ Done when: all M2–M5 features work in a jj repo without code changes outside t
 
 Goal: leave comments in the diff.
 
+- The diff buffer stays read-only. Comments are virtual only: extmark signs, virtual text, and virtual lines. The comment file is the only write target.
 - A key opens a small edit window to write a comment on the current line, or on a line range via visual selection — like the GitHub UI.
 - Comments anchor to file, start line, end line, side (old/new), and commit, with extmark signs across the full range in the diff.
 - All comments of a session persist in one file, named by the session key. The frontmatter holds the session data (repo, range, timestamp). Each comment is one section with its own fields (file, start line, end line, side, commit) and a markdown body.

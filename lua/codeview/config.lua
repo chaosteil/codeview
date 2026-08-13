@@ -28,6 +28,14 @@ local M = {}
 ---@field position "left"|"right" Side of the tab page for the sidebar.
 ---@field width integer Width of the sidebar in columns.
 ---@field auto_open boolean Open the sidebar when a session starts.
+---@field icons codeview.Config.Sidebar.Icons Text icons of the file tree.
+
+---@class codeview.Config.Sidebar.Icons
+---@field expanded string Icon of a directory that shows its children.
+---@field collapsed string Icon of a directory that hides its children.
+---@field file string Icon of a file. It keeps the names in one column.
+---@field guide string Indent guide of one tree level.
+---@field current string Marker of the file that the diff view shows.
 
 ---@class codeview.Config.Comments
 ---@field dir string Directory for the session files. One subdirectory per repo.
@@ -52,6 +60,13 @@ M.defaults = {
     position = "left",
     width = 40,
     auto_open = true,
+    icons = {
+      expanded = "▾",
+      collapsed = "▸",
+      file = " ",
+      guide = "│",
+      current = "▸",
+    },
   },
   comments = {
     dir = fs.joinpath(fn.stdpath("config") --[[@as string]], "review"),
@@ -64,6 +79,9 @@ M.defaults = {
   },
   keymaps = {
     open_file = "<CR>",
+    toggle_node = "<Tab>",
+    expand_all = "zR",
+    collapse_all = "zM",
     next_file = "]f",
     prev_file = "[f",
     next_hunk = "]h",
@@ -135,6 +153,10 @@ function M.validate(opts)
     vim.validate("sidebar.position", opts.sidebar.position, one_of({ "left", "right" }))
     vim.validate("sidebar.width", opts.sidebar.width, positive_integer, "positive integer")
     vim.validate("sidebar.auto_open", opts.sidebar.auto_open, "boolean")
+    vim.validate("sidebar.icons", opts.sidebar.icons, "table")
+    for name, icon in pairs(opts.sidebar.icons) do
+      vim.validate("sidebar.icons." .. tostring(name), icon, "string")
+    end
 
     vim.validate("comments", opts.comments, "table")
     vim.validate("comments.dir", opts.comments.dir, "string")
