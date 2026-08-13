@@ -43,6 +43,7 @@ describe("codeview.session", function()
 
   before_each(function()
     helpers.unload()
+    require("codeview.config").setup({ commit_message = false })
     session = require("codeview.session")
   end)
 

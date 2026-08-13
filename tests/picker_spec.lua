@@ -46,6 +46,7 @@ describe("codeview.picker", function()
 
   before_each(function()
     helpers.unload()
+    require("codeview.config").setup({ commit_message = false })
     picker = require("codeview.picker")
     session = require("codeview.session")
   end)

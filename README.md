@@ -248,6 +248,47 @@ The review range is `base...head`, so it holds the changes of the "Files
 changed" tab. Every key of a local review works. `:CodeViewSubmit` sends your
 comments back as one review.
 
+## Commits
+
+The commits of the range come before the files in the sidebar, under one group
+node. Each entry shows the short id and the subject, and the oldest commit
+reads first.
+
+```
+main~2..main
+7 files, 2 commits
+
+  ▾ Commits
+  │   4f1c0a2 feat(store): keep the items of a session
+  │   9ab21cd fix(store): drop an item that has no id
+  ▾ lua/demo
+  │   store.lua M
+```
+
+Open an entry like a file. The document holds the id, the author, the date,
+the message, and the files that the commit changes:
+
+```
+commit 9ab21cd8f0b3e2a1c7d5e4f6a8b9c0d1e2f3a4b5
+Author: Ada Lovelace <ada@example.com>
+Date:   2026-08-12T09:14:02+02:00
+
+    fix(store): drop an item that has no id
+
+    An item without an id never reads back, so the put call
+    rejects it now.
+
+2 changed files:
+
+    M  lua/demo/store.lua
+    M  tests/store_spec.lua
+```
+
+Comment on it like on a line of code. The comment takes the commit of the
+document, so every comment stays with its own commit. GitHub takes no comment
+on a commit message, so `:CodeViewSubmit` keeps such a comment local and
+reports it. Set `commit_message = false` to leave the commits out.
+
 ## Sidebar
 
 The sidebar shows the changed files as a tree. A chain of directories with one
@@ -464,6 +505,7 @@ The defaults are:
 ```lua
 {
   backend = "auto", -- "auto" | "git" | "jj"
+  commit_message = true,
   diff = {
     style = "inline", -- "inline" | "split"
     context = 3,

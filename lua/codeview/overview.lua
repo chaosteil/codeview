@@ -26,6 +26,7 @@
 local comments_mod = require("codeview.comments")
 local config = require("codeview.config")
 local errors = require("codeview.error")
+local message = require("codeview.message")
 local events = require("codeview.events")
 local highlight = require("codeview.highlight")
 local panel = require("codeview.panel")
@@ -400,7 +401,15 @@ local function render_lines(self)
   local missing = {}
   for index, path in ipairs(files) do
     local file = self.session:index_of(path)
-    changed[index] = { path = path, status = file and assert(self.session:file(file)).status or "unknown" }
+    local held = file and assert(self.session:file(file)) or nil
+    changed[index] = {
+      path = path,
+      status = held and held.status or "unknown",
+      virtual = (held and held.virtual) or message.is(path),
+      label = (held and held.label) or (message.is(path) and message.display(path, self.session) or nil),
+      group = held and held.group or nil,
+      group_path = held and held.group_path or nil,
+    }
     missing[path] = file == nil
   end
 

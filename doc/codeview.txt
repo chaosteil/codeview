@@ -203,6 +203,28 @@ session object. To use the session methods, read the session with
 The close event comes after the session ended. |codeview.session()| gives nil
 in that handler.
 
+                                                     *codeview-commit-message*
+The commits of the range come before the files. Every commit is one entry of
+the sidebar, under a group node, and its name holds the short id and the
+subject of the commit. The oldest commit reads first.
+
+An entry opens like a file. The document of a commit holds:
+
+    - the id, the author, and the date,
+    - the message, with the subject and the body,
+    - the files that the commit changes, with their status marks.
+
+Comment on the document like on a line of code. The comment takes the commit
+of the document, so every comment stays with its own commit.
+
+A document is no file of the repository, and it has one side, so it stays in
+the inline style. GitHub takes no comment on a commit message, so
+|:CodeViewSubmit| keeps such a comment local and reports it in the summary.
+
+Set `commit_message` to false to leave the commits out: >lua
+
+    require("codeview").setup({ commit_message = false })
+<
 ==============================================================================
 6. SIDEBAR                                                    *codeview-sidebar*
 
@@ -1212,6 +1234,7 @@ Defaults: >lua
 
     {
       backend = "auto",              -- "auto" | "git" | "jj"
+      commit_message = true,         -- the commit message as the first file
       diff = {
         style = "inline",            -- "inline" | "split"
         context = 3,                 -- unchanged lines around a hunk

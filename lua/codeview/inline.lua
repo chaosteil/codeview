@@ -131,6 +131,14 @@ function M.build(diff, opts)
     width = { old = layout.digits(#diff.old_lines), new = layout.digits(#diff.new_lines) },
   }
 
+  if diff.message then
+    -- The commit message is a document, not a diff. Every row holds a line of
+    -- the new side, so a comment anchors to it like a comment on code.
+    for index, text in ipairs(diff.new_lines) do
+      emit(text, { kind = "context", new = index })
+    end
+    return build
+  end
   if diff.binary then
     emit("Binary file. It has no text diff.", { kind = "message" })
     return build

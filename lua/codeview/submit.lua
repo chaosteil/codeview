@@ -533,8 +533,14 @@ function M.plan(opts, cb)
   local function step(path, step_cb)
     local index = session:index_of(path)
     local file = index and session:file(index) or nil
-    if not file then
-      skip_file(path, "the pull request does not change this file")
+    if not file or file.virtual then
+      -- The review API of GitHub writes on the lines of the diff. The commit
+      -- message is no file of the diff, so such a comment stays local.
+      skip_file(
+        path,
+        file and file.virtual and "GitHub takes no comment on a commit message"
+          or "the pull request does not change this file"
+      )
       if step_cb then
         step_cb()
       end

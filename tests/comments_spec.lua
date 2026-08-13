@@ -146,7 +146,7 @@ describe("codeview.comments", function()
     helpers.unload()
     config = require("codeview.config")
     dir = fixtures.tempdir("codeview-comments")
-    assert(config.setup({ comments = { dir = dir } }))
+    assert(config.setup({ commit_message = false, comments = { dir = dir } }))
     comments = require("codeview.comments")
     editor = require("codeview.editor")
     session_mod = require("codeview.session")
@@ -409,7 +409,7 @@ describe("codeview.comments", function()
     end)
 
     it("keeps normal mode when the option says so", function()
-      assert(config.setup({ comments = { dir = dir, start_insert = false } }))
+      assert(config.setup({ commit_message = false, comments = { dir = dir, start_insert = false } }))
       local state = open_diff()
       api.nvim_win_set_cursor(state.win, { 2, 0 })
       comments.add()
@@ -418,7 +418,7 @@ describe("codeview.comments", function()
     end)
 
     it("opens a float when the option asks for one", function()
-      assert(config.setup({ comments = { dir = dir, editor = "float" } }))
+      assert(config.setup({ commit_message = false, comments = { dir = dir, editor = "float" } }))
       local state = open_diff()
       api.nvim_win_set_cursor(state.win, { 2, 0 })
       comments.add()
@@ -708,7 +708,11 @@ describe("codeview.comments", function()
     end)
 
     it("takes the keys from the configuration", function()
-      config.setup({ comments = { dir = dir }, keymaps = { comment_insert = { "gc" }, comment_visual = false } })
+      config.setup({
+        commit_message = false,
+        comments = { dir = dir },
+        keymaps = { comment_insert = { "gc" }, comment_visual = false },
+      })
       local state = open_diff()
 
       local out = {}
@@ -922,7 +926,7 @@ describe("codeview.comments", function()
     end)
 
     it("draws no virtual lines with the float display", function()
-      config.setup({ comments = { dir = dir, display = "float" } })
+      config.setup({ commit_message = false, comments = { dir = dir, display = "float" } })
       local state = open_diff()
       comment_on(4, "only a sign")
       assert.are.same({ 4 }, sign_rows(state.buf))
@@ -989,7 +993,7 @@ describe("codeview.comments", function()
 
       local script = string.format(
         [[
-          require('codeview').setup({ comments = { dir = %q } })
+          require('codeview').setup({ commit_message = false, comments = { dir = %q } })
           local review, err = require('codeview.session').open(%q, { dir = %q })
           if not review then print('ERROR ' .. tostring(err)) return end
           local state = require('codeview.view').open(review, 1)

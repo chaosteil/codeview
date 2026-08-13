@@ -275,7 +275,8 @@ function M.markdown(data)
 
   for _, file in ipairs(data.files) do
     out[#out + 1] = ""
-    out[#out + 1] = "## " .. file.path .. (file.changed and "" or " (outside the range)")
+    local name = require("codeview.message").display(file.path, data.session)
+    out[#out + 1] = "## " .. name .. (file.changed and "" or " (outside the range)")
     for _, comment in ipairs(file.comments) do
       out[#out + 1] = ""
       out[#out + 1] = "### " .. locator(comment)

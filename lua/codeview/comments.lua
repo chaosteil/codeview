@@ -29,6 +29,7 @@ local config = require("codeview.config")
 local errors = require("codeview.error")
 local events = require("codeview.events")
 local highlight = require("codeview.highlight")
+local message = require("codeview.message")
 local store_mod = require("codeview.store")
 
 local api = vim.api
@@ -212,7 +213,9 @@ function M.target(view, opts)
         side = anchor.side,
         start_line = anchor.start_line,
         end_line = anchor.end_line,
-        commit = commit_of(view, anchor.side),
+        -- A commit document belongs to one commit, so its comments take that
+        -- commit and not the head of the range.
+        commit = message.commit_id(view.path) or commit_of(view, anchor.side),
         win = win,
         row = last,
       }

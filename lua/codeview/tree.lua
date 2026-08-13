@@ -38,6 +38,7 @@ local STATUS_ORDER = {
 ---@field statuses codeview.vcs.Status[] Statuses of the files of the node.
 ---@field file codeview.vcs.FileChange? Changed file of a file node.
 ---@field index integer? Position of the file in the file list of the session.
+---@field virtual boolean? True for a file that the repository does not hold, like the commit message.
 
 ---Split a path into its directory and its name.
 ---@param path string
@@ -56,6 +57,10 @@ end
 ---@param b codeview.tree.Node
 ---@return boolean
 local function before(a, b)
+  -- The commit message reads before the code that it describes.
+  if (a.virtual or false) ~= (b.virtual or false) then
+    return a.virtual == true
+  end
   if a.kind ~= b.kind then
     return a.kind == "dir"
   end
@@ -76,6 +81,27 @@ local function dir_node(name, path)
     expanded = true,
     statuses = {},
   }
+end
+
+---Node that holds the virtual files of one group.
+---
+--- The group node reads like a directory, but it names no directory of the
+--- repository. The commits of a range sit under one such node.
+---@param root codeview.tree.Node
+---@param dirs table<string, codeview.tree.Node> Nodes by path.
+---@param file codeview.vcs.FileChange
+---@return codeview.tree.Node
+local function group_node(root, dirs, file)
+  local path = file.group_path or file.group --[[@as string]]
+  local node = dirs[path]
+  if node then
+    return node
+  end
+  node = dir_node(file.group --[[@as string]], path)
+  node.virtual = true
+  root.children[#root.children + 1] = node
+  dirs[path] = node
+  return node
 end
 
 ---Sort the children of every directory node.
@@ -172,8 +198,18 @@ function M.build(files, opts)
   end
 
   for index, file in ipairs(files or {}) do
-    local parent_path, name = split(file.path)
-    local parent = directory(parent_path)
+    local parent
+    local name
+    if file.virtual then
+      -- A virtual file has no path in the repository, so it takes no
+      -- directory of the tree. Its group node holds it instead.
+      name = file.label or file.path
+      parent = file.group and group_node(root, dirs, file) or root
+    else
+      local parent_path
+      parent_path, name = split(file.path)
+      parent = directory(parent_path)
+    end
     parent.children[#parent.children + 1] = {
       kind = "file",
       name = name,
@@ -184,6 +220,7 @@ function M.build(files, opts)
       statuses = { file.status or "unknown" },
       file = file,
       index = index,
+      virtual = file.virtual or false,
     }
   end
 

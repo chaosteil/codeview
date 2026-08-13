@@ -51,6 +51,7 @@ local M = {}
 ---@field line_count integer Number of lines of the two sides together.
 ---@field max_lines integer Limit that applied. 0 when no limit applied.
 ---@field context integer Context length for the renderer.
+---@field message boolean? True for the commit message document, which holds no diff.
 
 ---@class codeview.diff.Opts
 ---@field context integer? Context length. The `diff.context` option by default.

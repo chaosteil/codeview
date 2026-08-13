@@ -37,6 +37,7 @@ M.marks = {
   copied = "C",
   typechanged = "T",
   unmerged = "U",
+  message = "",
   unknown = "?",
 }
 
@@ -82,7 +83,8 @@ end
 ---@param session codeview.Session
 ---@return string
 local function counts(session)
-  local files, commits = #session.files, #session.commits
+  -- The commit documents are no change of the range, so they do not count.
+  local files, commits = session:changed_count(), #session.commits
   return string.format(
     "%d %s, %d %s",
     files,
@@ -124,8 +126,11 @@ local function node_line(node, is_current)
   if file.old_path then
     line.add(" ← " .. old_name(file), "CodeViewDir")
   end
-  line.add(" ")
-  line.add(mark_of(file.status), group)
+  local mark = mark_of(file.status)
+  if mark ~= "" then
+    line.add(" ")
+    line.add(mark, group)
+  end
 
   return line.build({ hl = is_current and "CodeViewCurrent" or nil, data = node })
 end

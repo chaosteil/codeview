@@ -57,6 +57,7 @@ M.status = {
   copied = "CodeViewCopied",
   typechanged = "CodeViewTypechanged",
   unmerged = "CodeViewUnmerged",
+  message = "CodeViewTitle",
   unknown = "CodeViewUnknown",
 }
 

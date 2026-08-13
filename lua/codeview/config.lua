@@ -11,6 +11,7 @@ local M = {}
 
 ---@class codeview.Config
 ---@field backend "auto"|"git"|"jj" Which VCS backend to use. "auto" detects the repo type.
+---@field commit_message boolean Show the commit message of the range as the first file of the review.
 ---@field diff codeview.Config.Diff Diff view options.
 ---@field sidebar codeview.Config.Sidebar Changed-files sidebar options.
 ---@field overview codeview.Config.Overview Comment overview sidebar options.
@@ -69,6 +70,7 @@ local M = {}
 ---@type codeview.Config
 M.defaults = {
   backend = "auto",
+  commit_message = true,
   diff = {
     style = "inline",
     context = 3,
@@ -270,6 +272,7 @@ function M.validate(opts)
       vim.validate("keymaps." .. tostring(action), lhs, keys_value, "string, list of strings, or false")
     end
 
+    vim.validate("commit_message", opts.commit_message, "boolean")
     vim.validate("log_level", opts.log_level, "number")
   end)
   if ok then

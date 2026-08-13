@@ -12,6 +12,7 @@
 --- callback it blocks and returns `session, err`. With a callback it returns
 --- at once and calls `cb(session, err)` on the main loop.
 
+local config = require("codeview.config")
 local errors = require("codeview.error")
 local vcs = require("codeview.vcs")
 
@@ -160,6 +161,25 @@ local function label_of(range, input, label)
   return short(range.to)
 end
 
+---File list of a session, with one entry per commit at the head.
+---
+--- The commits read before the code, the way a reviewer reads the message of
+--- a change first. The `commit_message` option removes them, and a range
+--- without a commit gets none.
+---@param files codeview.vcs.FileChange[]
+---@param commits codeview.vcs.Commit[]
+---@return codeview.vcs.FileChange[]
+local function with_message(files, commits)
+  if not config.get().commit_message or #(commits or {}) == 0 then
+    return files
+  end
+  local out = require("codeview.message").entries(commits)
+  for _, file in ipairs(files) do
+    out[#out + 1] = file
+  end
+  return out
+end
+
 ---Send a User event for a session.
 ---
 --- The payload holds plain values only. `nvim_exec_autocmds()` copies the
@@ -235,7 +255,7 @@ function M.open(spec, opts, cb)
       repo = state.repo,
       range = state.range,
       spec = label_of(state.range, spec, opts.label),
-      files = state.files,
+      files = with_message(state.files, state.commits),
       commits = state.commits,
       store_key = opts.store_key,
       pr = opts.pr,
@@ -306,14 +326,30 @@ end
 ---One line with the range, the file count, and the commit count.
 ---@return string
 function Session:summary()
+  local count = self:changed_count()
   return string.format(
     "%s: %d %s, %d %s",
     self:label(),
-    #self.files,
-    #self.files == 1 and "file" or "files",
+    count,
+    count == 1 and "file" or "files",
     #self.commits,
     #self.commits == 1 and "commit" or "commits"
   )
+end
+
+---Number of files that the range changes.
+---
+--- The commit message document is no change of the range, so it does not
+--- count. See |codeview.message|.
+---@return integer
+function Session:changed_count()
+  local count = 0
+  for _, file in ipairs(self.files) do
+    if not file.virtual then
+      count = count + 1
+    end
+  end
+  return count
 end
 
 ---Files that the range changes.
@@ -378,7 +414,7 @@ function Session:refresh(cb)
     if self.closed then
       return nil, errors.new(errors.codes.INVALID_ARG, "the session is closed")
     end
-    self.files = state.files
+    self.files = with_message(state.files, state.commits)
     self.commits = state.commits
     announce("CodeViewSessionRefreshed", self)
     return self, nil

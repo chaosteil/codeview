@@ -47,6 +47,7 @@ describe("codeview.view", function()
 
   before_each(function()
     helpers.unload()
+    require("codeview.config").setup({ commit_message = false })
     panel = require("codeview.panel")
     session_mod = require("codeview.session")
     view = require("codeview.view")

@@ -764,7 +764,9 @@ function M.open(session, index, opts, cb)
       old_rev = old_rev,
       new_rev = new_rev,
       diff = result,
-      style = config.get().diff.style,
+      -- The commit message holds one side only, so the side-by-side style has
+      -- nothing to put in the other window.
+      style = file.virtual and "inline" or config.get().diff.style,
       map = linemap.new(),
       old_map = nil,
       expanded = {},
@@ -782,6 +784,34 @@ function M.open(session, index, opts, cb)
   local ticket = ticket_of()
   -- A forced open removes the line limit, so the diff of a large file renders.
   local diff_opts = opts.force and { max_lines = 0 } or nil
+
+  if file.virtual then
+    -- A commit document reads the files of its commit from the backend, so it
+    -- takes the same sync and async form as a diff.
+    local message = require("codeview.message")
+    if not cb then
+      local document, err = message.for_commit(session, file)
+      if not document then
+        return nil, err
+      end
+      return show(document), nil
+    end
+    pending = { session = session, index = index, ticket = ticket }
+    message.for_commit(session, file, function(document, err)
+      if not fresh(ticket) then
+        return
+      end
+      pending = nil
+      if not session:is_active() then
+        return done(cb, nil, errors.new(errors.codes.INVALID_ARG, "the session is closed"))
+      end
+      if not document then
+        return done(cb, nil, err)
+      end
+      done(cb, show(document), nil)
+    end)
+    return nil, nil
+  end
 
   if not cb then
     local result, err = diff_mod.for_file(session, file, diff_opts)
@@ -1065,6 +1095,12 @@ function M.set_style(style)
   local view = M.current()
   if not view or view.style == style then
     return style
+  end
+  if view.diff and view.diff.message then
+    -- The commit message has one side. The option keeps the new value for the
+    -- next file, but this view stays inline.
+    notify("the commit message has no side-by-side style")
+    return view.style
   end
 
   local anchor = anchor_of(view)

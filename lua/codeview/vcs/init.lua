@@ -48,6 +48,11 @@ local M = {}
 ---@field old_path string? Path in the old revision, when it differs from `path`.
 ---@field status codeview.vcs.Status
 ---@field score integer? Similarity of a rename or a copy, in percent.
+---@field virtual boolean? True for an entry that the repository does not hold, like the commit message.
+---@field label string? Name for the user. A virtual entry sets it, because its path is no file name.
+---@field group string? Name of the group node that holds a virtual entry.
+---@field group_path string? Path key of that group node.
+---@field commit codeview.vcs.Commit? Commit of a commit entry.
 
 ---@class codeview.vcs.Range
 ---@field from string? Base revision, exclusive. Nil means the state before the first commit.

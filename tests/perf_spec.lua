@@ -55,7 +55,7 @@ describe("codeview performance", function()
     session_mod = require("codeview.session")
     sidebar = require("codeview.sidebar")
     view = require("codeview.view")
-    config.setup({ comments = { dir = vim.fs.joinpath(fixture.dir, ".review") } })
+    config.setup({ commit_message = false, comments = { dir = vim.fs.joinpath(fixture.dir, ".review") } })
   end)
 
   after_each(function()

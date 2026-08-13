@@ -152,7 +152,7 @@ describe("codeview keymaps", function()
     store_dir = fixtures.tempdir("codeview-keymaps")
     -- The load key maps on a diff above the line limit only. A limit of one
     -- line makes every diff of the fixture such a diff.
-    config.setup({ comments = { dir = store_dir }, diff = { max_lines = 1 } })
+    config.setup({ commit_message = false, comments = { dir = store_dir }, diff = { max_lines = 1 } })
   end)
 
   after_each(function()
@@ -208,7 +208,7 @@ describe("codeview keymaps", function()
       custom[action] = "," .. string.char(96 + index)
     end
     assert.is_true(index <= 26, "the audit needs one letter per action")
-    config.setup({ comments = { dir = store_dir }, diff = { max_lines = 1 }, keymaps = custom })
+    config.setup({ commit_message = false, comments = { dir = store_dir }, diff = { max_lines = 1 }, keymaps = custom })
 
     local keys = surface_keys(open_session())
     for action, surfaces in pairs(ACTIONS) do
@@ -227,7 +227,7 @@ describe("codeview keymaps", function()
     for action in pairs(config.defaults.keymaps) do
       off[action] = false
     end
-    config.setup({ comments = { dir = store_dir }, diff = { max_lines = 1 }, keymaps = off })
+    config.setup({ commit_message = false, comments = { dir = store_dir }, diff = { max_lines = 1 }, keymaps = off })
 
     local keys = surface_keys(open_session())
     for name, modes in pairs(keys) do
