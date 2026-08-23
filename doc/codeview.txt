@@ -640,7 +640,7 @@ section. A section at the start of the file has no row above it, so the sign
 goes on the row of the section itself. The row of the sign also answers for
 the edit key and for the delete key. Press `za` to show the lines again.
 
-                                                    *codeview-comments-editor*
+                                           *codeview-comments-editor-position*
 The `comments.editor` option selects where the editor opens: >
 
     inline    under the commented row, in the width of the diff (default)
