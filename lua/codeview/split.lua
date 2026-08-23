@@ -297,6 +297,7 @@ end
 ---@param buf integer
 local function watch(buf)
   api.nvim_create_autocmd("BufWipeout", {
+    group = api.nvim_create_augroup("codeview.split", { clear = false }),
     buffer = buf,
     once = true,
     desc = "Forget the codeview diff of a buffer",

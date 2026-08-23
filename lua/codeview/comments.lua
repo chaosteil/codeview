@@ -974,6 +974,7 @@ function M.show(opts)
   vim.wo[win][0].wrap = true
 
   api.nvim_create_autocmd({ "CursorMoved", "CursorMovedI", "BufLeave", "InsertEnter" }, {
+    group = api.nvim_create_augroup("codeview.comments.float", { clear = false }),
     once = true,
     desc = "Close the codeview comment float",
     callback = function()

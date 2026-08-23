@@ -163,8 +163,7 @@ function M.is_panel_win(win)
   if not api.nvim_win_is_valid(win) then
     return false
   end
-  local ok, value = pcall(api.nvim_win_get_var, win, "codeview_panel")
-  return ok and value == true
+  return vim.w[win].codeview_panel == true
 end
 
 --- Buffer and window ----------------------------------------------------------
@@ -262,7 +261,7 @@ function Panel:open(opts)
       width = self.width,
     })
   end)
-  api.nvim_win_set_var(self.win, "codeview_panel", true)
+  vim.w[self.win].codeview_panel = true
   for name, value in pairs(WIN_OPTIONS) do
     vim.wo[self.win][0][name] = value
   end

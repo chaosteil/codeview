@@ -205,7 +205,7 @@ function M.open(opts)
 
   local current = api.nvim_get_current_win()
   local win = api.nvim_open_win(buf, false, { split = "below", win = -1, height = 1 })
-  api.nvim_win_set_var(win, "codeview_panel", true)
+  vim.w[win].codeview_panel = true
   vim.wo[win][0].winfixheight = true
   vim.wo[win][0].number = false
   vim.wo[win][0].relativenumber = false
@@ -213,7 +213,7 @@ function M.open(opts)
   vim.wo[win][0].cursorline = false
   vim.wo[win][0].wrap = false
   vim.wo[win][0].statusline = " "
-  vim.wo[win][0].winbar = nil
+  vim.wo[win][0].winbar = ""
   api.nvim_set_current_win(current)
 
   local group = api.nvim_create_augroup("codeview.hints", { clear = true })

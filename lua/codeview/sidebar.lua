@@ -191,7 +191,7 @@ end
 ---Report an error of an action of the sidebar.
 ---@param err codeview.Error
 local function report(err)
-  vim.notify("codeview: " .. tostring(err), vim.log.levels.INFO)
+  vim.notify("codeview: " .. tostring(err), vim.log.levels.ERROR)
 end
 
 ---Render the sidebar again.

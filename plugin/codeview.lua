@@ -4,13 +4,14 @@
 if vim.g.loaded_codeview then
   return
 end
+-- The guard comes before the version check, so a second `:runtime!` does not
+-- notify again.
+vim.g.loaded_codeview = 1
 
 if vim.fn.has("nvim-0.11") ~= 1 then
   vim.notify("codeview needs Neovim 0.11 or later", vim.log.levels.ERROR)
   return
 end
-
-vim.g.loaded_codeview = 1
 
 -- `vim.g.codeview` holds the options for users who do not call `setup()`.
 if type(vim.g.codeview) == "table" then

@@ -211,8 +211,9 @@ end
 
 ---Report a message of an action of the view.
 ---@param message string
-local function notify(message)
-  vim.notify("codeview: " .. message, vim.log.levels.INFO)
+---@param level integer? A `vim.log.levels` value. The default is INFO.
+local function notify(message, level)
+  vim.notify("codeview: " .. message, level or vim.log.levels.INFO)
 end
 
 ---Buffer-local keymaps of the view.
@@ -223,9 +224,10 @@ local function set_keymaps(session, buf)
 
   ---@param value string|string[]|false Key of the configuration. False disables the map.
   ---@param action fun()
-  local function add(value, action)
+  ---@param desc string Description of the map, for `:map` and its readers.
+  local function add(value, action, desc)
     for _, lhs in ipairs(config.keys(value)) do
-      vim.keymap.set("n", lhs, action, { buffer = buf, nowait = true, silent = true, desc = "codeview: file view" })
+      vim.keymap.set("n", lhs, action, { buffer = buf, nowait = true, silent = true, desc = "codeview: " .. desc })
     end
   end
 
@@ -233,46 +235,46 @@ local function set_keymaps(session, buf)
   ---@param err codeview.Error?
   local function report(_, err)
     if err then
-      notify(tostring(err))
+      notify(tostring(err), vim.log.levels.ERROR)
     end
   end
 
   add(keys.next_file, function()
     M.next(session, report)
-  end)
+  end, "open the next file")
   add(keys.prev_file, function()
     M.prev(session, report)
-  end)
+  end, "open the previous file")
   add(keys.next_hunk, function()
     if not M.next_hunk() then
       notify("no hunk after this one")
     end
-  end)
+  end, "jump to the next hunk")
   add(keys.prev_hunk, function()
     if not M.prev_hunk() then
       notify("no hunk before this one")
     end
-  end)
+  end, "jump to the previous hunk")
   add(keys.expand_context, function()
     if not M.toggle_context() then
       notify("no collapsed section on this line")
     end
-  end)
+  end, "show or hide the section")
   add(keys.expand_all, function()
     M.expand_all()
-  end)
+  end, "show every hidden section")
   add(keys.collapse_all, function()
     M.collapse_all()
-  end)
+  end, "hide every section")
   add(keys.edit_file, function()
     M.edit()
-  end)
+  end, "edit the file of the working copy")
   add(keys.toggle_style, function()
     M.toggle_style()
-  end)
+  end, "switch the diff style")
   add(keys.close, function()
     session:close()
-  end)
+  end, "close the session")
 
   -- The comment keys need the visual mode too. The module owns them.
   require("codeview.comments").set_keymaps(session, buf)
@@ -1124,7 +1126,7 @@ function M.load_diff(cb)
   end
   M.open(view.session, view.index, { force = true }, cb or function(_, err)
     if err then
-      notify(tostring(err))
+      notify(tostring(err), vim.log.levels.ERROR)
     end
   end)
   return true
@@ -1378,7 +1380,7 @@ function M.back(opts)
   local line = opts.line or api.nvim_win_get_cursor(win)[1]
   local state_view, err = M.open(session, index, { win = win })
   if not state_view then
-    notify(tostring(err))
+    notify(tostring(err), vim.log.levels.ERROR)
     return false
   end
   M.go_to_line(line, "new")

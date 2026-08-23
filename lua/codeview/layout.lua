@@ -427,8 +427,7 @@ end
 ---@param win integer
 ---@return boolean
 local function is_panel(win)
-  local ok, value = pcall(api.nvim_win_get_var, win, "codeview_panel")
-  return ok and value == true
+  return vim.w[win].codeview_panel == true
 end
 
 ---Run a call that opens or closes windows, and keep the layout around them.
