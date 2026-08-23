@@ -14,9 +14,14 @@
 
 local config = require("codeview.config")
 local errors = require("codeview.error")
+local util = require("codeview.util")
 local vcs = require("codeview.vcs")
 
 local api = vim.api
+
+local chain = util.chain
+local done = util.done
+local short = util.short
 
 local M = {}
 
@@ -46,23 +51,7 @@ local current = nil
 ---@type integer
 local counter = 0
 
----Return a value in the sync form, or send it to the callback.
----@generic T
----@param cb? fun(value: T?, err: codeview.Error?)
----@param value any?
----@param err codeview.Error?
----@return any?, codeview.Error?
-local function done(cb, value, err)
-  if not cb then
-    return value, err
-  end
-  vim.schedule(function()
-    cb(value, err)
-  end)
-  return nil, nil
-end
-
----@alias codeview.session.Step fun(cb?: fun(value: any?, err: codeview.Error?)): any?, codeview.Error?
+---@alias codeview.session.Step codeview.util.Step
 
 ---Wrap one backend call, so that it keeps its result in a table.
 ---@param fn codeview.session.Step Call in the sync form and in the async form.
@@ -90,51 +79,6 @@ local function into(fn, store, key)
     end)
     return nil, nil
   end
-end
-
----Run steps one after the other. The first error stops the run.
----@param steps codeview.session.Step[]
----@param cb? fun(ok: boolean?, err: codeview.Error?)
----@return boolean? ok
----@return codeview.Error? err
-local function chain(steps, cb)
-  if not cb then
-    for _, step in ipairs(steps) do
-      local _, err = step()
-      if err then
-        return nil, err
-      end
-    end
-    return true, nil
-  end
-
-  local index = 0
-  local function step()
-    index = index + 1
-    if not steps[index] then
-      cb(true, nil)
-      return
-    end
-    steps[index](function(_, err)
-      if err then
-        cb(nil, err)
-        return
-      end
-      step()
-    end)
-  end
-  step()
-  return nil, nil
-end
-
----Shorten a commit id for a label.
----@param rev string
----@return string
-local function short(rev)
-  if #rev >= 12 and rev:match("^%x+$") then
-    return rev:sub(1, 8)
-  end
-  return rev
 end
 
 ---Text that names a range.

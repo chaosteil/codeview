@@ -18,6 +18,9 @@
 
 local errors = require("codeview.error")
 local exec = require("codeview.exec")
+local util = require("codeview.util")
+
+local done = util.done
 
 local M = {}
 
@@ -86,22 +89,6 @@ local SIGNS = {
     },
   },
 }
-
----Return a value in the sync form, or send it to the callback.
----@generic T
----@param cb? fun(value: T?, err: codeview.Error?)
----@param value any?
----@param err codeview.Error?
----@return any?, codeview.Error?
-local function done(cb, value, err)
-  if not cb then
-    return value, err
-  end
-  vim.schedule(function()
-    cb(value, err)
-  end)
-  return nil, nil
-end
 
 ---@class codeview.gh.Opts
 ---@field cwd string? Working directory of the call.

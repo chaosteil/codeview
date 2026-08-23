@@ -29,7 +29,11 @@ local errors = require("codeview.error")
 local exec = require("codeview.exec")
 local gh = require("codeview.gh")
 local session_mod = require("codeview.session")
+local util = require("codeview.util")
 local vcs = require("codeview.vcs")
+
+local chain = util.chain
+local done = util.done
 
 local M = {}
 
@@ -79,22 +83,6 @@ M.fields = {
 ---@field base string Local ref that holds the tip of the base branch.
 ---@field remote string Git remote that the refs come from.
 ---@field warning string? Line about a step that did not run as planned.
-
----Return a value in the sync form, or send it to the callback.
----@generic T
----@param cb? fun(value: T?, err: codeview.Error?)
----@param value any?
----@param err codeview.Error?
----@return any?, codeview.Error?
-local function done(cb, value, err)
-  if not cb then
-    return value, err
-  end
-  vim.schedule(function()
-    cb(value, err)
-  end)
-  return nil, nil
-end
 
 ---Environment of every git call of this module.
 ---
@@ -146,42 +134,7 @@ local function git(root, args, handle, cb, timeout)
   return handle(result)
 end
 
----@alias codeview.pr.Step fun(cb?: fun(value: any?, err: codeview.Error?)): any?, codeview.Error?
-
----Run steps one after the other. The first error stops the run.
----@param steps codeview.pr.Step[]
----@param cb? fun(ok: boolean?, err: codeview.Error?)
----@return boolean? ok
----@return codeview.Error? err
-local function chain(steps, cb)
-  if not cb then
-    for _, step in ipairs(steps) do
-      local _, err = step()
-      if err then
-        return nil, err
-      end
-    end
-    return true, nil
-  end
-
-  local index = 0
-  local function run()
-    index = index + 1
-    if not steps[index] then
-      cb(true, nil)
-      return
-    end
-    steps[index](function(_, err)
-      if err then
-        cb(nil, err)
-        return
-      end
-      run()
-    end)
-  end
-  run()
-  return nil, nil
-end
+---@alias codeview.pr.Step codeview.util.Step
 
 --- Metadata --------------------------------------------------------------------
 

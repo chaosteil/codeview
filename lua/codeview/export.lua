@@ -50,9 +50,12 @@ local errors = require("codeview.error")
 local panel = require("codeview.panel")
 local session_mod = require("codeview.session")
 local tree = require("codeview.tree")
+local util = require("codeview.util")
 
 local api = vim.api
 local fn = vim.fn
+
+local before = util.comment_before
 
 local M = {}
 
@@ -97,32 +100,8 @@ end
 --- Data ------------------------------------------------------------------------
 
 ---Short form of a revision id.
----@param rev string?
----@return string
-function M.short(rev)
-  rev = rev or ""
-  if #rev >= 12 and rev:match("^%x+$") then
-    return rev:sub(1, 8)
-  end
-  return rev
-end
-
----Order two comments of one file: by line, then by side, then by age.
----@param a codeview.store.Comment
----@param b codeview.store.Comment
----@return boolean
-local function before(a, b)
-  if a.start_line ~= b.start_line then
-    return a.start_line < b.start_line
-  end
-  if a.side ~= b.side then
-    return a.side == "old"
-  end
-  if a.created_at ~= b.created_at then
-    return a.created_at < b.created_at
-  end
-  return a.id < b.id
-end
+---@type fun(rev: string?): string
+M.short = util.short
 
 ---Text of the resolved range of a session.
 ---@param session codeview.Session

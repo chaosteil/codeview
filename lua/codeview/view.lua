@@ -31,8 +31,11 @@ local linemap = require("codeview.linemap")
 local panel = require("codeview.panel")
 local split = require("codeview.split")
 local tree = require("codeview.tree")
+local util = require("codeview.util")
 
 local api = vim.api
+
+local done = util.done
 
 local M = {}
 
@@ -104,21 +107,6 @@ local function pending_index(session)
     return pending.index
   end
   return nil
-end
-
----Return a value in the sync form, or send it to the callback.
----@param cb? fun(view: codeview.view.State?, err: codeview.Error?)
----@param value codeview.view.State?
----@param err codeview.Error?
----@return codeview.view.State?, codeview.Error?
-local function done(cb, value, err)
-  if not cb then
-    return value, err
-  end
-  vim.schedule(function()
-    cb(value, err)
-  end)
-  return nil, nil
 end
 
 ---Send a User event for the file that opened.

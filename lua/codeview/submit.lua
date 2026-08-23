@@ -36,8 +36,12 @@ local inline = require("codeview.inline")
 local linemap = require("codeview.linemap")
 local session_mod = require("codeview.session")
 local store_mod = require("codeview.store")
+local util = require("codeview.util")
 
 local api = vim.api
+
+local before = util.comment_before
+local done = util.done
 
 local M = {}
 
@@ -146,22 +150,6 @@ function M.error_text(err)
     end
   end
   return text
-end
-
----Return a value in the sync form, or send it to the callback.
----@generic T
----@param cb? fun(value: T?, err: codeview.Error?)
----@param value any?
----@param err codeview.Error?
----@return any?, codeview.Error?
-local function done(cb, value, err)
-  if not cb then
-    return value, err
-  end
-  vim.schedule(function()
-    cb(value, err)
-  end)
-  return nil, nil
 end
 
 ---Run one step per entry of a list, one after the other.
@@ -365,23 +353,6 @@ function M.position(map, comment, coverage)
     position.start_side = api_side
   end
   return position, nil
-end
-
----Order two comments of one file: by line, then by side, then by age.
----@param a codeview.store.Comment
----@param b codeview.store.Comment
----@return boolean
-local function before(a, b)
-  if a.start_line ~= b.start_line then
-    return a.start_line < b.start_line
-  end
-  if a.side ~= b.side then
-    return a.side == "old"
-  end
-  if a.created_at ~= b.created_at then
-    return a.created_at < b.created_at
-  end
-  return a.id < b.id
 end
 
 ---Group comments by file.

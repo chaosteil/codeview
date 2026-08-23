@@ -30,8 +30,11 @@ local errors = require("codeview.error")
 local events = require("codeview.events")
 local gh = require("codeview.gh")
 local highlight = require("codeview.highlight")
+local util = require("codeview.util")
 
 local api = vim.api
+
+local done = util.done
 
 local M = {}
 
@@ -222,13 +225,7 @@ function M.fetch(opts, cb)
   opts = opts or {}
   if type(opts.repo) ~= "string" or opts.repo == "" or type(opts.number) ~= "number" then
     local err = errors.new(errors.codes.INVALID_ARG, "the call needs a repository and a pull request number")
-    if not cb then
-      return nil, err
-    end
-    vim.schedule(function()
-      cb(nil, err)
-    end)
-    return nil, nil
+    return done(cb, nil, err)
   end
 
   local path = string.format("repos/%s/pulls/%d/comments", opts.repo, math.floor(opts.number))

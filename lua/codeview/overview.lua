@@ -33,10 +33,13 @@ local panel = require("codeview.panel")
 local session_mod = require("codeview.session")
 local store_mod = require("codeview.store")
 local tree = require("codeview.tree")
+local util = require("codeview.util")
 local view = require("codeview.view")
 
 local api = vim.api
 local fn = vim.fn
+
+local before = util.comment_before
 
 local M = {}
 
@@ -67,23 +70,6 @@ Overview.__index = Overview
 local current = nil
 
 --- Comments ---------------------------------------------------------------
-
----Order two comments of one file: by line, then by side, then by age.
----@param a codeview.store.Comment
----@param b codeview.store.Comment
----@return boolean
-local function before(a, b)
-  if a.start_line ~= b.start_line then
-    return a.start_line < b.start_line
-  end
-  if a.side ~= b.side then
-    return a.side == "old"
-  end
-  if a.created_at ~= b.created_at then
-    return a.created_at < b.created_at
-  end
-  return a.id < b.id
-end
 
 ---Comments of the session, by file.
 ---@param self codeview.Overview

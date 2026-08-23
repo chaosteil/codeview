@@ -5,8 +5,11 @@
 
 local exec = require("codeview.exec")
 local errors = require("codeview.error")
+local util = require("codeview.util")
 local fs = vim.fs
 local uv = vim.uv
+
+local done = util.done
 
 local M = {}
 
@@ -58,22 +61,6 @@ local GIT_ENV = {
 ---@class codeview.vcs.GitRepo: codeview.vcs.Repo
 local Repo = {}
 Repo.__index = Repo
-
----Return a value in the sync form, or send it to the callback.
----@generic T
----@param cb? fun(value: T?, err: codeview.Error?)
----@param value any?
----@param err codeview.Error?
----@return any?, codeview.Error?
-local function done(cb, value, err)
-  if not cb then
-    return value, err
-  end
-  vim.schedule(function()
-    cb(value, err)
-  end)
-  return nil, nil
-end
 
 ---Build a git command line that ignores the configuration of the user.
 ---
