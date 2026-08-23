@@ -63,8 +63,9 @@ them. Do not change a rule without a change to this file.
 - Read the active configuration with `require("codeview.config").get()`. Do not
   cache the table, because `setup()` replaces it.
 - `setup()` is optional. Every module must work with the defaults.
-- Add a new option to the defaults, to the validation, to the LuaCATS class, to
-  the README, and to `doc/codeview.txt`, in the same commit.
+- Add a new option to the defaults, to the validation, to the LuaCATS class,
+  and to `doc/codeview.txt`, in the same commit. The README does not list the
+  options. It points to `:help codeview-config`.
 
 ### The line map
 

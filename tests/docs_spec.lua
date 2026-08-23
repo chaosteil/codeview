@@ -91,14 +91,13 @@ describe("codeview documentation", function()
 
   it("names every configuration option", function()
     local paths = option_paths(config.defaults, "", {})
-    -- The help file and the README both hold the defaults as one block, so
-    -- the leaf name of an option answers for its path.
+    -- The help file holds the defaults as one block, so the leaf name of an
+    -- option answers for its path. The README points to the help file.
     local leaves = {}
     for _, path in ipairs(paths) do
       leaves[#leaves + 1] = path:match("[^.]+$")
     end
     assert.are.same({}, missing_from(vimdoc, leaves))
-    assert.are.same({}, missing_from(readme, leaves))
   end)
 
   it("names every keymap action and its default keys", function()
