@@ -424,7 +424,7 @@ function M.auth_status(opts, cb)
     return done(cb, nil, missing())
   end
 
-  local cmd = vim.list_extend({ M.name }, { "auth", "status" })
+  local cmd = { M.name, "auth", "status" }
   local exec_opts = {
     cwd = opts.cwd,
     timeout = opts.timeout,

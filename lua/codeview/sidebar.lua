@@ -72,10 +72,8 @@ end
 ---@return string
 local function old_name(file)
   local old = file.old_path --[[@as string]]
-  local old_dir = old:match("^(.*)/[^/]*$") or ""
-  local new_dir = file.path:match("^(.*)/[^/]*$") or ""
-  if old_dir == new_dir then
-    return old:match("[^/]*$") --[[@as string]]
+  if vim.fs.dirname(old) == vim.fs.dirname(file.path) then
+    return vim.fs.basename(old)
   end
   return old
 end

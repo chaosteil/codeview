@@ -1292,7 +1292,7 @@ function M.edit(opts)
   vim.b[file_buf].codeview_file = path
   set_back_key(session, file_buf)
   if line then
-    local last = api.nvim_buf_line_count(api.nvim_win_get_buf(win))
+    local last = api.nvim_buf_line_count(file_buf)
     pcall(api.nvim_win_set_cursor, win, { math.min(line, last), 0 })
     pcall(vim.cmd, "normal! zz")
   end
@@ -1355,7 +1355,7 @@ function M.back(opts)
   if not path then
     local full = vim.fs.normalize(name)
     local prefix = vim.fs.normalize(root) .. "/"
-    if full:sub(1, #prefix) ~= prefix then
+    if not vim.startswith(full, prefix) then
       notify("the file is outside " .. root)
       return false
     end

@@ -95,14 +95,15 @@ function M.parse(args, bang)
     return { action = "pick", mode = bang and "range" or "single" }, nil
   end
 
-  if text:lower() == "pr" then
+  local lower = text:lower()
+  if lower == "pr" then
     return { action = "pr", text = text }, nil
   end
-  local number = text:lower():match("^pr%s+#?(%d+)$")
+  local number = lower:match("^pr%s+#?(%d+)$")
   if number then
     return { action = "pr", text = text, number = tonumber(number) }, nil
   end
-  if text:lower():match("^pr%s") then
+  if lower:match("^pr%s") then
     return nil, errors.new(errors.codes.INVALID_ARG, "the pr argument needs a number: :CodeView pr <number>")
   end
 

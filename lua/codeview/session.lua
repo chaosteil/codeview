@@ -174,9 +174,7 @@ local function with_message(files, commits)
     return files
   end
   local out = require("codeview.message").entries(commits)
-  for _, file in ipairs(files) do
-    out[#out + 1] = file
-  end
+  vim.list_extend(out, files)
   return out
 end
 

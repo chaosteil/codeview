@@ -178,7 +178,7 @@ function M.build(diff, opts)
   end
 
   ---@param block table
-  ---@param gap codeview.inline.Gap?
+  ---@param gap codeview.layout.Gap?
   local function emit_context(block, gap)
     for step = 0, block.count - 1 do
       local old_line, new_line = block.old + step, block.new + step

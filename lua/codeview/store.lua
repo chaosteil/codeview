@@ -95,7 +95,7 @@ local Store = {}
 Store.__index = Store
 
 ---Fields of a comment section, and the type of each field.
----@type table<string, "string"|"integer">
+---@type table<string, "string"|"integer"|"time">
 local FIELDS = {
   file = "string",
   start_line = "integer",
@@ -246,7 +246,7 @@ end
 ---@param line string
 ---@return string
 local function escape(line)
-  if line:sub(1, 1) == "\\" or line:sub(1, #M.marker) == M.marker then
+  if line:sub(1, 1) == "\\" or vim.startswith(line, M.marker) then
     return "\\" .. line
   end
   return line
@@ -708,18 +708,20 @@ function Store:update(id, fields)
   if fields.state ~= nil then
     comment.state = fields.state == "resolved" and "resolved" or "open"
   end
-  if fields.file ~= nil and type(fields.file) == "string" and fields.file ~= "" then
+  if type(fields.file) == "string" and fields.file ~= "" then
     comment.file = fields.file
   end
   if fields.side ~= nil then
     comment.side = fields.side == "old" and "old" or "new"
   end
-  if tonumber(fields.start_line) then
-    comment.start_line = math.max(math.floor(tonumber(fields.start_line) --[[@as number]]), 1)
+  local start_line = tonumber(fields.start_line)
+  if start_line then
+    comment.start_line = math.max(math.floor(start_line), 1)
     comment.end_line = math.max(comment.end_line, comment.start_line)
   end
-  if tonumber(fields.end_line) then
-    comment.end_line = math.max(math.floor(tonumber(fields.end_line) --[[@as number]]), comment.start_line)
+  local end_line = tonumber(fields.end_line)
+  if end_line then
+    comment.end_line = math.max(math.floor(end_line), comment.start_line)
   end
   if type(fields.commit) == "string" then
     comment.commit = fields.commit

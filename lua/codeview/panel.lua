@@ -266,10 +266,7 @@ function Panel:open(opts)
   for name, value in pairs(WIN_OPTIONS) do
     vim.wo[self.win][0][name] = value
   end
-  -- 'winfixbuf' is not in every supported version.
-  pcall(function()
-    vim.wo[self.win][0].winfixbuf = true
-  end)
+  vim.wo[self.win][0].winfixbuf = true
   api.nvim_win_set_width(self.win, self.width)
 
   watch(self)

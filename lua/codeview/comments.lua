@@ -633,10 +633,10 @@ end
 ---@param target codeview.comments.Target
 ---@return codeview.editor.Anchor? anchor
 local function anchor_of(target)
-  if not target.win or not vim.api.nvim_win_is_valid(target.win) then
+  if not target.win or not api.nvim_win_is_valid(target.win) then
     return nil
   end
-  return { win = target.win, buf = vim.api.nvim_win_get_buf(target.win), row = target.row }
+  return { win = target.win, buf = api.nvim_win_get_buf(target.win), row = target.row }
 end
 
 ---Open the editor for a new comment.
@@ -703,7 +703,8 @@ end
 ---@return codeview.store.Comment? comment
 local function pick(ctx, opts)
   if opts.id then
-    return ctx.store:get(opts.id)
+    -- The parentheses drop the second return value of `get`.
+    return (ctx.store:get(opts.id))
   end
   if not ctx.view then
     return nil
@@ -746,7 +747,7 @@ local function comment_anchor(view, comment)
     return nil
   end
   local win = buf == view.buf and view.win or view.old_win
-  if not win or not vim.api.nvim_win_is_valid(win) then
+  if not win or not api.nvim_win_is_valid(win) then
     return nil
   end
   return { win = win, buf = buf, row = row }

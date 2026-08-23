@@ -187,6 +187,7 @@ function M.parse(entries)
     local path = type(entry) == "table" and entry.path or nil
     local anchor = M.anchor(entry)
     if type(path) == "string" and path ~= "" and anchor then
+      local reply = tonumber(entry.in_reply_to_id)
       out[#out + 1] = {
         id = math.floor(tonumber(entry.id) or 0),
         file = path,
@@ -200,7 +201,7 @@ function M.parse(entries)
         review_id = M.review_id(entry.pull_request_review_id),
         created_at = store_mod.from_iso(entry.created_at) or 0,
         outdated = anchor.outdated,
-        reply_to = tonumber(entry.in_reply_to_id) and math.floor(tonumber(entry.in_reply_to_id)) or nil,
+        reply_to = reply and math.floor(reply),
       }
     end
   end

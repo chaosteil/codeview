@@ -24,6 +24,10 @@ local M = {}
 ---@type string
 M.filetype = "codeview-hints"
 
+---Namespace of the hint highlights.
+---@type integer
+M.ns = api.nvim_create_namespace("codeview.hints")
+
 ---Actions of each surface, in the order that they read.
 ---
 --- The list holds the keys that a reader does not guess from the window. A
@@ -118,7 +122,7 @@ function M.chunks(name)
   ---@type { text: string, hl: string }[]
   local out = {}
   for _, entry in ipairs(actions) do
-    local lhs = require("codeview.config").keys(keys[entry.action])[1]
+    local lhs = config.keys(keys[entry.action])[1]
     if lhs then
       if #out > 0 then
         out[#out + 1] = { text = "  ", hl = "CodeViewHint" }
@@ -137,10 +141,9 @@ local function render(name)
     return
   end
   local chunks = name and M.chunks(name) or {}
-  local text = ""
-  for _, chunk in ipairs(chunks) do
-    text = text .. chunk.text
-  end
+  local text = table.concat(vim.tbl_map(function(chunk)
+    return chunk.text
+  end, chunks))
 
   vim.bo[state.buf].modifiable = true
   api.nvim_buf_set_lines(state.buf, 0, -1, false, { " " .. text })
@@ -161,10 +164,6 @@ local function render(name)
   end
   state.surface = name
 end
-
----Namespace of the hint highlights.
----@type integer
-M.ns = api.nvim_create_namespace("codeview.hints")
 
 ---Draw the row again for the window that has the cursor.
 function M.refresh()

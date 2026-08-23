@@ -23,6 +23,8 @@
 --- - the word range of a modified line,
 --- - the window options of a diff window.
 
+local api = vim.api
+
 local M = {}
 
 ---Smallest number of lines that a collapsed section hides.
@@ -385,7 +387,7 @@ end
 ---@param options table<string, any> Options of the style.
 ---@param statuscolumn string? Value for the 'statuscolumn' option.
 function M.attach_window(win, options, statuscolumn)
-  if not vim.api.nvim_win_is_valid(win) then
+  if not api.nvim_win_is_valid(win) then
     return
   end
   for name, value in pairs(options) do
@@ -410,10 +412,10 @@ end
 function M.statuscolumn(number)
   local win = vim.g.statusline_winid
   local buf
-  if type(win) == "number" and vim.api.nvim_win_is_valid(win) then
-    buf = vim.api.nvim_win_get_buf(win)
+  if type(win) == "number" and api.nvim_win_is_valid(win) then
+    buf = api.nvim_win_get_buf(win)
   else
-    buf = vim.api.nvim_get_current_buf()
+    buf = api.nvim_get_current_buf()
   end
   return "%#CodeViewDiffNumber#" .. number(buf, vim.v.lnum) .. "%*%s"
 end
@@ -425,7 +427,7 @@ end
 ---@param win integer
 ---@return boolean
 local function is_panel(win)
-  local ok, value = pcall(vim.api.nvim_win_get_var, win, "codeview_panel")
+  local ok, value = pcall(api.nvim_win_get_var, win, "codeview_panel")
   return ok and value == true
 end
 
@@ -443,7 +445,6 @@ end
 ---@param fn fun(): T
 ---@return T
 function M.keep(fn)
-  local api = vim.api
   local equalalways = vim.o.equalalways
   vim.o.equalalways = false
 

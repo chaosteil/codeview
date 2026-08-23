@@ -153,7 +153,7 @@ function M.apply(buf, diff, map, opts)
   local sides = {}
 
   ---Captures of one side, read once per call.
-  ---@param side codeview.linemap.Side
+  ---@param side_name codeview.linemap.Side
   ---@return table<integer, table[]>
   local function side(side_name)
     if sides[side_name] then
@@ -165,6 +165,7 @@ function M.apply(buf, diff, map, opts)
   end
 
   local count = 0
+  local buf_lines = api.nvim_buf_get_lines(buf, 0, -1, false)
   for lnum, row in ipairs(map.rows) do
     -- A row of the wanted side only. The old window of the split style holds
     -- the old side, the new window and the inline style hold the new side.
@@ -174,7 +175,7 @@ function M.apply(buf, diff, map, opts)
     end
     local line = side_name == "old" and row.old or row.new
     if side_name and line then
-      local width = #(api.nvim_buf_get_lines(buf, lnum - 1, lnum, false)[1] or "")
+      local width = #(buf_lines[lnum] or "")
       for _, capture in ipairs(side(side_name)[line - 1] or {}) do
         local col = math.min(capture.col + offset, width)
         local end_col = math.min(capture.end_col + offset, width)

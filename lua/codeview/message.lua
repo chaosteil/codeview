@@ -41,7 +41,7 @@ end
 ---@param path string?
 ---@return boolean
 function M.is(path)
-  return type(path) == "string" and path:sub(1, #M.prefix) == M.prefix
+  return type(path) == "string" and vim.startswith(path, M.prefix)
 end
 
 ---Commit id of a document path.
@@ -203,9 +203,7 @@ end
 ---@return codeview.diff.File
 local function document(commit, files)
   local lines = message_lines(commit)
-  for _, text in ipairs(file_lines(files)) do
-    lines[#lines + 1] = text
-  end
+  vim.list_extend(lines, file_lines(files))
   return {
     path = M.path_of(commit.id),
     old_path = M.path_of(commit.id),

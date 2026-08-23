@@ -45,17 +45,8 @@ end
 ---@return string version
 local function nvim_version()
   local v = vim.version()
-  local current = { v.major, v.minor, v.patch }
   local text = string.format("%d.%d.%d", v.major, v.minor, v.patch)
-  for i = 1, 3 do
-    if current[i] > MIN_NVIM[i] then
-      return true, text
-    end
-    if current[i] < MIN_NVIM[i] then
-      return false, text
-    end
-  end
-  return true, text
+  return vim.version.ge(v, MIN_NVIM), text
 end
 
 ---@param tool codeview.health.Tool

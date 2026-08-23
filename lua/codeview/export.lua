@@ -195,9 +195,7 @@ function M.data(session)
 
   local ordered = {}
   for _, file in ipairs(files) do
-    for _, comment in ipairs(file.comments) do
-      ordered[#ordered + 1] = comment
-    end
+    vim.list_extend(ordered, file.comments)
   end
 
   return {
