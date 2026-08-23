@@ -1,16 +1,16 @@
 ---@brief The key hints of a review.
 ---
 --- A terminal tool shows the keys that it takes at the bottom of the screen.
---- This module does the same for a review session: one row under the windows
---- of the session, with the keys of the window that has the cursor.
+--- This module does the same for a review session. It shows one row under the
+--- windows of the session, with the keys of the window that has the cursor.
 ---
 --- The row holds the keys that a reader does not guess. `i` writes a comment
 --- and `<CR>` opens the file under the cursor, so neither reads here. A key
---- like the style toggle does read here, because nothing else names it.
+--- like the style toggle reads here, because nothing else names it.
 ---
---- The row is one window of one line, and not a float. A float would cover a
---- line of the diff or the statusline, and a reader who scrolls to the last
---- line of a file would lose it behind the hints.
+--- The row is one window of one line, and not a float. A float covers a line
+--- of the diff or the statusline. A reader who scrolls to the last line of a
+--- file loses it behind the hints.
 ---
 --- Set `hints.enabled` to false to leave the row out.
 

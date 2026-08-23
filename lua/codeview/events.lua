@@ -2,8 +2,8 @@
 ---
 --- A part of the plugin that changes a comment sends an event. The parts that
 --- show comments subscribe to it and draw themselves again. The sender knows
---- no receiver, so a delete in the comment overview clears the extmarks of the
---- diff view, and a comment in the diff view reaches the overview.
+--- no receiver. A delete in the comment overview clears the extmarks of the
+--- diff view. A comment in the diff view reaches the overview.
 ---
 --- Every event also runs a |User| autocmd with the name of
 --- |codeview.events.autocmds|, so that a configuration outside the plugin can

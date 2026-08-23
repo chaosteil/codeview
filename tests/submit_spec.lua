@@ -583,7 +583,7 @@ describe("codeview.submit", function()
       assert.are.equal(0, result.posted)
       assert.are.equal(0, #api_calls())
       assert.are.equal(1, #store_of(session):unsynced())
-      assert.is_truthy(said():find("cancelled", 1, true), said())
+      assert.is_truthy(said():find("canceled", 1, true), said())
     end)
 
     it("asks for the event and for the text of the review", function()

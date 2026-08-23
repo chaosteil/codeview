@@ -117,8 +117,8 @@ plugin then calls setup() with that table: >lua
                                                               *:CodeView-pr*
 :CodeView pr [{number}]
     Review the GitHub pull request {number}. Without {number} the command
-    takes the pull request of the branch that the repository has checked out.
-    The command needs the gh CLI. See |codeview-github|.
+    takes the pull request of the current branch. The command needs the gh
+    CLI. See |codeview-github|.
 
     Examples: >vim
 
@@ -417,7 +417,7 @@ The view reads the file of one row of the sidebar, and no other file. A range
 of 400 files therefore opens as fast as a range of four.
 
 A file can still be too large to compare. The `diff.max_lines` option holds the
-highest number of lines that the two sides may hold together. Above that number
+highest number of lines that the two sides can hold together. Above that number
 the view compares nothing and shows two rows: >
 
     The diff holds 48210 lines. The limit diff.max_lines is 20000.
@@ -1080,8 +1080,7 @@ codeview.open({spec}, {opts}, {cb})
                                                           *codeview.open_pr()*
 codeview.open_pr({number}, {opts}, {cb})
     Open a review session for the GitHub pull request {number}. Without
-    {number} the call takes the pull request of the branch that the repository
-    has checked out.
+    {number} the call takes the pull request of the current branch.
 
     {opts} accepts these fields: >lua
 

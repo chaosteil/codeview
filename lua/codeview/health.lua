@@ -61,7 +61,7 @@ end
 ---@param tool codeview.health.Tool
 local function check_tool(tool)
   if vim.fn.executable(tool.name) ~= 1 then
-    local message = string.format("%s: not found in $PATH (needed for %s)", tool.name, tool.purpose)
+    local message = string.format("%s: not in $PATH (needed for %s)", tool.name, tool.purpose)
     if tool.required then
       health.error(message, { "Install " .. tool.name .. " and add it to $PATH." })
     else

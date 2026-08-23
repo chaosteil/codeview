@@ -366,7 +366,7 @@ end
 ---@param text string Markdown of the export.
 ---@param opts? { focus?: boolean }
 ---@return integer buf
----@return integer? win Nil when no window could open.
+---@return integer? win Nil when no window opens.
 function M.open(session, text, opts)
   opts = opts or {}
   local name = string.format("codeview://%d/export.md", session.id)

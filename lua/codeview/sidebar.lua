@@ -84,7 +84,7 @@ end
 ---@param session codeview.Session
 ---@return string
 local function counts(session)
-  -- The commit documents are no change of the range, so they do not count.
+  -- The commit documents do not change the range, so they do not count.
   local files, commits = session:changed_count(), #session.commits
   return string.format(
     "%d %s, %d %s",
@@ -138,7 +138,7 @@ end
 
 ---Line that opens the comment overview.
 ---
---- The line is no file of the review, so it holds an action instead of a
+--- The line is not a file of the review, so it holds an action instead of a
 --- position in the file list. |Sidebar:open_cursor()| runs the action.
 ---@param session codeview.Session
 ---@return codeview.panel.Line

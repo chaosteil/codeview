@@ -20,7 +20,7 @@
 --- row.
 ---
 --- The insert keys open the editor. `i`, `a`, `o`, and `O` do nothing in a
---- read-only buffer, so the diff buffer maps them to the one thing a reviewer
+--- read-only buffer. The diff buffer maps them to the one thing a reviewer
 --- wants to type: a comment on the line under the cursor. In visual mode `I`,
 --- `A`, and `c` comment on the selected lines, like the GitHub review UI. `i`
 --- stays free in visual mode, because it is the prefix of the text objects.
@@ -42,7 +42,7 @@ M.ns = api.nvim_create_namespace("codeview.comments")
 
 ---Comment that the editor has open, while it edits an existing comment.
 ---
---- The diff keeps the sign of the comment, but drops its virtual lines: the
+--- The diff keeps the sign of the comment, but drops its virtual lines. The
 --- editor shows the same body right under that row, and one body is enough.
 ---@type string?
 M.editing = nil
@@ -98,8 +98,8 @@ function M.attach(session)
   session:on_close(function(closed)
     stores[closed.id] = nil
     -- The editor float belongs to the session. A float that stays open holds a
-    -- store that the session does not own any more, and a later save writes it
-    -- over the file of the next session.
+    -- store that the session does not own any more. A later save then writes
+    -- it over the file of the next session.
     require("codeview.editor").cancel()
   end)
   return store, nil
@@ -184,8 +184,8 @@ end
 ---Anchor of a row range of the view.
 ---
 --- The map of the window with the cursor answers first. A row that this side
---- does not hold, for example the filler row of an added line in the old
---- window, falls back to the other side.
+--- does not hold goes to the other side. An example is the filler row of an
+--- added line in the old window.
 ---@param view? codeview.view.State View to read. The open file by default.
 ---@param opts? { visual?: boolean, first?: integer, last?: integer }
 ---@return codeview.comments.Target? target Nil on a range without a file line.
@@ -226,8 +226,8 @@ end
 
 ---Row of the collapsed section that hides one line of a comment.
 ---
---- The call answers for a line that no row of the side is at or above, which
---- is a line of a section at the start of the file. The filler row of that
+--- The call answers for a line that no row of the side is at or above. Such a
+--- line belongs to a section at the start of the file. The filler row of that
 --- section is the first row that the reader sees, so the comment goes there.
 ---@param map codeview.LineMap
 ---@param comment codeview.store.Comment
@@ -468,7 +468,7 @@ local function place(view, comment, display)
   end
   if M.editing == comment.id then
     -- The editor holds the body of this comment, one row under the sign. The
-    -- virtual lines would print the same text twice.
+    -- virtual lines then print the same text twice.
     display = "float"
   end
   local rows = comment_rows(map, comment)
@@ -629,7 +629,7 @@ end
 ---
 --- The editor opens under the last marked row, in the window that the reviewer
 --- marked it in. A window that closed in the meantime gives no anchor, and the
---- editor falls back to the float.
+--- editor opens the float instead.
 ---@param target codeview.comments.Target
 ---@return codeview.editor.Anchor? anchor
 local function anchor_of(target)
@@ -732,7 +732,7 @@ end
 ---
 --- The editor opens under the last row of the comment. A comment that the
 --- render hides, or an action from the overview without a diff view, gives no
---- anchor, and the editor falls back to the float.
+--- anchor. The editor then opens the float instead.
 ---@param view codeview.view.State?
 ---@param comment codeview.store.Comment
 ---@return codeview.editor.Anchor? anchor

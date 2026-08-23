@@ -23,7 +23,7 @@ local TIMEOUT_CODE = 124
 ---@field env table<string, string>? Extra environment variables.
 ---@field stdin string? Text for standard input.
 ---@field text boolean? Replace CRLF with LF in the output. True by default.
----@field timeout integer? Milliseconds before the command is killed.
+---@field timeout integer? Milliseconds before the plugin kills the command.
 
 ---@class codeview.ExecResult
 ---@field command string[] Command that ran.
@@ -49,7 +49,7 @@ local function to_result(cmd, res)
   -- code 0 for that case, which looks like success with empty output.
   if signal ~= 0 and res.code == 0 then
     return nil,
-      errors.new(errors.codes.COMMAND_FAILED, string.format("%s was killed by signal %d", cmd[1], signal), {
+      errors.new(errors.codes.COMMAND_FAILED, string.format("signal %d killed %s", signal, cmd[1]), {
         command = cmd,
         stderr = res.stderr,
       })

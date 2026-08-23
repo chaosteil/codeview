@@ -255,8 +255,8 @@ end
 
 ---Read the form of a revision argument.
 ---
---- The function does not talk to the backend. It only splits the text:
---- `a` is one commit, `a..b` is a range, and `a...b` is a range from the
+--- The function does not talk to the backend. It only splits the text.
+--- `a` is one commit, and `a..b` is a range. `a...b` is a range from the
 --- merge base of `a` and `b`. An empty side means `HEAD`.
 ---@param spec string Revision text from the user.
 ---@return codeview.vcs.RangeSpec? parsed

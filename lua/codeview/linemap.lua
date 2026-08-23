@@ -5,8 +5,8 @@
 --- unchanged sections behind a filler row. The map keeps one record per buffer
 --- row, so that every later feature can go from a row to a file line and back.
 ---
---- The record holds the kind of the row, the line number in the old file, the
---- line number in the new file, and the hunk that the row belongs to. A row
+--- The record holds the kind of the row and the hunk that the row belongs to.
+--- It also holds the line number in the old file and in the new file. A row
 --- that only one side holds keeps the number of that side, and nil for the
 --- other side.
 ---
@@ -21,8 +21,8 @@
 --- the GitHub diff.
 ---
 --- The rows come in file order. Both the old numbers and the new numbers grow
---- from the first row to the last row, so a lookup by file line is a binary
---- search over the rows of one side.
+--- from the first row to the last row. A lookup by file line is therefore a
+--- binary search over the rows of one side.
 
 local M = {}
 
@@ -295,8 +295,8 @@ end
 
 ---Buffer row of one file line, or of the closest line below it.
 ---
---- Use this call for a line that the render hides above every row of the side,
---- for example a line of a collapsed section at the start of the file.
+--- Use this call for a line that the render hides above every row of the side.
+--- An example is a line of a collapsed section at the start of the file.
 ---@param line integer Line in the file, from 1.
 ---@param side codeview.linemap.Side Side that holds the line.
 ---@return integer? lnum Nil when no row of the side is at or below the line.

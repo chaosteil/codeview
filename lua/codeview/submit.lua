@@ -1,9 +1,9 @@
 ---@brief Send the comments of a session to a GitHub pull request.
 ---
 --- `:CodeViewSubmit` posts every comment of the session that no submit sent
---- yet. The comments go out as one review, with `POST /pulls/<n>/reviews`, so
---- the pull request shows one entry with all the lines, and not one entry per
---- comment.
+--- yet. The plugin sends the comments as one review, with
+--- `POST /pulls/<n>/reviews`. The pull request then shows one entry with all
+--- the lines, not one entry per comment.
 ---
 --- The post is always explicit. The call shows a summary first: the number of
 --- comments, the event, and every comment that the diff of the pull request
@@ -26,7 +26,7 @@
 --- The sync state lives in the session file. |codeview.store| holds
 --- `synced_at` and `review_id` per comment, and a comment gets them only after
 --- the API confirms the post. A failed post writes nothing, so a second
---- submit sends the same comments again and nothing is lost.
+--- submit sends the same comments again and loses nothing.
 
 local diff_mod = require("codeview.diff")
 local errors = require("codeview.error")
@@ -133,7 +133,7 @@ end
 ---Text of an error, with every line that the server sent.
 ---
 --- |codeview.Error| shows one line. GitHub answers a bad position with more
---- than one line, and every line names a comment that it did not take, so the
+--- than one line. Every line names a comment that it did not take, so the
 --- report keeps them all.
 ---@param err codeview.Error
 ---@return string text
@@ -666,7 +666,7 @@ end
 ---Text of the review itself.
 ---
 --- GitHub rejects a review without a body for the comment event and for the
---- request-changes event, so a plan without a body takes the fallback text.
+--- request-changes event. A plan without a body then takes the fallback text.
 ---@param plan codeview.submit.Plan
 ---@return string body
 function M.body(plan)
@@ -833,9 +833,9 @@ end
 
 ---Send the comments of a session to the pull request.
 ---
---- The call collects the comments, asks for the event and for the text of the
---- review, shows the summary, and posts only after the user confirms it. A
---- failed post marks nothing, so every comment stays in the session file.
+--- The call collects the comments and asks for the event and for the text of
+--- the review. It shows the summary and posts only after the user confirms it.
+--- A failed post marks nothing, so every comment stays in the session file.
 ---@param opts? codeview.submit.Opts
 ---@param cb? fun(result: codeview.submit.Result?, err: codeview.Error?) Handler of the answer.
 function M.run(opts, cb)
@@ -871,9 +871,9 @@ function M.run(opts, cb)
   local function send(plan)
     M.post(plan, function(review, err)
       if not review then
-        -- Nothing is marked, so every comment stays local and a later submit
-        -- sends it again. The comments that do not map stay local too, and the
-        -- report names them next to the error.
+        -- The call marks nothing, so every comment stays local and a later
+        -- submit sends it again. The comments that do not map stay local too,
+        -- and the report names them next to the error.
         report_skipped(plan)
         finish(nil, err)
         return
@@ -927,7 +927,7 @@ function M.run(opts, cb)
       M.confirm(plan, function(ok)
         if not ok then
           if loud then
-            notify("the submit was cancelled. Nothing went to GitHub")
+            notify("you canceled the submit. Nothing went to GitHub")
           end
           finish({ posted = 0, skipped = #plan.skipped, cancelled = true, review = nil, url = "" }, nil)
           return

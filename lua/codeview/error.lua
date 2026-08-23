@@ -11,7 +11,7 @@ local M = {}
 ---| "bad_revision" # The revision does not name a commit.
 ---| "not_found" # A path or an object is missing.
 ---| "command_failed" # The command ran and reported a non-zero exit code.
----| "spawn_failed" # The command did not start. The executable is missing.
+---| "spawn_failed" # The command did not start. The executable is not in $PATH.
 ---| "timeout" # The command took longer than the time limit.
 ---| "invalid_arg" # A caller passed an argument of the wrong shape.
 ---| "unsupported" # The backend does not support the operation.

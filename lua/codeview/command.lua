@@ -80,7 +80,7 @@ end
 --- needs it. `parsed.text` holds the argument itself.
 ---
 --- `pr <number>` reviews a GitHub pull request. `pr` without a number takes
---- the pull request of the branch that the repository has checked out.
+--- the pull request of the current branch.
 ---@param args string? Text after the command name.
 ---@param bang boolean? True after `:CodeView!`.
 ---@return codeview.command.Args? parsed

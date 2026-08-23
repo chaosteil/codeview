@@ -72,7 +72,7 @@ M.line_hl = {
 --- same rows, so the same row number names the same change in both windows.
 ---
 --- The sign column keeps a fixed width. A sign on one side only, for example
---- the sign of a comment, would move the text of that side alone.
+--- the sign of a comment, moves the text of that side alone.
 ---@type table<string, any>
 M.window_options = vim.tbl_extend("force", layout.window_options, {
   scrollbind = true,
@@ -239,7 +239,7 @@ function M.build(diff, opts)
   }
 
   if diff.binary then
-    build.rows = { { kind = "message", text = { old = "Binary file. It has no text diff.", new = "" } } }
+    build.rows = { { kind = "message", text = { old = "The file is binary. It has no text diff.", new = "" } } }
   elseif diff.limited then
     build.rows = {}
     for index, text in ipairs(layout.limit_lines(diff)) do

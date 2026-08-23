@@ -13,9 +13,9 @@
 ---     refs/codeview/pr/<number>/base
 --- <
 ---
---- No branch is checked out, and no file of the working copy is touched. The
---- review range is `base...head`, so it starts at the merge base of the two
---- refs. That is the range that GitHub shows in the "Files changed" tab.
+--- The call checks out no branch, and it touches no file of the working copy.
+--- The review range is `base...head`, so it starts at the merge base of the
+--- two refs. That is the range that GitHub shows in the "Files changed" tab.
 ---
 --- The session key of the comment store is `pr-<number>-<head commit>`. A new
 --- push to the pull request gives a new head commit, so it opens its own
@@ -100,7 +100,7 @@ end
 ---
 --- The fetch is the only call of the plugin that reaches the network. Without
 --- the two prompt variables git can ask for a password on the terminal that
---- Neovim holds, and then it waits until the timeout kills it. With them a
+--- Neovim holds. It then waits until the timeout kills it. With them a
 --- missing credential fails at once, with a readable line on stderr.
 ---@type table<string, string>
 local GIT_ENV = {
@@ -122,7 +122,7 @@ M.fetch_timeout = 120000
 ---@param args string[] Arguments after `git`.
 ---@param handle fun(result: codeview.ExecResult): any?, codeview.Error? Maps the result to a value or an error.
 ---@param cb? fun(value: any?, err: codeview.Error?)
----@param timeout? integer Milliseconds before the command is killed.
+---@param timeout? integer Milliseconds before the plugin kills the command.
 ---@return any?, codeview.Error?
 local function git(root, args, handle, cb, timeout)
   local cmd = vim.list_extend({ "git", "-C", root, "--no-pager" }, args)
@@ -259,8 +259,7 @@ end
 
 ---Read the metadata of one pull request.
 ---
---- Without a number the call takes the pull request of the branch that the
---- repository has checked out.
+--- Without a number the call takes the pull request of the current branch.
 ---@param number integer? Number of the pull request.
 ---@param opts? { dir?: string, repo?: string, timeout?: integer } `repo` is `owner/name`.
 ---@param cb? fun(info: codeview.pr.Info?, err: codeview.Error?) Callback for the async form.
@@ -576,10 +575,9 @@ end
 
 ---Open a review session for one pull request.
 ---
---- Without a number the call takes the pull request of the branch that the
---- repository has checked out. The session shows the title of the pull request
---- in the sidebar header, and it stores its comments under the key of
---- |codeview.pr.store_key()|.
+--- Without a number the call takes the pull request of the current branch.
+--- The session shows the title of the pull request in the sidebar header, and
+--- it stores its comments under the key of |codeview.pr.store_key()|.
 ---@param number integer? Number of the pull request.
 ---@param opts? { dir?: string, repo?: string, remote?: string, comments?: boolean } `repo` is `owner/name`.
 ---@param cb? fun(session: codeview.Session?, err: codeview.Error?) Callback for the async form.

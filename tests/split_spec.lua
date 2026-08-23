@@ -220,7 +220,7 @@ describe("codeview.split", function()
       assert.are.equal("message", build.new.map:kind(1))
 
       local binary = split.build(diff.compute("a\0b", "a\0c"))
-      assert.are.same({ "Binary file. It has no text diff." }, binary.old.lines)
+      assert.are.same({ "The file is binary. It has no text diff." }, binary.old.lines)
       assert.are.same({ "" }, binary.new.lines)
 
       local empty = split.build(diff.compute("", ""))

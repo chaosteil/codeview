@@ -388,8 +388,8 @@ end
 
 ---Build every line of the overview.
 ---
---- The call builds the tree again, so that a new comment, a refresh of the
---- session, and a change of the expanded state all reach the window.
+--- The call builds the tree again. A new comment, a refresh of the session,
+--- and a change of the expanded state then all reach the window.
 ---@param self codeview.Overview
 ---@return codeview.panel.Line[]
 local function render_lines(self)

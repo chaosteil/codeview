@@ -16,8 +16,12 @@
 --- it starts with a hunk header. A group grows over more than one hunk when no
 --- collapsed section separates them.
 ---
---- The module also holds the text of a hunk header, the text of a filler row,
---- the word range of a modified line, and the window options of a diff window.
+--- The module also holds:
+---
+--- - the text of a hunk header,
+--- - the text of a filler row,
+--- - the word range of a modified line,
+--- - the window options of a diff window.
 
 local M = {}
 
@@ -429,7 +433,7 @@ end
 ---
 --- Neovim makes the windows of a tab page equal again after every open and
 --- every close, when 'equalalways' is on. A sidebar with 'winfixwidth' keeps
---- its width while other windows change, but it still takes the room of a
+--- its width while other windows change. But it still takes the room of a
 --- window that closes next to it, and it never gives that room back.
 ---
 --- The call therefore holds 'equalalways' off, and puts the width of every

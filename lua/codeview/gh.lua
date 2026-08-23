@@ -31,8 +31,8 @@ M.per_page = 100
 
 ---Environment of every gh call.
 ---
---- The empty pager keeps `gh` from starting `less`, and the two prompt
---- variables keep it from asking a question that nobody can answer.
+--- With the empty pager, `gh` does not start `less`. With the two prompt
+--- variables, it does not ask a question that nobody can answer.
 ---@type table<string, string>
 local GH_ENV = {
   GH_PAGER = "",
@@ -105,7 +105,7 @@ end
 
 ---@class codeview.gh.Opts
 ---@field cwd string? Working directory of the call.
----@field timeout integer? Milliseconds before the call is killed.
+---@field timeout integer? Milliseconds before the plugin kills the command.
 ---@field env table<string, string>? Extra environment variables.
 ---@field stdin string? Text for the standard input of gh.
 

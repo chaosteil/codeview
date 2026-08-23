@@ -1,9 +1,9 @@
 ---@brief The comment editor: one floating window with a markdown buffer.
 ---
 --- The diff buffers of a review are read-only. The editor holds the only
---- modifiable buffer of the comment flow: the reviewer types here, and the
---- text goes to the comment store, never into a diff buffer and never into a
---- file of the repository.
+--- modifiable buffer of the comment flow. The reviewer types here. The text
+--- goes to the comment store, never into a diff buffer and never into a file
+--- of the repository.
 ---
 --- `:w` saves the comment. The `editor_cancel` keys discard it, and a close of
 --- the window discards it too. An empty body counts as a discard, so a save of
@@ -30,7 +30,7 @@ M.filetype = "markdown"
 ---@class codeview.editor.Opts
 ---@field title string? Text of the window border. "Comment" by default.
 ---@field text string? Body to edit. Empty for a new comment.
----@field on_save fun(body: string) Handler of a save. The body is trimmed.
+---@field on_save fun(body: string) Handler of a save. The call trims the body.
 ---@field on_cancel fun()? Handler of a discard.
 ---@field anchor codeview.editor.Anchor? Row that the inline style opens under.
 
@@ -88,8 +88,9 @@ end
 ---Close the window and the buffer of an editor.
 ---
 --- The autocmd group goes first. A save runs from the `BufWriteCmd` autocmd of
---- the group, and autocmds do not nest, so the window close of this call sends
---- no `WinClosed` event. The group would stay behind after every `:w`.
+--- the group. Autocmds do not nest, so the window close of this call sends no
+--- `WinClosed` event. Without this order, the group stays behind after every
+--- `:w`.
 ---@param editor codeview.editor.State
 local function unmount(editor)
   if state == editor then

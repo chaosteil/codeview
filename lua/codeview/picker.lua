@@ -131,7 +131,7 @@ function M.select_commit(commits, opts, cb)
       cb(nil, nil)
       return
     end
-    -- A selector may report the item without its position.
+    -- A selector can report the item without its position.
     if not index then
       for position, item in ipairs(commits) do
         if item.id == commit.id then
@@ -296,7 +296,7 @@ end
 ---
 --- The first pick is the older end of the range. The second list holds only
 --- the descendants of the first pick, because a commit on another branch
---- would drop the first pick from the range. Both picks belong to the range.
+--- drops the first pick from the range. Both picks belong to the range.
 ---@param opts? codeview.picker.Opts
 ---@param cb? fun(session: codeview.Session?, err: codeview.Error?) Nil session and nil error mean cancel.
 function M.pick_range(opts, cb)

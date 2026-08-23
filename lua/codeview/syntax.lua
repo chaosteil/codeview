@@ -5,13 +5,13 @@
 --- nothing to attach to: the buffer text is no valid program.
 ---
 --- This module highlights the code anyway. It parses each side of the diff as
---- a whole file, which is valid text, and copies the captures of the
+--- a whole file, which is valid text. Then it copies the captures of the
 --- highlights query into the diff buffer. The line map of the render says
 --- which buffer row holds which file line, and the marker column shifts every
 --- capture by its width.
 ---
 --- The colors of the diff itself stay in the background, so the two layers
---- read together: the background says added or removed, the foreground says
+--- read together. The background says added or removed. The foreground says
 --- what the code is. See |codeview-highlights|.
 
 local config = require("codeview.config")
@@ -25,7 +25,7 @@ local M = {}
 ---@type integer
 M.ns = api.nvim_create_namespace("codeview.syntax")
 
----Highest number of lines that one side may hold for a parse.
+---Highest number of lines that one side can hold for a parse.
 ---
 --- A parse of a very large file costs more than the reader gains. The line
 --- limit of the diff already stops the biggest files, and this limit stops a

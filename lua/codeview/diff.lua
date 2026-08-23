@@ -65,8 +65,8 @@ M.histogram_limit = 4000
 
 ---Split file content into lines.
 ---
---- The call drops the empty element after a final line break, so that a file
---- with a final break and a file without one give the same line count.
+--- The call drops the empty element after a final line break. A file with a
+--- final break and a file without one then give the same line count.
 ---@param content string? Content of a file.
 ---@return string[] lines
 function M.split(content)
@@ -90,7 +90,7 @@ end
 ---Algorithm of |vim.diff()| for two sides of a given size.
 ---
 --- The histogram algorithm reads better, so a file of a normal size takes it.
---- Its cost grows with the square of the number of hunks: a file of 16000
+--- Its cost grows with the square of the number of hunks. A file of 16000
 --- lines that changes every second line costs 1300 ms, against 2 ms for the
 --- myers algorithm. A large file therefore takes myers, the algorithm of git.
 ---@param old integer Number of lines of the old side.
@@ -167,8 +167,9 @@ function M.compute(old_text, new_text, opts)
     return out
   end
 
-  -- The comparison of a file above the limit costs more than the reader wants
-  -- to wait. The lines go away with it, because nothing shows them.
+  -- The comparison of a file above the limit takes more time than the reader
+  -- wants to wait. The result also drops the lines, because nothing shows
+  -- them.
   if max_lines > 0 and out.line_count > max_lines then
     out.limited = true
     out.max_lines = max_lines

@@ -225,7 +225,11 @@ function M.open(spec, opts, cb)
   opts = opts or {}
 
   if type(spec) ~= "string" and type(spec) ~= "table" then
-    return done(cb, nil, errors.new(errors.codes.INVALID_ARG, "range must be a string or a table, got " .. type(spec)))
+    return done(
+      cb,
+      nil,
+      errors.new(errors.codes.INVALID_ARG, "the range must be a string or a table, not " .. type(spec))
+    )
   end
 
   local state = { repo = opts.repo }

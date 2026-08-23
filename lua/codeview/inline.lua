@@ -16,16 +16,16 @@
 ---     ⋯ 24 unchanged lines
 --- <
 ---
---- The first character of a line is the marker: a space for an unchanged line,
---- `-` for a removed line, and `+` for an added line. The line numbers of both
---- sides come from the status column, so a yank of a line gives the text of
---- the file with one marker in front.
+--- The first character of a line is the marker. A space marks an unchanged
+--- line, `-` marks a removed line, and `+` marks an added line. The line
+--- numbers of both sides come from the status column. A yank of a line
+--- therefore gives the text of the file with one marker in front.
 ---
 --- The renderer shows `diff.context` unchanged lines around each hunk. It
 --- hides a longer unchanged section behind one filler row. The row keeps the
 --- number of the section, so a key can show the hidden lines again. The hunk
---- header keeps the line numbers of the collapsed form, because the header
---- names the position of the hunk in the file, not the state of the fold.
+--- header keeps the line numbers of the collapsed form. The header names the
+--- position of the hunk in the file, not the state of the fold.
 ---
 --- |codeview.layout| holds the plan of the rows: the blocks, the collapsed
 --- sections, and the hunk headers. The side-by-side style of M5 reads the same
@@ -140,7 +140,7 @@ function M.build(diff, opts)
     return build
   end
   if diff.binary then
-    emit("Binary file. It has no text diff.", { kind = "message" })
+    emit("The file is binary. It has no text diff.", { kind = "message" })
     return build
   end
   if diff.limited then

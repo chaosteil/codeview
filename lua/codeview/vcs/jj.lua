@@ -5,7 +5,7 @@
 ---
 --- A revision argument is a revset. The backend sends the text to jj as it is,
 --- so `::@`, `trunk()..@`, and `main..feature` all work. A revset that names a
---- set of commits becomes a range: the head of the set is the new side, and
+--- set of commits becomes a range. The head of the set is the new side, and
 --- the parent of the roots of the set is the base.
 ---
 --- Every command runs with `--ignore-working-copy`. The backend reads the
@@ -330,7 +330,8 @@ local function as_spec(spec)
     if text == "" then
       return nil, errors.new(errors.codes.INVALID_ARG, "revision is empty")
     end
-    -- The text is a revset. jj reads `a..b` itself, so nothing is split here.
+    -- The text is a revset. jj reads `a..b` itself, so the backend does not
+    -- split the text.
     return { kind = "revset", to = text, spec = text }, nil
   end
   if type(spec) ~= "table" or type(spec.to) ~= "string" then

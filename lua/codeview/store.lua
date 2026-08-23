@@ -3,8 +3,8 @@
 --- The store holds every comment of one session. It lives in the directory of
 --- |codeview.config.store_dir()|, which is one subdirectory per repository.
 --- The file name is a short hash of the repository root and the resolved
---- range, so a second review of the same range finds the same file without a
---- scan of the directory.
+--- range. As a result, a second review of the same range finds the same file
+--- without a scan of the directory.
 ---
 --- The file is markdown:
 ---
@@ -71,7 +71,7 @@ M.marker = "## codeview-comment "
 ---@field id string Id of the comment. It is unique inside one session file.
 ---@field file string Path of the file, relative to the repository root.
 ---@field start_line integer First line of the range, from 1.
----@field end_line integer Last line of the range. It is the start line for one line.
+---@field end_line integer Last line of the range. For a range of one line, it equals the start line.
 ---@field side codeview.linemap.Side Side of the diff that holds the lines.
 ---@field commit string Revision that the lines come from. Empty when unknown.
 ---@field state codeview.store.State State of the comment.
@@ -124,7 +124,9 @@ local FIELD_ORDER = {
   "updated_at",
 }
 
----Number of ids that this Neovim made. It keeps two ids of one second apart.
+---Number of ids that this Neovim made.
+---
+--- It makes two ids from the same second different.
 ---@type integer
 local counter = 0
 
@@ -227,7 +229,7 @@ end
 
 ---Text of a time field.
 ---
---- A time of 0 stands for "not set", for example the sync time of a comment
+--- A time of 0 means "not set", for example the sync time of a comment
 --- that no submit sent yet. It writes an empty value, and |M.from_iso()| reads
 --- it back as 0.
 ---@param value any Seconds since the epoch.
@@ -551,9 +553,9 @@ end
 ---Read the session file of a review session.
 ---
 --- The key comes from the resolved range. A session with a `store_key` field
---- names its file itself: a pull request review keys its comments by the
---- number of the pull request and its head commit, so that a new push writes
---- its own file.
+--- names its file itself. A pull request review builds the key from the
+--- number of the pull request and its head commit. A new push then writes its
+--- own file.
 ---@param session codeview.Session
 ---@return codeview.store.Store? store
 ---@return codeview.Error? err

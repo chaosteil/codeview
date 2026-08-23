@@ -448,7 +448,7 @@ end
 
 ---Move the cursor to one line.
 ---
---- The line number is clamped to the content of the panel.
+--- The call clamps the line number to the line count of the panel.
 ---@param lnum integer Line, from 1.
 ---@return boolean moved False when the panel is closed or empty.
 function Panel:set_cursor(lnum)

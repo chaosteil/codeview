@@ -11,8 +11,8 @@
 --- - "split": two aligned buffers in two windows, from |codeview.split|.
 ---
 --- |codeview.view.set_style()| changes the style of the file that is open. It
---- keeps the diff, so the backend reads the file once for both styles, and it
---- keeps the cursor on the same line of the file through the line maps.
+--- keeps the diff, so the backend reads the file once for both styles. The
+--- line maps keep the cursor on the same line of the file.
 ---
 --- The buffers of the view are read-only. The style module owns their content,
 --- their highlights, and their line maps. The view owns the windows, the
@@ -534,8 +534,8 @@ end
 
 ---Close the windows and delete the buffers of a view.
 ---
---- The session forgets the windows and the buffers again, so that its lists
---- hold the handles that live, and not one pair per file of the review.
+--- The session forgets the windows and the buffers again. Its lists then hold
+--- only the handles that live, not one pair per file of the review.
 ---@param view codeview.view.State
 local function unmount(view)
   for _, id in ipairs(view.guards) do
@@ -1142,7 +1142,7 @@ end
 ---Change the diff style.
 ---
 --- The call keeps the diff of the file that is open, so the backend reads no
---- file again. The cursor keeps its line of the file: the call reads the line
+--- file again. The cursor keeps its line of the file. The call reads the line
 --- from the map of the old style and finds its row in the map of the new
 --- style. The cursor moves to the window of that side.
 ---
@@ -1174,7 +1174,7 @@ function M.set_style(style)
   local anchor = anchor_of(view)
   local focused = has_focus(view)
   -- The window of the view holds the new buffer before the old one goes away.
-  -- A close first would give the room of the window to the sidebar.
+  -- A close first gives the room of the window to the sidebar.
   local held = { buf = view.buf, old_buf = view.old_buf, old_win = view.old_win, guards = view.guards }
   view.guards = {}
   layout.keep(function()
@@ -1231,10 +1231,10 @@ end
 
 ---Open the file of the review in the working copy.
 ---
---- The call leaves the review and edits the real file: the window of the diff
+--- The call leaves the review and edits the real file. The window of the diff
 --- takes the file on disk, with the cursor on the line of the diff. The file
---- holds the state of the working copy, and not the revision of the review, so
---- the line is the line of the change and not always the same text.
+--- holds the state of the working copy, not the revision of the review. The
+--- line is therefore the line of the change, and not always the same text.
 ---
 --- The window leaves the session, so a later close of the session keeps the
 --- file open.
@@ -1255,7 +1255,7 @@ function M.edit(opts)
     return false
   end
   if require("codeview.message").is(path) then
-    notify("a commit message is no file of the working copy")
+    notify("a commit message is not a file of the working copy")
     return false
   end
 
@@ -1276,9 +1276,9 @@ function M.edit(opts)
     win = target_window(session, api.nvim_create_buf(false, true))
   end
   -- The window holds a file of the user from here on, so the session must not
-  -- close it. The diff buffers wipe themselves once no window shows them, and
+  -- close it. The diff buffers wipe themselves once no window shows them.
   -- |M.current()| drops a state whose buffers are gone, so the view needs no
-  -- close call here. A close would take this window with it.
+  -- close call here. A close takes this window with it.
   session:remove_window(win)
   if view and view.old_win and view.old_win ~= win and api.nvim_win_is_valid(view.old_win) then
     -- The side-by-side style holds a second window. One file needs one window.
@@ -1303,7 +1303,7 @@ end
 ---
 --- The map sits on the file that |M.edit()| opened, and nowhere else. It is
 --- the way back, because the diff buffer wipes itself when the window leaves
---- it, so the jump list of Neovim holds no entry to return to.
+--- it. The jump list of Neovim then holds no entry to return to.
 ---@param session codeview.Session
 ---@param buf integer Buffer of the file.
 set_back_key = function(session, buf)
@@ -1369,7 +1369,7 @@ function M.back(opts)
   end
 
   -- A modified buffer stays loaded while the window shows the diff, but only
-  -- when Neovim may hide it. Without 'hidden' the write comes first.
+  -- when Neovim can hide it. Without 'hidden' the write comes first.
   if vim.bo[buf].modified and not vim.o.hidden then
     notify("write " .. path .. " first, or set 'hidden'")
     return false

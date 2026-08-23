@@ -7,9 +7,9 @@
 ---
 --- One commit document holds the header of the commit, its message, and the
 --- files that the commit changes. It holds no diff: every row is a context row
---- of the new side, so a comment anchors to it through the same line map as a
---- comment on code. The commit of such a comment is the commit of the
---- document.
+--- of the new side. A comment therefore anchors to it through the same line
+--- map as a comment on code. The commit of such a comment is the commit of
+--- the document.
 ---
 --- The path of a document is `codeview://commit/<id>`. The text is no relative
 --- path, so it names no file of the repository and it collides with none.

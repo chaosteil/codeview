@@ -18,7 +18,7 @@
 ---
 --- 1. `line` and `start_line`: the lines of the newest version of the diff.
 --- 2. `original_line` and `original_start_line`: the lines of the version that
----    the comment was written on. A comment that a later push moved holds
+---    the author wrote the comment on. A comment that a later push moved holds
 ---    these fields only, and the display marks it as outdated.
 --- 3. The last line of `diff_hunk`: the hunk that GitHub sends with every
 ---    comment ends at the commented line.
@@ -45,7 +45,7 @@ M.ns = api.nvim_create_namespace("codeview.remote")
 ---@field start_line integer First line of the range, from 1.
 ---@field end_line integer Last line of the range.
 ---@field side codeview.linemap.Side Side of the diff that holds the lines.
----@field commit string Commit that the comment was written on.
+---@field commit string Commit that the author wrote the comment on.
 ---@field author string Login of the author.
 ---@field body string Markdown text of the comment.
 ---@field url string Address of the comment.

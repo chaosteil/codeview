@@ -92,17 +92,16 @@ end
 ---Colors of the added rows and the removed rows.
 ---
 --- A whole-row highlight with a foreground color hides the syntax colors of
---- the code. With `diff.syntax` on, the row groups therefore take the
---- background of `DiffAdd` and `DiffDelete` and carry no foreground: the code
---- keeps the colors of its language, and the background still says added or
---- removed.
+--- the code. With `diff.syntax` on, the row groups take the background of
+--- `DiffAdd` and `DiffDelete` and carry no foreground. The code keeps the
+--- colors of its language, and the background still says added or removed.
 ---
---- The groups take the plain link when the option is off, and also when the
---- colorscheme puts no background on `DiffAdd` or `DiffDelete`, because a row
---- without any color says nothing.
+--- The groups take the plain link when the option is off. They also take it
+--- when the colorscheme puts no background on `DiffAdd` or `DiffDelete`,
+--- because a row without color says nothing.
 ---
---- The two groups carry no `default`, unlike every other group of the module:
---- their value follows an option and a colorscheme, so the call computes it
+--- The two groups carry no `default`, unlike every other group of the module.
+--- Their value follows an option and a colorscheme, so the call computes it
 --- again on each run. To give them your own colors, set them from your own
 --- |ColorScheme| autocmd, which runs after this one.
 function M.apply_diff_rows()
@@ -119,8 +118,9 @@ end
 
 ---Define the groups and keep them across a colorscheme change.
 ---
---- A second call replaces the autocmd of the first call, because the group is
---- cleared. The call is cheap, so every entry point can run it.
+--- A second call replaces the autocmd of the first call, because
+--- `clear = true` removes the old one. The call is cheap, so every entry point
+--- can run it.
 function M.setup()
   M.apply()
   local group = api.nvim_create_augroup("codeview.highlight", { clear = true })

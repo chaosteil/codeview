@@ -527,7 +527,7 @@ function Repo:changed_files(range, cb)
     args = { "diff", "--no-color", "--name-status", "-M", "-z", range.from, range.to, "--" }
     parse = parse_name_status
   else
-    -- `diff-tree --root` would compare a non-root commit against its parent.
+    -- `diff-tree --root` compares a non-root commit against its parent.
     -- List the whole tree instead, so that the base stays the empty state.
     args = { "ls-tree", "-r", "-z", "--name-only", range.to }
     parse = parse_tree
