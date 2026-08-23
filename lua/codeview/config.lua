@@ -102,7 +102,9 @@ M.defaults = {
     auto_open = false,
   },
   comments = {
-    dir = fs.joinpath(fn.stdpath("config") --[[@as string]], "review"),
+    -- The plugin writes the comment files, so they live under the data
+    -- directory and not in the configuration of the user.
+    dir = fs.joinpath(fn.stdpath("data") --[[@as string]], "codeview", "review"),
     display = "virtual",
     sign = "▌",
     resolved_sign = "✓",

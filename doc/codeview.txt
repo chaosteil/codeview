@@ -677,7 +677,7 @@ from the `comments.dir` option and from the path of the repository. The file
 name is a hash of the repository root and of the resolved range, so a reopen
 of the same range finds the file again: >
 
-    ~/.config/nvim/review/<repo-slug>-<hash>/<session-key>.md
+    ~/.local/share/nvim/codeview/review/<repo-slug>-<hash>/<session-key>.md
 <
 The frontmatter of the file holds the session data. Each comment is one
 section with a field block and a markdown body: >
@@ -1370,7 +1370,7 @@ Defaults: >lua
         auto_open = false,           -- open the overview with the session
       },
       comments = {
-        dir = stdpath("config") .. "/review",
+        dir = stdpath("data") .. "/codeview/review",
         display = "virtual",         -- "virtual" | "float"
         sign = "▌",                  -- sign of a commented line
         resolved_sign = "✓",         -- sign of a resolved comment

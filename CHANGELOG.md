@@ -6,6 +6,14 @@ All notable changes of codeview go into this file. The format follows
 
 ## Unreleased
 
+### Changed
+
+- **Comment store location.** The default of `comments.dir` moved from
+  `stdpath("config") .. "/review"` to `stdpath("data") .. "/codeview/review"`.
+  The plugin writes the comment files, so they do not belong in the
+  configuration directory. To read an old review, move its directory over, or
+  set `comments.dir` to the old path.
+
 ## 0.1.0 — 2026-08-13
 
 The first release. It holds the full review loop: select a range, browse the
