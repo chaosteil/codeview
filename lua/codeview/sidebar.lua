@@ -389,53 +389,54 @@ end
 
 ---Keymaps of the sidebar buffer.
 ---@param sidebar codeview.Sidebar
----@return table<string, fun()>
+---@return table<string, codeview.panel.Keymap>
 local function keymaps(sidebar)
   local keys = config.get().keymaps
-  ---@type table<string, fun()>
+  ---@type table<string, codeview.panel.Keymap>
   local maps = {}
 
   ---@param value string|string[]|false Key of the configuration. False disables the map.
   ---@param action fun()
-  local function add(value, action)
+  ---@param desc string Text of the action, for `:map` and its readers.
+  local function add(value, action, desc)
     for _, lhs in ipairs(config.keys(value)) do
-      maps[lhs] = action
+      maps[lhs] = { fn = action, desc = desc }
     end
   end
 
   add(keys.open_file, function()
     sidebar:open_cursor()
-  end)
+  end, "open the file under the cursor")
   add(keys.toggle_node, function()
     sidebar:toggle_node()
-  end)
+  end, "show or hide the files of the directory")
   add(keys.expand_all, function()
     sidebar:expand_all()
-  end)
+  end, "show the files of every directory")
   add(keys.collapse_all, function()
     sidebar:collapse_all()
-  end)
+  end, "hide the files of every directory")
   add(keys.next_file, function()
     sidebar:next_file()
-  end)
+  end, "open the next file")
   add(keys.prev_file, function()
     sidebar:prev_file()
-  end)
+  end, "open the previous file")
   add(keys.edit_file, function()
     -- The key acts on the file under the cursor of the sidebar, and not on
     -- the file that the diff shows.
     local node = sidebar:cursor_node()
     view.edit({ path = node and node.kind == "file" and node.path or nil })
-  end)
+  end, "edit the file under the cursor in the working copy")
   add(keys.toggle_style, function()
     view.set_style()
-  end)
+  end, "switch the diff style")
   add(keys.toggle_overview, function()
     require("codeview.overview").toggle({ session = sidebar.session, focus = true })
-  end)
+  end, "open or close the comment overview")
   add(keys.close, function()
     sidebar.session:close()
-  end)
+  end, "close the session")
   return maps
 end
 

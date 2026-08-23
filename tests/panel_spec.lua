@@ -306,10 +306,13 @@ describe("codeview.panel", function()
       local seen = 0
       local built = demo({
         keymaps = {
-          ["<CR>"] = function(p)
-            seen = seen + 1
-            assert.are.equal("demo", p.title)
-          end,
+          ["<CR>"] = {
+            fn = function(p)
+              seen = seen + 1
+              assert.are.equal("demo", p.title)
+            end,
+            desc = "open the entry under the cursor",
+          },
           q = false,
         },
       })
@@ -319,6 +322,24 @@ describe("codeview.panel", function()
       assert.are.equal(0, #vim.tbl_filter(function(map)
         return map.lhs == "q"
       end, api.nvim_buf_get_keymap(assert(built:buffer()), "n")))
+    end)
+
+    it("takes the description of each map from its entry", function()
+      local built = demo({
+        keymaps = {
+          ["<CR>"] = { fn = function() end, desc = "open the entry under the cursor" },
+          x = { fn = function() end, desc = "delete the entry under the cursor" },
+        },
+      })
+      built:open()
+
+      ---@type table<string, string>
+      local descs = {}
+      for _, map in ipairs(api.nvim_buf_get_keymap(assert(built:buffer()), "n")) do
+        descs[map.lhs] = map.desc
+      end
+      assert.are.equal("codeview: open the entry under the cursor", descs["<CR>"])
+      assert.are.equal("codeview: delete the entry under the cursor", descs.x)
     end)
   end)
 

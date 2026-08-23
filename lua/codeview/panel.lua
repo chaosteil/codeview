@@ -3,7 +3,9 @@
 --- A panel is a vertical split at the left or the right edge of the tab page.
 --- It shows a scratch buffer that a render function fills. The panel knows
 --- nothing about the content: the caller gives a title, a side, a width, a
---- render function, and a keymap table.
+--- render function, and a keymap table. Each entry of the keymap table holds
+--- the action of the key and the text of the action. The text becomes the
+--- description of the map, so `:map` names each key of the panel.
 ---
 --- The render function returns one |codeview.panel.Line| per buffer line. A
 --- line holds its text, an optional highlight group for the whole line,
@@ -104,10 +106,14 @@ function M.builder()
   }
 end
 
+---@class codeview.panel.Keymap
+---@field fn fun(panel: codeview.Panel) Action of the key.
+---@field desc string Text of the action, for `:map` and its readers.
+
 ---@class codeview.panel.Opts
 ---@field title string Name of the panel. It names the buffer too.
 ---@field render fun(panel: codeview.Panel): codeview.panel.Line[] Content of the buffer.
----@field keymaps table<string, false|fun(panel: codeview.Panel)>? Normal mode maps of the buffer.
+---@field keymaps table<string, false|codeview.panel.Keymap>? Normal mode maps of the buffer.
 ---@field position "left"|"right"? Side of the tab page. "left" by default.
 ---@field width integer? Width in columns. 40 by default.
 ---@field filetype string? Filetype of the buffer. "codeview" by default.
@@ -120,7 +126,7 @@ end
 ---@field width integer Width in columns.
 ---@field filetype string Filetype of the buffer.
 ---@field private render_fn fun(panel: codeview.Panel): codeview.panel.Line[]
----@field private keymaps table<string, false|fun(panel: codeview.Panel)>
+---@field private keymaps table<string, false|codeview.panel.Keymap>
 ---@field private on_close fun(panel: codeview.Panel)?
 ---@field private buf integer? Buffer of the panel, while it is open.
 ---@field private win integer? Window of the panel, while it is open.
@@ -171,11 +177,11 @@ end
 ---Set the buffer-local keymaps of the panel.
 ---@param self codeview.Panel
 local function set_keymaps(self)
-  for lhs, action in pairs(self.keymaps) do
-    if action and lhs ~= "" then
+  for lhs, map in pairs(self.keymaps) do
+    if map and lhs ~= "" then
       vim.keymap.set("n", lhs, function()
-        action(self)
-      end, { buffer = self.buf, nowait = true, silent = true, desc = "codeview: " .. self.title })
+        map.fn(self)
+      end, { buffer = self.buf, nowait = true, silent = true, desc = "codeview: " .. map.desc })
     end
   end
 end

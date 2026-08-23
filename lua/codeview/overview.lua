@@ -767,47 +767,48 @@ end
 
 ---Keymaps of the overview buffer.
 ---@param overview codeview.Overview
----@return table<string, fun()>
+---@return table<string, codeview.panel.Keymap>
 local function keymaps(overview)
   local keys = config.get().keymaps
-  ---@type table<string, fun()>
+  ---@type table<string, codeview.panel.Keymap>
   local maps = {}
 
   ---@param value string|string[]|false Key of the configuration. False disables the map.
   ---@param action fun()
-  local function add(value, action)
+  ---@param desc string Text of the action, for `:map` and its readers.
+  local function add(value, action, desc)
     for _, lhs in ipairs(config.keys(value)) do
-      maps[lhs] = action
+      maps[lhs] = { fn = action, desc = desc }
     end
   end
 
   add(keys.open_file, function()
     overview:open_cursor()
-  end)
+  end, "open the comment under the cursor in the diff")
   add(keys.toggle_node, function()
     overview:toggle_node()
-  end)
+  end, "show or hide the comments of the file")
   add(keys.expand_all, function()
     overview:expand_all()
-  end)
+  end, "show the comments of every file")
   add(keys.collapse_all, function()
     overview:collapse_all()
-  end)
+  end, "hide the comments of every file")
   add(keys.edit_comment, function()
     overview:edit()
-  end)
+  end, "edit the comment under the cursor")
   add(keys.delete_comment, function()
     overview:remove()
-  end)
+  end, "delete the comment under the cursor")
   add(keys.resolve_comment, function()
     overview:set_state()
-  end)
+  end, "resolve the comment under the cursor, or open it again")
   add(keys.toggle_overview, function()
     overview:close()
-  end)
+  end, "close the comment overview")
   add(keys.close, function()
     overview:close()
-  end)
+  end, "close the comment overview")
   return maps
 end
 
