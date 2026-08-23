@@ -114,7 +114,7 @@ plugin then calls setup() with that table: >lua
         :CodeView ::@
         :CodeView trunk()..@
 <
-                                                              *:CodeView-pr*
+                                                                *:CodeView-pr*
 :CodeView pr [{number}]
     Review the GitHub pull request {number}. Without {number} the command
     takes the pull request of the current branch. The command needs the gh
@@ -133,45 +133,50 @@ plugin then calls setup() with that table: >lua
     then the last commit. Both commits are part of the review. The second list
     holds only the descendants of the first commit.
 
-                                                              *:CodeViewClose*
-:CodeViewClose
+                                                        *codeview-subcommands*
+The first word of the argument can also name a subcommand. A subcommand name
+wins over a revision of the same name. To review a revision that a subcommand
+names, write the revision as a range, for example `:CodeView close^..close`.
+
+                                                             *:CodeView-close*
+:CodeView close
     Close the review session. The command closes the windows and the buffers
     of the session.
 
-                                                               *:CodeViewBack*
-:CodeViewBack
+                                                              *:CodeView-back*
+:CodeView back
     Go back to the review from a file of the working copy. The window takes
     the diff of the file again, with the cursor on the row of the line that
     the file holds. See |codeview-edit-back|.
 
-                                                              *:CodeViewFiles*
-:CodeViewFiles
+                                                             *:CodeView-files*
+:CodeView files
     Open the changed-files sidebar and put the cursor in it. The command
     closes the sidebar when the sidebar is open.
 
-                                                           *:CodeViewComments*
-:CodeViewComments
+                                                          *:CodeView-comments*
+:CodeView comments
     Open the comment overview and put the cursor in it. The command closes the
     overview when the overview is open. See |codeview-overview|.
 
-                                                             *:CodeViewExport*
-:CodeViewExport [{register}]
+                                                            *:CodeView-export*
+:CodeView export [{register}]
     Render the comments of the session as markdown. The text goes into a
     scratch buffer and into the register of the `export.register` option.
     {register} replaces the option for this call, for example
-    `:CodeViewExport z`. See |codeview-export|.
+    `:CodeView export z`. See |codeview-export|.
 
-:CodeViewExport!
+:CodeView! export [{register}]
     Write the register only. The command opens no scratch buffer.
 
-                                                             *:CodeViewSubmit*
-:CodeViewSubmit [{event}]
+                                                            *:CodeView-submit*
+:CodeView submit [{event}]
     Send the comments of the session to the pull request, as one review. The
     command shows a summary and posts only after you confirm it. {event} is
     `comment`, `approve`, or `request-changes`. Without {event} the command
     asks for it. See |codeview-submit|.
 
-:CodeViewSubmit!
+:CodeView! submit [{event}]
     Post with the default text of the review. The command asks no question
     about the text.
 
@@ -225,7 +230,7 @@ of the document, so every comment stays with its own commit.
 
 A document is no file of the repository, and it has one side, so it stays in
 the inline style. GitHub takes no comment on a commit message, so
-|:CodeViewSubmit| keeps such a comment local and reports it in the summary.
+|:CodeView-submit| keeps such a comment local and reports it in the summary.
 
 Set `commit_message` to false to leave the commits out: >lua
 
@@ -237,7 +242,7 @@ Set `commit_message` to false to leave the commits out: >lua
 The sidebar shows the files that the range of the session changes, as a tree.
 |:CodeView| opens it with the session, at the side that `sidebar.position`
 names. Set `sidebar.auto_open` to false to open the sidebar with
-|:CodeViewFiles| only. A session that starts from |codeview.open()| opens no
+|:CodeView-files| only. A session that starts from |codeview.open()| opens no
 panel.
 
 The first two lines are the header. The first line holds the range. The
@@ -428,7 +433,7 @@ such a diff only, so `<CR>` keeps its own action in every other diff. The limit
 applies to one file at a time, and the next file opens as usual. Set
 `diff.max_lines` to 0 to remove the limit for every file.
 
-|:CodeViewSubmit| never sees the limit. It maps the position of a comment on
+|:CodeView-submit| never sees the limit. It maps the position of a comment on
 the full diff of the file, whether the view rendered that diff or not.
 
                                                           *codeview-diff-split*
@@ -532,7 +537,7 @@ line of the change, and the text around it can differ. A row of the old side
 has no line of its own, so the nearest row of the new side answers for it.
 
 The sidebar stays open, and `<CR>` on the file reads its diff again. The
-window of the file leaves the session, so |:CodeViewClose| keeps it open.
+window of the file leaves the session, so |:CodeView-close| keeps it open.
 
 The key also works on a file line of the sidebar. It reports a commit document
 and a file that the working copy does not hold, for example a file that the
@@ -540,7 +545,7 @@ range deletes.
 
                                                          *codeview-edit-back*
 `<leader>cb` goes back. The window takes the diff of the file again, with the
-cursor on the row of the line that you left. |:CodeViewBack| does the same
+cursor on the row of the line that you left. |:CodeView-back| does the same
 from any window.
 
 The key sits on the file that the edit key opened, and on no other buffer. It
@@ -722,8 +727,8 @@ The fields hold: >
     created_at    time of the first save
     updated_at    time of the last change
 <
-The two sync fields stay empty until a |:CodeViewSubmit| confirms the post. See
-|codeview-submit-state|.
+The two sync fields stay empty until a |:CodeView-submit| confirms the post.
+See |codeview-submit-state|.
 
 The plugin writes the file atomically. It writes a temporary file in the same
 directory and renames it over the target. A failed write keeps the file of the
@@ -764,7 +769,7 @@ the actions of one surface yourself. The surfaces are "sidebar", "view", and
 9. COMMENT OVERVIEW                                          *codeview-overview*
 
 The comment overview lists every comment of the session in one panel. Open it
-with |:CodeViewComments|, or with `<leader>co` from the sidebar and from the
+with |:CodeView-comments|, or with `<leader>co` from the sidebar and from the
 diff. Set `overview.auto_open` to true to open it with every |:CodeView|.
 
 The overview groups the comments in the same tree as the changed-files
@@ -837,8 +842,8 @@ the state: >lua
 10. EXPORT                                                     *codeview-export*
 
 The export renders the comments of the session as markdown. Run
-|:CodeViewExport|. The text goes into a scratch buffer and into a register, so
-you paste the review into a chat window or into a pull request description.
+|:CodeView-export|. The text goes into a scratch buffer and into a register,
+so you paste the review into a chat window or into a pull request description.
 
 The default template is plain markdown: >markdown
 
@@ -869,8 +874,8 @@ one file come in line order. A file with comments that the range does not
 change any more comes last, with the note "(outside the range)".
 
 `q` closes the window of the export buffer. A second export of the same session
-replaces the buffer of the first one. |:CodeViewClose| closes the export window
-with the other windows of the session.
+replaces the buffer of the first one. |:CodeView-close| closes the export
+window with the other windows of the session.
 
                                                      *codeview-export-register*
 The `export.register` option names the register. The default is "+", the
@@ -921,7 +926,7 @@ the default template. The plugin reports the problem.
 
 `:CodeView pr {number}` reviews a pull request of GitHub. The review reads and
 writes nothing on GitHub: it holds your comments in the session file, like a
-local review. |:CodeViewExport| gives you the text for the web page.
+local review. |:CodeView-export| gives you the text for the web page.
 
 The command needs the gh CLI in $PATH, and a login. Run `gh auth login` once.
 `:checkhealth codeview` reports both. See |codeview-health|.
@@ -974,17 +979,17 @@ Set `github.comments` to false to leave the review comments out. The option
 A failed fetch of the comments gives one message. The review itself stays
 open, because it needs no network after the fetch of the refs.
 
-|:CodeViewSubmit| sends your comments to the pull request. See
+|:CodeView-submit| sends your comments to the pull request. See
 |codeview-submit|.
 
 ==============================================================================
 12. SUBMIT                                                     *codeview-submit*
 
-|:CodeViewSubmit| sends the comments of the session to the pull request. The
+|:CodeView-submit| sends the comments of the session to the pull request. The
 comments go out as one review. The pull request then shows one entry with all
 the lines.
 
-The command needs a session of |:CodeView| pr. A local review has no pull
+The command needs a session of |:CodeView-pr|. A local review has no pull
 request, so the command reports that and stops.
 
 The post is always explicit: >
@@ -999,13 +1004,13 @@ The post is always explicit: >
 Nothing reaches GitHub before that pick. No autocommand, no write of a file,
 and no keymap posts by itself.
 
-`:CodeViewSubmit {event}` skips the question about the event. The events are: >
+`:CodeView submit {event}` skips the question about the event. The events are: >
 
     comment           the review adds comments only
     approve           the review approves the pull request
     request-changes   the review asks for changes
 <
-`:CodeViewSubmit!` skips the question about the text of the review. GitHub
+`:CodeView! submit` skips the question about the text of the review. GitHub
 needs a text for the comment event and for the request-changes event, so the
 review then holds one default line.
 
@@ -1029,7 +1034,7 @@ not map: >
     - the diff of the pull request does not hold the line
     - the line range of the comment is not one block of the diff
 <
-Move such a comment to a line of the diff, or read it with |:CodeViewExport|.
+Move such a comment to a line of the diff, or read it with |:CodeView-export|.
 
 The diff of GitHub keeps three unchanged lines around each change. The review
 buffer can show one line more, because it hides no section of one line. A

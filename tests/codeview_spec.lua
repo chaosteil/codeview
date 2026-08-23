@@ -109,12 +109,14 @@ describe("codeview", function()
     assert.is_truthy(res.output:find("auto", 1, true), res.output)
   end)
 
-  it("registers the commands in a clean Neovim", function()
+  it("registers one command in a clean Neovim", function()
+    -- The old commands are gone, and the command loads no module of the plugin
+    -- before it runs.
     local res = helpers.clean_nvim(
-      'print(vim.fn.exists(":CodeView"), vim.fn.exists(":CodeViewClose"), vim.fn.exists(":CodeViewComments"), vim.fn.exists(":CodeViewExport"), vim.fn.exists(":CodeViewSubmit"), package.loaded["codeview.session"] == nil)'
+      'print(vim.fn.exists(":CodeView"), vim.fn.exists(":CodeViewClose"), vim.inspect(vim.fn.getcompletion("CodeView", "command")), package.loaded["codeview.command"] == nil, package.loaded["codeview.session"] == nil)'
     )
     assert.are.equal(0, res.code)
-    assert.is_truthy(res.output:find("2 2 2 2 2 true", 1, true), res.output)
+    assert.is_truthy(res.output:find('2 0 { "CodeView" } true true', 1, true), res.output)
   end)
 
   it("reads options from vim.g.codeview", function()

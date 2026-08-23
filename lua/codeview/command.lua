@@ -1,13 +1,20 @@
----@brief The user commands of codeview.
+---@brief The user command of codeview.
 ---
---- `:CodeView <rev>` reviews one commit. `:CodeView <rev>..<rev>` reviews a
---- range. On a jj repository the argument is a revset, for example
---- `:CodeView ::@` or `:CodeView trunk()..@`. `:CodeView` without an argument
---- opens the commit picker, and `:CodeView!` opens the picker in the range
---- mode.
+--- `:CodeView` drives the whole plugin. `:CodeView <rev>` reviews one commit,
+--- and `:CodeView <rev>..<rev>` reviews a range. On a jj repository the
+--- argument is a revset, for example `:CodeView ::@` or
+--- `:CodeView trunk()..@`. `:CodeView` without an argument opens the commit
+--- picker, and `:CodeView!` opens the picker in the range mode.
 ---
---- The command file in `plugin/` registers the commands. It calls this module
---- only when a command runs.
+--- The first word can also name a subcommand: `pr`, or one name of
+--- `M.subcommands`. That table holds the handler, the values of the argument
+--- completion, and the description of every subcommand. A subcommand name
+--- wins over a revision of the same name. Write such a revision as a range,
+--- for example `:CodeView close^..close`.
+---
+--- The command file in `plugin/` registers the command. It reads
+--- `M.subcommands` for the completion, and it calls this module only when the
+--- command runs.
 
 local config = require("codeview.config")
 local errors = require("codeview.error")
@@ -23,17 +30,23 @@ local api = vim.api
 local M = {}
 
 ---@class codeview.command.Args
----@field action "review"|"pick"|"pr" What the argument asks for.
----@field text string? Revision argument of a review action, as the user wrote it.
+---@field action "review"|"pick"|"pr"|"subcommand" What the argument asks for.
+---@field text string? Revision argument of a review action, or the text after the name of a subcommand.
 ---@field range codeview.vcs.RangeSpec? Form of the revision argument, in git terms.
 ---@field mode "single"|"range"? Number of picks of a pick action.
 ---@field number integer? Number of the pull request of a pr action. Nil for the pull request of the branch.
+---@field name string? Name of the subcommand of a subcommand action.
 
 ---@class codeview.command.RunOpts
 ---@field args string? Text after the command name.
 ---@field bang boolean? True after `:CodeView!`.
 ---@field dir string? Directory for the repository detection.
 ---@field on_open fun(session: codeview.Session?, err: codeview.Error?)? Handler of the answer.
+
+---@class codeview.command.SubOpts
+---@field args string? Text after the name of the subcommand.
+---@field bang boolean? True after `:CodeView!`.
+---@field on_done fun(result: codeview.submit.Result?, err: codeview.Error?)? Handler of the answer of a submit.
 
 ---Report an error to the user.
 ---@param err codeview.Error
@@ -79,6 +92,10 @@ end
 --- revset. `parsed.range` reports the form in git terms, for a caller that
 --- needs it. `parsed.text` holds the argument itself.
 ---
+--- A first word that `M.subcommands` holds names a subcommand. The name wins
+--- over a revision of the same name. `parsed.text` then holds the text after
+--- the name.
+---
 --- `pr <number>` reviews a GitHub pull request. `pr` without a number takes
 --- the pull request of the current branch.
 ---@param args string? Text after the command name.
@@ -93,6 +110,13 @@ function M.parse(args, bang)
   local text = vim.trim(args or "")
   if text == "" then
     return { action = "pick", mode = bang and "range" or "single" }, nil
+  end
+
+  -- A subcommand name wins over a revision of the same name. A revision that a
+  -- subcommand names needs a range form, for example `close^..close`.
+  local first = text:match("^%S+") or text
+  if M.subcommands[first:lower()] then
+    return { action = "subcommand", name = first:lower(), text = vim.trim(text:sub(#first + 1)) }, nil
   end
 
   local lower = text:lower()
@@ -128,6 +152,12 @@ function M.run(opts)
     return
   end
 
+  if parsed.action == "subcommand" then
+    local name = parsed.name or ""
+    M.subcommands[name].run({ args = parsed.text, bang = opts.bang })
+    return
+  end
+
   if parsed.action == "pick" then
     picker.pick({ mode = parsed.mode, dir = opts.dir }, opts.on_open or opened)
     return
@@ -142,19 +172,19 @@ function M.run(opts)
   session.open(parsed.text --[[@as string]], { dir = opts.dir }, opts.on_open or opened)
 end
 
----Run `:CodeViewClose`.
+---Run `:CodeView close`.
 function M.close()
   if not session.close() then
     vim.notify("codeview: no review session", vim.log.levels.WARN)
   end
 end
 
----Run `:CodeViewBack`.
+---Run `:CodeView back`.
 function M.back()
   require("codeview.view").back()
 end
 
----Run `:CodeViewFiles`.
+---Run `:CodeView files`.
 ---
 --- The command closes the sidebar when it is open. Otherwise it opens the
 --- sidebar and puts the cursor in it.
@@ -169,7 +199,7 @@ function M.files()
   end
 end
 
----Run `:CodeViewComments`.
+---Run `:CodeView comments`.
 ---
 --- The command closes the comment overview when it is open. Otherwise it opens
 --- the overview and puts the cursor in it.
@@ -184,12 +214,12 @@ function M.overview()
   end
 end
 
----Run `:CodeViewExport`.
+---Run `:CodeView export`.
 ---
 --- The argument names the register that receives the markdown. Without an
 --- argument the call takes the `export.register` option. After `!` the export
 --- opens no scratch buffer.
----@param opts? { args?: string, bang?: boolean }
+---@param opts? codeview.command.SubOpts
 ---@return codeview.export.Result? result
 function M.export(opts)
   opts = opts or {}
@@ -205,14 +235,14 @@ function M.export(opts)
   return result
 end
 
----Run `:CodeViewSubmit`.
+---Run `:CodeView submit`.
 ---
 --- The argument names the event of the review: `comment`, `approve`, or
 --- `request-changes`. Without an argument the call asks for the event. After
 --- `!` the review takes the default text, without a prompt.
 ---
 --- The command shows a summary and posts only after the user confirms it.
----@param opts? { args?: string, bang?: boolean, on_done?: fun(result: codeview.submit.Result?, err: codeview.Error?) }
+---@param opts? codeview.command.SubOpts
 function M.submit(opts)
   opts = opts or {}
   local event = vim.trim(opts.args or "")
@@ -221,5 +251,35 @@ function M.submit(opts)
     body = opts.bang and "" or nil,
   }, opts.on_done)
 end
+
+---@class codeview.command.Subcommand
+---@field run fun(opts?: codeview.command.SubOpts) Handler of the subcommand.
+---@field args string[]? Values that the completion offers for the argument.
+---@field desc string One line about the subcommand.
+
+---The subcommands of `:CodeView`.
+---
+--- This table is the single source of truth. `M.run` takes the handler from
+--- it, and the completion of the command takes the names and the values of
+--- the argument from it. The `desc` field names the action of the subcommand,
+--- for a reader of the code and for the help file. `pr` is no entry here,
+--- because `M.parse` reads the number of the pull request.
+---@type table<string, codeview.command.Subcommand>
+M.subcommands = {
+  back = { run = M.back, desc = "Go back to the review from a file of the working copy" },
+  close = { run = M.close, desc = "Close the review session" },
+  comments = { run = M.overview, desc = "Open or close the comment overview sidebar" },
+  export = {
+    run = M.export,
+    args = { "+", "*", '"', "a", "b", "c", "z" },
+    desc = "Render the comments of the session as markdown",
+  },
+  files = { run = M.files, desc = "Open or close the changed-files sidebar" },
+  submit = {
+    run = M.submit,
+    args = { "comment", "approve", "request-changes" },
+    desc = "Send the comments of the session to the pull request",
+  },
+}
 
 return M

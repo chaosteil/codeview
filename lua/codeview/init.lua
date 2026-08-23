@@ -292,7 +292,7 @@ end
 ---
 --- The call renders the markdown, writes it into the register of the
 --- `export.register` option, and shows it in a scratch buffer. The command
---- `:CodeViewExport` calls this function.
+--- `:CodeView export` calls this function.
 ---@param opts? codeview.export.Opts
 ---@return codeview.export.Result? result
 ---@return codeview.Error? err
@@ -313,7 +313,7 @@ end
 ---Send the comments of the session that runs to the pull request.
 ---
 --- The call shows a summary and posts only after the user confirms it. The
---- command `:CodeViewSubmit` calls this function.
+--- command `:CodeView submit` calls this function.
 ---@param opts? codeview.submit.Opts
 ---@param cb? fun(result: codeview.submit.Result?, err: codeview.Error?) Handler of the answer.
 function M.submit(opts, cb)

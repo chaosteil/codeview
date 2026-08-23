@@ -47,15 +47,7 @@ With [lazy.nvim](https://github.com/folke/lazy.nvim):
 ```lua
 {
   "chaosteil/codeview",
-  cmd = {
-    "CodeView",
-    "CodeViewBack",
-    "CodeViewClose",
-    "CodeViewFiles",
-    "CodeViewComments",
-    "CodeViewExport",
-    "CodeViewSubmit",
-  },
+  cmd = "CodeView",
   ---@module "codeview"
   ---@type codeview.Config
   opts = {},
@@ -84,7 +76,7 @@ require("codeview").setup({
 3. Press `i` on a line to write a comment. Save it with `:w`. Press `i` again
    to edit it.
 4. Press `<leader>co` to see all comments of the review.
-5. Run `:CodeViewExport` to put the review in your clipboard.
+5. Run `:CodeView export` to put the review in your clipboard.
 
 On a jj repository the argument is a revset, for example
 `:CodeView trunk()..@`. For a GitHub pull request, run `:CodeView pr 128`.
@@ -98,13 +90,16 @@ On a jj repository the argument is a revset, for example
 :CodeView pr 128           " review a GitHub pull request
 :CodeView                  " pick one commit from the log
 :CodeView!                 " pick the first and the last commit of a range
-:CodeViewClose             " close the session
-:CodeViewFiles             " open or close the changed-files sidebar
-:CodeViewComments          " open or close the comment overview
-:CodeViewBack              " back to the review from a file
-:CodeViewExport            " render the comments as markdown
-:CodeViewSubmit            " send the comments to the pull request
+:CodeView close            " close the session
+:CodeView files            " open or close the changed-files sidebar
+:CodeView comments         " open or close the comment overview
+:CodeView back             " back to the review from a file
+:CodeView export           " render the comments as markdown
+:CodeView submit           " send the comments to the pull request
 ```
+
+A subcommand name wins over a revision of the same name. To review such a
+revision, write it as a range: `:CodeView close^..close`.
 
 ## Documentation
 

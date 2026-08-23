@@ -8,6 +8,28 @@ All notable changes of codeview go into this file. The format follows
 
 ### Changed
 
+- **One command.** The plugin registers one command: `:CodeView`. The six other
+  commands became subcommands of it. This is a breaking change. The plugin
+  keeps no alias for an old name. Change your keymaps, and set
+  `cmd = "CodeView"` in your plugin manager. The old commands map to the new
+  forms:
+
+  ```
+  :CodeViewClose             ->  :CodeView close
+  :CodeViewBack              ->  :CodeView back
+  :CodeViewFiles             ->  :CodeView files
+  :CodeViewComments          ->  :CodeView comments
+  :CodeViewExport [{reg}]    ->  :CodeView export [{reg}]
+  :CodeViewExport!           ->  :CodeView! export
+  :CodeViewSubmit [{event}]  ->  :CodeView submit [{event}]
+  :CodeViewSubmit!           ->  :CodeView! submit
+  ```
+
+  `:CodeView` itself keeps every other form: `:CodeView {rev}`,
+  `:CodeView {rev}..{rev}`, a jj revset, `:CodeView pr {number}`, and the
+  picker of `:CodeView` and `:CodeView!`. A subcommand name wins over a
+  revision of the same name. To review such a revision, write it as a range,
+  for example `:CodeView close^..close`.
 - **Comment store location.** The default of `comments.dir` moved from
   `stdpath("config") .. "/review"` to `stdpath("data") .. "/codeview/review"`.
   The plugin writes the comment files, so they do not belong in the

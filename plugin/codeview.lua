@@ -18,72 +18,43 @@ if type(vim.g.codeview) == "table" then
   require("codeview").setup(vim.g.codeview)
 end
 
+-- One command drives the plugin. `codeview.command` holds the subcommands, so
+-- the completion reads its table. The require stays inside the callbacks: the
+-- module loads on the first run and on the first completion, not at startup.
 vim.api.nvim_create_user_command("CodeView", function(opts)
   require("codeview.command").run(opts)
 end, {
   nargs = "*",
   bang = true,
   -- A Lua completion behaves like `customlist`: it filters the names itself.
-  complete = function(lead)
-    return vim.startswith("pr", lead) and { "pr" } or {}
-  end,
-  desc = "Review a commit, a range, a jj revset, or a pull request (:CodeView pr <number>)",
-})
+  -- It takes the word under the cursor, the whole command line, and the
+  -- position of the cursor in that line.
+  complete = function(lead, line, pos)
+    local subcommands = require("codeview.command").subcommands
+    -- Text after the name of the command, up to the cursor.
+    local text = line:sub(1, pos):match("^%s*%S+%s+(.*)$") or ""
+    local words = vim.split(text, "%s+", { trimempty = true })
+    -- The lead is the word under the cursor, so it ends no word.
+    local done = #words - (lead ~= "" and 1 or 0)
+    local values = {}
+    if done == 0 then
+      values[#values + 1] = "pr"
+      for name in pairs(subcommands) do
+        values[#values + 1] = name
+      end
+    elseif done == 1 then
+      local sub = subcommands[words[1]:lower()]
+      values = sub and sub.args or {}
+    end
 
-vim.api.nvim_create_user_command("CodeViewClose", function()
-  require("codeview.command").close()
-end, {
-  desc = "Close the review session",
-})
-
-vim.api.nvim_create_user_command("CodeViewBack", function()
-  require("codeview.command").back()
-end, { desc = "Go back to the review from a file of the working copy" })
-
-vim.api.nvim_create_user_command("CodeViewFiles", function()
-  require("codeview.command").files()
-end, {
-  desc = "Open or close the changed-files sidebar",
-})
-
-vim.api.nvim_create_user_command("CodeViewComments", function()
-  require("codeview.command").overview()
-end, {
-  desc = "Open or close the comment overview sidebar",
-})
-
-vim.api.nvim_create_user_command("CodeViewExport", function(opts)
-  require("codeview.command").export(opts)
-end, {
-  nargs = "?",
-  bang = true,
-  -- A Lua completion behaves like `customlist`: it filters the names itself.
-  complete = function(lead)
     local names = {}
-    for _, name in ipairs({ "+", "*", '"', "a", "b", "c", "z" }) do
-      if vim.startswith(name, lead) then
-        names[#names + 1] = name
+    for _, value in ipairs(values) do
+      if vim.startswith(value, lead) then
+        names[#names + 1] = value
       end
     end
+    table.sort(names)
     return names
   end,
-  desc = "Render the comments of the session as markdown (:CodeViewExport [register])",
-})
-
-vim.api.nvim_create_user_command("CodeViewSubmit", function(opts)
-  require("codeview.command").submit(opts)
-end, {
-  nargs = "?",
-  bang = true,
-  -- A Lua completion behaves like `customlist`: it filters the names itself.
-  complete = function(lead)
-    local names = {}
-    for _, name in ipairs({ "comment", "approve", "request-changes" }) do
-      if vim.startswith(name, lead) then
-        names[#names + 1] = name
-      end
-    end
-    return names
-  end,
-  desc = "Send the comments of the session to the pull request (:CodeViewSubmit [event])",
+  desc = "Review a commit, a range, a jj revset, or a pull request, and run a subcommand of the session",
 })

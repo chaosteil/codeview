@@ -62,31 +62,30 @@ describe("codeview documentation", function()
     helpers.unload()
   end)
 
-  it("names every user command", function()
+  it("names every subcommand of the user command", function()
     -- The test harness starts Neovim without the startup plugins, so the file
-    -- that defines the commands runs here.
+    -- that defines the command runs here. The plugin holds one command, and
+    -- the table of `codeview.command` holds every subcommand of it.
     vim.cmd.source(vim.fs.joinpath(helpers.root, "plugin", "codeview.lua"))
-    local names = {}
-    for _, command in ipairs(vim.fn.getcompletion("CodeView", "command")) do
-      names[#names + 1] = ":" .. command
+    assert.are.same({ "CodeView" }, vim.fn.getcompletion("CodeView", "command"))
+
+    local names = { ":CodeView", ":CodeView pr" }
+    for name in pairs(require("codeview.command").subcommands) do
+      names[#names + 1] = ":CodeView " .. name
     end
-    assert.is_true(#names >= 6, "the plugin defines the commands")
+    assert.is_true(#names >= 8, "the plugin defines the subcommands")
     assert.are.same({}, missing_from(vimdoc, names))
     assert.are.same({}, missing_from(readme, names))
   end)
 
-  it("holds every user command in the lazy.nvim example of the README", function()
-    -- A command that the `cmd` list does not hold gets no stub of the plugin
+  it("holds the user command in the lazy.nvim example of the README", function()
+    -- A command that the `cmd` value does not hold gets no stub of the plugin
     -- manager. The command then does not exist before another one loads the
-    -- plugin.
-    vim.cmd.source(vim.fs.joinpath(helpers.root, "plugin", "codeview.lua"))
-    local block = assert(readme:match("cmd = (%b{})"), "the README holds a cmd list")
-    local names = {}
-    for _, command in ipairs(vim.fn.getcompletion("CodeView", "command")) do
-      names[#names + 1] = '"' .. command .. '"'
-    end
-    assert.is_true(#names >= 6, "the plugin defines the commands")
-    assert.are.same({}, missing_from(block, names))
+    -- plugin. One command needs one name, as a string or as a list.
+    local value =
+      assert(readme:match("cmd = (%b{})") or readme:match('cmd = ("[^"]*")'), "the README holds a cmd value")
+    assert.is_truthy(value:find('"CodeView"', 1, true), "the cmd value holds the command: " .. value)
+    assert.is_nil(value:match('"CodeView%a'), "the cmd value holds no other command: " .. value)
   end)
 
   it("names every configuration option", function()

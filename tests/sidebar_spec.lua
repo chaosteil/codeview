@@ -620,8 +620,10 @@ describe("codeview.sidebar", function()
       assert.is_false(sidebar.is_open())
     end)
 
-    it("knows :CodeViewFiles", function()
-      assert.is_truthy(api.nvim_get_commands({}).CodeViewFiles)
+    it("knows :CodeView files", function()
+      local command = require("codeview.command")
+      assert.is_truthy(api.nvim_get_commands({}).CodeView)
+      assert.are.equal(command.files, command.subcommands.files.run)
     end)
   end)
 

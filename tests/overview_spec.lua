@@ -692,8 +692,10 @@ describe("codeview.overview", function()
   end)
 
   describe("the command", function()
-    it("knows :CodeViewComments", function()
-      assert.is_truthy(api.nvim_get_commands({}).CodeViewComments)
+    it("knows :CodeView comments", function()
+      local command = require("codeview.command")
+      assert.is_truthy(api.nvim_get_commands({}).CodeView)
+      assert.are.equal(command.overview, command.subcommands.comments.run)
     end)
 
     it("opens and closes the overview", function()
