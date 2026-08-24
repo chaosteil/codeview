@@ -12,33 +12,12 @@ comments as markdown, and you send them to a GitHub pull request.
   review.
 - No runtime dependency. The plugin uses the standard library of Neovim.
 
-Version 0.1.0. See [CHANGELOG.md](CHANGELOG.md).
-
-A comment on three lines of an inline diff:
-
-```
-  ⋯ 3 unchanged lines
-  @@ -4,4 +4,8 @@
-     return M.items[id]
-   end
-
-▌ +function M.put(id, item)
-▌ +  M.items[id] = item
-▌ +end
-  ▌ comment L7-9 (new)
-  ▌ this needs a test for the empty id
-  +
-   return M
-```
-
 ## Requirements
 
 - Neovim 0.11 or later.
 - `git` for the git backend.
 - `jj` for the jj backend (optional).
 - `gh` for GitHub pull request review (optional).
-
-Run `:checkhealth codeview` to see what your system has.
 
 ## Install
 
@@ -48,26 +27,22 @@ With [lazy.nvim](https://github.com/folke/lazy.nvim):
 {
   "chaosteil/codeview",
   cmd = "CodeView",
-  ---@module "codeview"
-  ---@type codeview.Config
-  opts = {},
+}
+```
+To set options, set the opts:
+
+```lua
+{
+  "chaosteil/codeview",
+  cmd = "CodeView",
+  opts = {,
+    diff = { style = "split" },
+    sidebar = { position = "right", width = 50 },
+  },
 }
 ```
 
-Without a plugin manager, put the repository on your `runtimepath` and run
-`:helptags doc`. The plugin works without a `setup()` call. Every option then
-holds its default value.
-
-To set options, call `setup()`:
-
-```lua
-require("codeview").setup({
-  diff = { style = "split" },
-  sidebar = { position = "right", width = 50 },
-})
-```
-
-`:help codeview-config` holds every option and its default value.
+`:help codeview-config` shows every option and its default value.
 
 ## Quick start
 
@@ -76,7 +51,7 @@ require("codeview").setup({
 3. Press `i` on a line to write a comment. Save it with `:w`. Press `i` again
    to edit it.
 4. Press `<leader>co` to see all comments of the review.
-5. Run `:CodeView export` to put the review in your clipboard.
+5. Run `:CodeView export` to put the review into your clipboard.
 
 On a jj repository the argument is a revset, for example
 `:CodeView trunk()..@`. For a GitHub pull request, run `:CodeView pr 128`.
@@ -89,7 +64,6 @@ On a jj repository the argument is a revset, for example
 :CodeView main...feature   " the changes since the merge base
 :CodeView pr 128           " review a GitHub pull request
 :CodeView                  " pick one commit from the log
-:CodeView!                 " pick the first and the last commit of a range
 :CodeView close            " close the session
 :CodeView files            " open or close the changed-files sidebar
 :CodeView comments         " open or close the comment overview
@@ -97,9 +71,6 @@ On a jj repository the argument is a revset, for example
 :CodeView export           " render the comments as markdown
 :CodeView submit           " send the comments to the pull request
 ```
-
-A subcommand name wins over a revision of the same name. To review such a
-revision, write it as a range: `:CodeView close^..close`.
 
 ## Documentation
 

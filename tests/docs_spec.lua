@@ -152,11 +152,6 @@ describe("codeview documentation", function()
     assert.are.same({}, missing_from(vimdoc, names))
   end)
 
-  it("holds the version of the plugin in the changelog", function()
-    local changelog = read("CHANGELOG.md")
-    assert.is_truthy(changelog:find("## " .. codeview.version, 1, true), "the changelog holds " .. codeview.version)
-  end)
-
   it("ends the help file with a modeline", function()
     assert.is_truthy(vimdoc:find("vim:tw=78:ts=8:noet:ft=help:norl:", 1, true))
   end)

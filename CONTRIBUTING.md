@@ -159,21 +159,14 @@ keeps its own indexes.
 
 ### Format and lint
 
-- stylua owns the format. The configuration is `.stylua.toml`.
+- stylua controls the formatting. The configuration is `.stylua.toml`.
 - Run `make fmt` before a commit.
 - luacheck configuration is `.luacheckrc`. luacheck is optional locally, but CI
   runs it.
 
-### Documentation
-
-- Write in Simplified Technical English. Short sentences, active voice, and an
-  imperative for each step. One instruction per sentence.
-- Do not use marketing words.
-
 ### Version control
 
-This repository uses jj (jujutsu). Do not use git for versioning here. Write
-the commit messages in the conventional commit style, for example
+Write the commit messages in the conventional commit style, for example
 `feat(config): add the diff style option`.
 
 ## Release
@@ -181,18 +174,9 @@ the commit messages in the conventional commit style, for example
 Do these steps for a new version:
 
 1. Set `M.version` in `lua/codeview/init.lua`.
-2. Move the entries of `## Unreleased` in `CHANGELOG.md` into a section with
-   the new version and the date.
-3. Update the version in `doc/codeview.txt` and in `README.md`.
-4. Run `make`. `tests/docs_spec.lua` checks that the changelog holds the
+2. Update the version in `doc/codeview.txt`.
+3. Run `make`. `tests/docs_spec.lua` checks that the changelog holds the
    version.
-5. Run `nvim --headless -c 'helptags doc' -c quit` to write `doc/tags`.
-6. Set the tag and push it:
-
-   ```sh
-   jj bookmark set v0.1.0 -r @-
-   jj git push --bookmark v0.1.0
-   ```
-
-7. Open a GitHub release for the tag. Paste the section of `CHANGELOG.md`.
-8. Post the text of `ANNOUNCEMENT.md`.
+4. Run `nvim --headless -c 'helptags doc' -c quit` to write `doc/tags`.
+5. Set the tag and push it:
+6. Open a GitHub release for the tag.
