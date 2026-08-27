@@ -279,15 +279,54 @@ function Sidebar:set_current(index)
   end
 end
 
+---Position of one entry after a reload of the session.
+---
+--- The reload can add a file to the range and remove another one, so an entry
+--- can move to another position. The path answers first. The document of the
+--- working-copy commit takes the id of the new commit, so the list does not
+--- hold its old path any more. Its position stays, because the range holds
+--- the same commits.
+---@param session codeview.Session
+---@param file codeview.vcs.FileChange Entry before the reload.
+---@param index integer Position before the reload.
+---@return integer? index Nil when the range does not hold the entry any more.
+local function position_of(session, file, index)
+  local found = session:index_of(file.path)
+  if found then
+    return found
+  end
+  if file.virtual then
+    local entry = session:file(index)
+    return entry and entry.virtual and index or nil
+  end
+  return nil
+end
+
 ---Show one changed file in the diff view.
+---
+--- A review of the working-copy commit reads its data again first, so the
+--- diff holds the writes of your editor. See |codeview.session.auto_reload()|.
 ---@param index integer Position in the file list.
 ---@param cb? fun(view: codeview.view.State?, err: codeview.Error?)
 function Sidebar:open_file(index, cb)
-  view.open(self.session, index, cb or function(_, err)
+  local answer = cb or function(_, err)
     if err then
       report(err)
     end
-  end)
+  end
+
+  local file = self.session:file(index)
+  if file then
+    session_mod.auto_reload(self.session)
+    local at = position_of(self.session, file, index)
+    if not at then
+      answer(nil, errors.new(errors.codes.NOT_FOUND, "the range does not change " .. file.path))
+      return
+    end
+    index = at
+  end
+
+  view.open(self.session, index, answer)
 end
 
 ---Act on the line under the cursor.

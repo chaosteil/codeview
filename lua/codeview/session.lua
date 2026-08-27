@@ -265,6 +265,28 @@ function M.is_active()
   return current ~= nil and not current.closed
 end
 
+---Read a review of the working copy again, if the configuration allows it.
+---
+--- The user interface calls this before it shows a diff again, so that the
+--- diff holds the writes of your editor. The `auto_reload` option switches
+--- the call off. See |codeview.Session:reload()|.
+---
+--- A failed reload is no error of the caller. The session keeps its data, the
+--- user gets a message, and the diff opens with the old data.
+---@param session? codeview.Session Session to read again. The session that runs by default.
+---@return codeview.Session? session The same session.
+function M.auto_reload(session)
+  session = session or current
+  if not session or session.closed or not config.get().auto_reload then
+    return session
+  end
+  local _, err = session:reload()
+  if err then
+    vim.notify("codeview: the reload failed: " .. tostring(err), vim.log.levels.WARN)
+  end
+  return session
+end
+
 --- Session methods -----------------------------------------------------------
 
 ---Text that names the range of the session.

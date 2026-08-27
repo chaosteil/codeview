@@ -217,7 +217,8 @@ in that handler.
 
 A session reads its data again with `session:refresh()`. On a review of the
 working-copy commit, `session:reload()` also takes the new state of the
-working copy. See |codeview-edit-reload|.
+working copy. The diff view and the sidebar make that call for you. See
+|codeview-edit-reload|.
 
                                                      *codeview-commit-message*
 The commits of the range come before the files. Every commit is one entry of
@@ -571,10 +572,14 @@ The new commit id becomes the head of the range. codeview then reads the files
 and the commits of the range again, and the sidebar and the comment overview
 show the new list.
 
+The open key of the sidebar reads the review again in the same way, so the
+other way back into the review also holds your writes. A file that leaves the
+range gets a message, because the review has no diff to show for it.
+
 git holds the working copy outside the commits, so a write moves no commit
 there. A git review therefore keeps its data.
 
-Set `auto_reload` to false to keep the data of the review: >lua
+Set `auto_reload` to false to keep the data of the review as-is: >lua
 
     require("codeview").setup({ auto_reload = false })
 <

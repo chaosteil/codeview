@@ -1364,13 +1364,9 @@ function M.back(opts)
   end
 
   -- The reload can add a file to the range and remove another one, so the
-  -- position of the path comes after it. A failed reload keeps the data of
-  -- the session, which still shows a diff.
-  if opts.reload ~= false and config.get().auto_reload then
-    local _, reload_err = session:reload()
-    if reload_err then
-      notify("the reload failed: " .. tostring(reload_err), vim.log.levels.WARN)
-    end
+  -- position of the path comes after it.
+  if opts.reload ~= false then
+    require("codeview.session").auto_reload(session)
   end
 
   local index = session:index_of(path)

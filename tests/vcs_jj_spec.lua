@@ -451,11 +451,13 @@ end)
 describe("codeview back to a review of the working copy", function()
   local fixture = fixtures.jj()
   local session_mod = require("codeview.session")
+  local sidebar = require("codeview.sidebar")
   local view = require("codeview.view")
 
   ---Open a review of `@` and edit one file of it in the working copy.
   ---@param name string Path of the file from the repository root.
   ---@param text string Line that the editor adds to the file.
+  ---@return codeview.Session review Session of the review.
   local function edit_file(name, text)
     local review = assert(session_mod.open("@", { dir = fixture.dir }))
     local state = assert(view.open(review, assert(review:index_of(name))))
@@ -465,6 +467,7 @@ describe("codeview back to a review of the working copy", function()
     local buf = vim.api.nvim_get_current_buf()
     vim.api.nvim_buf_set_lines(buf, -1, -1, false, { text })
     vim.cmd.write()
+    return review
   end
 
   ---Text of the diff that the view shows.
@@ -476,6 +479,7 @@ describe("codeview back to a review of the working copy", function()
 
   after_each(function()
     view.close()
+    sidebar.close()
     session_mod.close()
     require("codeview.config").setup({})
   end)
@@ -494,6 +498,42 @@ describe("codeview back to a review of the working copy", function()
 
     assert.is_true(view.back())
     assert.is_nil(diff_text():find("not in the review", 1, true), diff_text())
+  end)
+
+  it("shows the line of the editor after an open in the sidebar", function()
+    local review = edit_file("a.txt", "from the sidebar")
+    local bar = assert(sidebar.open({ session = review }))
+
+    -- The sidebar reads the review again, so the file list and the diff hold
+    -- the write of the editor.
+    local state, err = await(function(cb)
+      bar:open_file(assert(review:index_of("a.txt")), cb)
+    end)
+    assert.is_nil(err)
+    assert.is_truthy(state)
+    assert.is_truthy(diff_text():find("+from the sidebar", 1, true), diff_text())
+  end)
+
+  it("reports a file that leaves the range", function()
+    local review = assert(session_mod.open("@", { dir = fixture.dir }))
+    local bar = assert(sidebar.open({ session = review }))
+    local index = assert(review:index_of("a.txt"))
+
+    -- The file takes the content of the parent commit again, so the range
+    -- does not change it any more.
+    local parent = fixtures.content_at("edit", "a.txt")
+    assert.is_truthy(parent, "the fixture holds no a.txt at the parent commit")
+    local handle = assert(io.open(vim.fs.joinpath(fixture.dir, "a.txt"), "wb"))
+    handle:write(parent)
+    handle:close()
+
+    local state, err = await(function(cb)
+      bar:open_file(index, cb)
+    end)
+    assert.is_nil(state)
+    assert.are.equal("not_found", err.code)
+    assert.is_truthy(tostring(err):find("a.txt", 1, true), tostring(err))
+    assert.is_nil(review:index_of("a.txt"))
   end)
 
   it("removes the fixture", function()
