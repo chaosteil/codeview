@@ -16,10 +16,10 @@
 --- callback the call blocks and returns `value, err`. With a callback the call
 --- returns at once and the callback gets `value, err` on the main loop.
 
-local config = require('codeview.config')
-local errors = require('codeview.error')
-local exec = require('codeview.exec')
-local util = require('codeview.util')
+local config = require("codeview.config")
+local errors = require("codeview.error")
+local exec = require("codeview.exec")
+local util = require("codeview.util")
 
 local done = util.done
 
@@ -35,12 +35,12 @@ M.per_page = 100
 --- variables, it does not ask a question that nobody can answer.
 ---@type table<string, string>
 local GH_ENV = {
-  GH_PAGER = '',
-  PAGER = '',
-  GH_PROMPT_DISABLED = '1',
-  GH_NO_UPDATE_NOTIFIER = '1',
-  NO_COLOR = '1',
-  CLICOLOR = '0',
+  GH_PAGER = "",
+  PAGER = "",
+  GH_PROMPT_DISABLED = "1",
+  GH_NO_UPDATE_NOTIFIER = "1",
+  NO_COLOR = "1",
+  CLICOLOR = "0",
 }
 
 ---Text of a failure, in lowercase, and the code that it stands for.
@@ -51,38 +51,38 @@ local SIGNS = {
   {
     code = errors.codes.NOT_AUTHENTICATED,
     patterns = {
-      'gh auth login',
-      'not logged in',
-      'no authentication token',
-      'authentication token',
-      'requires authentication',
-      'bad credentials',
-      'http 401',
-      'http 403',
+      "gh auth login",
+      "not logged in",
+      "no authentication token",
+      "authentication token",
+      "requires authentication",
+      "bad credentials",
+      "http 401",
+      "http 403",
     },
   },
   {
     code = errors.codes.OFFLINE,
     patterns = {
-      'no such host',
-      'could not resolve host',
-      'temporary failure in name resolution',
-      'dial tcp',
-      'connection refused',
-      'connection reset',
-      'network is unreachable',
-      'i/o timeout',
-      'tls handshake timeout',
-      'server misbehaving',
+      "no such host",
+      "could not resolve host",
+      "temporary failure in name resolution",
+      "dial tcp",
+      "connection refused",
+      "connection reset",
+      "network is unreachable",
+      "i/o timeout",
+      "tls handshake timeout",
+      "server misbehaving",
     },
   },
   {
     code = errors.codes.NOT_FOUND,
     patterns = {
-      'http 404',
-      'could not resolve to',
-      'no pull requests found',
-      'not found',
+      "http 404",
+      "could not resolve to",
+      "no pull requests found",
+      "not found",
     },
   },
 }
@@ -117,8 +117,8 @@ end
 ---Error for a missing executable.
 ---@return codeview.Error
 local function missing()
-  return errors.new(errors.codes.UNSUPPORTED, 'the gh CLI is not in $PATH', {
-    stderr = 'install gh from https://cli.github.com and log in with `gh auth login`',
+  return errors.new(errors.codes.UNSUPPORTED, "the gh CLI is not in $PATH", {
+    stderr = "install gh from https://cli.github.com and log in with `gh auth login`",
   })
 end
 
@@ -126,18 +126,18 @@ end
 ---@param result codeview.ExecResult
 ---@return codeview.Error
 local function classify(result)
-  local text = ((result.stderr or '') .. '\n' .. (result.stdout or '')):lower()
+  local text = ((result.stderr or "") .. "\n" .. (result.stdout or "")):lower()
   for _, sign in ipairs(SIGNS) do
     for _, pattern in ipairs(sign.patterns) do
       if text:find(pattern, 1, true) then
-        return errors.new(sign.code, 'gh: ' .. M.reason(sign.code), {
+        return errors.new(sign.code, "gh: " .. M.reason(sign.code), {
           command = result.command,
           stderr = result.stderr,
         })
       end
     end
   end
-  return errors.new(errors.codes.COMMAND_FAILED, string.format('gh exited with code %d', result.code), {
+  return errors.new(errors.codes.COMMAND_FAILED, string.format("gh exited with code %d", result.code), {
     command = result.command,
     stderr = result.stderr,
   })
@@ -148,15 +148,15 @@ end
 ---@return string
 function M.reason(code)
   if code == errors.codes.NOT_AUTHENTICATED then
-    return 'no valid GitHub credentials. Run `gh auth login`'
+    return "no valid GitHub credentials. Run `gh auth login`"
   end
   if code == errors.codes.OFFLINE then
-    return 'cannot reach github.com'
+    return "cannot reach github.com"
   end
   if code == errors.codes.NOT_FOUND then
-    return 'GitHub does not know this object'
+    return "GitHub does not know this object"
   end
-  return 'the call failed'
+  return "the call failed"
 end
 
 ---Run one gh command.
@@ -166,12 +166,12 @@ end
 ---@return codeview.ExecResult? result Nil after any failure.
 ---@return codeview.Error? err
 function M.run(args, opts, cb)
-  if type(opts) == 'function' then
+  if type(opts) == "function" then
     cb, opts = opts, nil
   end
   opts = opts or {}
-  if type(args) ~= 'table' or #args == 0 then
-    return done(cb, nil, errors.new(errors.codes.INVALID_ARG, 'the call needs gh arguments'))
+  if type(args) ~= "table" or #args == 0 then
+    return done(cb, nil, errors.new(errors.codes.INVALID_ARG, "the call needs gh arguments"))
   end
   if not M.available() then
     return done(cb, nil, missing())
@@ -182,7 +182,7 @@ function M.run(args, opts, cb)
     cwd = opts.cwd,
     timeout = opts.timeout,
     stdin = opts.stdin,
-    env = vim.tbl_extend('force', GH_ENV, opts.env or {}),
+    env = vim.tbl_extend("force", GH_ENV, opts.env or {}),
   }
 
   ---@param result codeview.ExecResult?
@@ -212,8 +212,8 @@ end
 ---@return any? value Nil after a decode error. An empty text gives nil without an error.
 ---@return codeview.Error? err
 function M.decode(text)
-  local trimmed = vim.trim(text or '')
-  if trimmed == '' then
+  local trimmed = vim.trim(text or "")
+  if trimmed == "" then
     return nil, nil
   end
   -- `luanil` maps a JSON null to nil, so a missing line reads as nil and not
@@ -221,7 +221,7 @@ function M.decode(text)
   local ok, value = pcall(vim.json.decode, trimmed, { luanil = { object = true, array = true } })
   if not ok then
     return nil,
-      errors.new(errors.codes.COMMAND_FAILED, 'gh: the answer is not JSON', { stderr = tostring(value):sub(1, 200) })
+      errors.new(errors.codes.COMMAND_FAILED, "gh: the answer is not JSON", { stderr = tostring(value):sub(1, 200) })
   end
   return value, nil
 end
@@ -233,7 +233,7 @@ end
 ---@return any? value
 ---@return codeview.Error? err
 function M.json(args, opts, cb)
-  if type(opts) == 'function' then
+  if type(opts) == "function" then
     cb, opts = opts, nil
   end
 
@@ -249,7 +249,7 @@ function M.json(args, opts, cb)
       return nil, decode_err
     end
     if value == nil then
-      return nil, errors.new(errors.codes.NOT_FOUND, 'gh: the answer is empty', { command = result.command })
+      return nil, errors.new(errors.codes.NOT_FOUND, "gh: the answer is empty", { command = result.command })
     end
     return value, nil
   end
@@ -268,18 +268,18 @@ end
 ---@param opts codeview.gh.ApiOpts
 ---@return string[] args
 local function api_args(path, opts)
-  local args = { 'api', path }
-  if opts.method and opts.method ~= '' then
-    vim.list_extend(args, { '--method', opts.method:upper() })
+  local args = { "api", path }
+  if opts.method and opts.method ~= "" then
+    vim.list_extend(args, { "--method", opts.method:upper() })
   end
   for _, header in ipairs(opts.headers or {}) do
-    vim.list_extend(args, { '--header', header })
+    vim.list_extend(args, { "--header", header })
   end
   for _, field in ipairs(opts.fields or {}) do
-    vim.list_extend(args, { '--field', field })
+    vim.list_extend(args, { "--field", field })
   end
-  if opts.input and opts.input ~= '' then
-    vim.list_extend(args, { '--input', opts.input })
+  if opts.input and opts.input ~= "" then
+    vim.list_extend(args, { "--input", opts.input })
   end
   return args
 end
@@ -291,12 +291,12 @@ end
 ---@return any? value Decoded JSON answer.
 ---@return codeview.Error? err
 function M.api(path, opts, cb)
-  if type(opts) == 'function' then
+  if type(opts) == "function" then
     cb, opts = opts, nil
   end
   opts = opts or {}
-  if type(path) ~= 'string' or vim.trim(path) == '' then
-    return done(cb, nil, errors.new(errors.codes.INVALID_ARG, 'the call needs an API path'))
+  if type(path) ~= "string" or vim.trim(path) == "" then
+    return done(cb, nil, errors.new(errors.codes.INVALID_ARG, "the call needs an API path"))
   end
   return M.json(api_args(path, opts), opts, cb)
 end
@@ -307,8 +307,8 @@ end
 ---@param value string|integer
 ---@return string
 local function with_query(path, name, value)
-  local sep = path:find('?', 1, true) and '&' or '?'
-  return string.format('%s%s%s=%s', path, sep, name, tostring(value))
+  local sep = path:find("?", 1, true) and "&" or "?"
+  return string.format("%s%s%s=%s", path, sep, name, tostring(value))
 end
 
 ---Read every page of a list endpoint.
@@ -322,7 +322,7 @@ end
 ---@return any[]? items Entries of every page, in the order of the answer.
 ---@return codeview.Error? err
 function M.api_list(path, opts, cb)
-  if type(opts) == 'function' then
+  if type(opts) == "function" then
     cb, opts = opts, nil
   end
   opts = opts or {}
@@ -336,7 +336,7 @@ function M.api_list(path, opts, cb)
   ---@param value any Answer of one page.
   ---@return boolean more True while another page can hold entries.
   local function keep(value)
-    if type(value) ~= 'table' or not vim.islist(value) then
+    if type(value) ~= "table" or not vim.islist(value) then
       return false
     end
     for _, item in ipairs(value) do
@@ -351,7 +351,7 @@ function M.api_list(path, opts, cb)
   ---@param page integer
   ---@return string
   local function page_path(page)
-    return with_query(with_query(path, 'per_page', per_page), 'page', page)
+    return with_query(with_query(path, "per_page", per_page), "page", page)
   end
 
   if not cb then
@@ -406,7 +406,7 @@ end
 ---@return codeview.gh.Auth? auth Nil when gh is not in $PATH.
 ---@return codeview.Error? err Set when gh reports no valid login.
 function M.auth_status(opts, cb)
-  if type(opts) == 'function' then
+  if type(opts) == "function" then
     cb, opts = opts, nil
   end
   opts = opts or {}
@@ -414,11 +414,11 @@ function M.auth_status(opts, cb)
     return done(cb, nil, missing())
   end
 
-  local cmd = { M.binary(), 'auth', 'status' }
+  local cmd = { M.binary(), "auth", "status" }
   local exec_opts = {
     cwd = opts.cwd,
     timeout = opts.timeout,
-    env = vim.tbl_extend('force', GH_ENV, opts.env or {}),
+    env = vim.tbl_extend("force", GH_ENV, opts.env or {}),
   }
 
   ---@param result codeview.ExecResult?
@@ -430,14 +430,14 @@ function M.auth_status(opts, cb)
     end
     -- `gh auth status` writes its report to stdout, and older versions write
     -- it to stderr. Read both.
-    local text = vim.trim((result.stdout or '') .. '\n' .. (result.stderr or ''))
-    local first = vim.split(text, '\n', { plain = true })[1] or ''
-    local account = text:match('Logged in to [%w%.%-]+ account ([%w%-_%.]+)') or ''
-    local host = text:match('Logged in to ([%w%.%-]+) account') or vim.trim(first)
+    local text = vim.trim((result.stdout or "") .. "\n" .. (result.stderr or ""))
+    local first = vim.split(text, "\n", { plain = true })[1] or ""
+    local account = text:match("Logged in to [%w%.%-]+ account ([%w%-_%.]+)") or ""
+    local host = text:match("Logged in to ([%w%.%-]+) account") or vim.trim(first)
     ---@type codeview.gh.Auth
     local auth = {
       ok = result.code == 0,
-      host = result.code == 0 and host or '',
+      host = result.code == 0 and host or "",
       account = account,
       text = vim.trim(first),
     }
