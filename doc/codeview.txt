@@ -976,6 +976,13 @@ local review. |:Codeview-export| gives you the text for the web page.
 The command needs the gh CLI in $PATH, and a login. Run `gh auth login` once.
 `:checkhealth codeview` reports both. See |codeview-health|.
 
+The `github.binary` option names that executable. A name goes to $PATH, and an
+absolute path names the file itself. Use it for a gh that is not in $PATH, or
+for a wrapper of your own: >lua
+
+    require("codeview").setup({ github = { binary = "/opt/gh/bin/gh" } })
+<
+
                                                         *codeview-github-refs*
 The working copy does not change. The command fetches two refs of the plugin
 and checks out no branch: >
@@ -1445,6 +1452,7 @@ Defaults: >lua
         remote = "",                 -- git remote, "" takes origin
         comments = true,             -- read the review comments of the PR
         max_comments = 500,          -- highest number of comments of a fetch
+        binary = "gh",               -- name or path of the gh executable
       },
       keymaps = {
         open_file = { "<CR>", "<2-LeftMouse>" },
