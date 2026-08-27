@@ -10,6 +10,24 @@ if vim.fn.executable("jj") ~= 1 then
   return
 end
 
+---Run an async call and wait for its callback.
+---@param fn fun(cb: fun(value: any?, err: codeview.Error?))
+---@return any? value
+---@return codeview.Error? err
+local function await(fn)
+  local out, finished = {}, false
+  fn(function(value, err)
+    out.value, out.err, finished = value, err, true
+  end)
+  assert.is_true(
+    vim.wait(20000, function()
+      return finished
+    end, 10),
+    "the async call did not answer"
+  )
+  return out.value, out.err
+end
+
 ---Write a file whose path holds a space.
 ---@param dir string Repository root.
 local function write_spaced(dir)
@@ -326,6 +344,87 @@ describe("codeview on a jj repository", function()
     assert.are.equal("split", state.style)
     assert.is_truthy(state.old_win)
     view.set_style("inline")
+  end)
+
+  it("removes the fixture", function()
+    fixture.cleanup()
+    assert.are.equal(0, vim.fn.isdirectory(fixture.dir))
+  end)
+end)
+
+describe("codeview.session reload on a jj repository", function()
+  local fixture = fixtures.jj()
+  local session_mod = require("codeview.session")
+
+  ---Write a file of the working copy.
+  ---@param name string Path from the repository root.
+  ---@param text string Content of the file.
+  local function write(name, text)
+    local handle = assert(io.open(vim.fs.joinpath(fixture.dir, name), "wb"))
+    handle:write(text)
+    handle:close()
+  end
+
+  after_each(function()
+    session_mod.close()
+  end)
+
+  it("takes the new state of the working copy", function()
+    local review = assert(session_mod.open("@", { dir = fixture.dir }))
+    local before = review.range.to
+    write("fresh.txt", "fresh\n")
+
+    local same, err = review:reload()
+    assert.is_nil(err)
+    assert.are.equal(review, same)
+    -- The snapshot gives `@` a new commit id, and the new file is a change of
+    -- the range.
+    assert.are_not.equal(before, review.range.to)
+    assert.is_truthy(review:index_of("fresh.txt"))
+  end)
+
+  it("sends the refresh event", function()
+    local review = assert(session_mod.open("@", { dir = fixture.dir }))
+    local seen = 0
+    local group = vim.api.nvim_create_augroup("codeview.test.reload", { clear = true })
+    vim.api.nvim_create_autocmd("User", {
+      group = group,
+      pattern = "CodeViewSessionRefreshed",
+      callback = function()
+        seen = seen + 1
+      end,
+    })
+
+    write("second.txt", "second\n")
+    assert(review:reload())
+    vim.api.nvim_del_augroup_by_id(group)
+    assert.are.equal(1, seen)
+  end)
+
+  it("keeps a review that does not hold the working-copy commit", function()
+    local review = assert(session_mod.open("@-", { dir = fixture.dir }))
+    local before = review.range.to
+    write("third.txt", "third\n")
+
+    local same, err = review:reload()
+    assert.is_nil(err)
+    assert.are.equal(review, same)
+    assert.are.equal(before, review.range.to)
+    assert.is_nil(review:index_of("third.txt"))
+  end)
+
+  it("reloads asynchronously", function()
+    local review = assert(session_mod.open("@", { dir = fixture.dir }))
+    local before = review.range.to
+    write("fourth.txt", "fourth\n")
+
+    local same, err = await(function(cb)
+      review:reload(cb)
+    end)
+    assert.is_nil(err)
+    assert.are.equal(review, same)
+    assert.are_not.equal(before, review.range.to)
+    assert.is_truthy(review:index_of("fourth.txt"))
   end)
 
   it("removes the fixture", function()

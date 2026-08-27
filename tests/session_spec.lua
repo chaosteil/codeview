@@ -241,6 +241,47 @@ describe("codeview.session", function()
     end)
   end)
 
+  describe("reload", function()
+    it("keeps a git session, because a file moves no commit there", function()
+      -- The head of the range is HEAD, so the reload asks the backend for the
+      -- working copy. git holds it outside the commits, so nothing moves.
+      local opened = open(fixture.ids.shuffle)
+      opened.files = {}
+      local same, err = opened:reload()
+      assert.is_nil(err)
+      assert.are.equal(opened, same)
+      assert.are.equal(fixture.ids.shuffle, opened.range.to)
+      assert.are.same({}, opened.files)
+    end)
+
+    it("keeps a review that does not hold the working copy", function()
+      local opened = open(fixture.ids.edit)
+      opened.files = {}
+      local same, err = opened:reload()
+      assert.is_nil(err)
+      assert.are.equal(opened, same)
+      assert.are.equal(fixture.ids.edit, opened.range.to)
+      assert.are.same({}, opened.files)
+    end)
+
+    it("reloads asynchronously", function()
+      local opened = open(fixture.ids.shuffle)
+      local same, err = await(function(cb)
+        opened:reload(cb)
+      end)
+      assert.is_nil(err)
+      assert.are.equal(opened, same)
+    end)
+
+    it("rejects a closed session", function()
+      local opened = open(fixture.ids.shuffle)
+      opened:close()
+      local same, err = opened:reload()
+      assert.is_nil(same)
+      assert.are.equal("invalid_arg", err.code)
+    end)
+  end)
+
   describe("lifecycle", function()
     it("closes the windows of the session", function()
       local opened = open(fixture.ids.edit)

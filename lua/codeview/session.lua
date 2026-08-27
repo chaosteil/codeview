@@ -11,6 +11,10 @@
 --- `open()` takes an optional callback, like the backend calls. Without a
 --- callback it blocks and returns `session, err`. With a callback it returns
 --- at once and calls `cb(session, err)` on the main loop.
+---
+--- A session reads its data again with |codeview.Session:refresh()|. On a
+--- review of the working-copy commit, |codeview.Session:reload()| also takes
+--- the new state of the working copy.
 
 local config = require("codeview.config")
 local errors = require("codeview.error")
@@ -329,24 +333,20 @@ function Session:is_active()
   return not self.closed
 end
 
----Read the changed files and the commits again.
----
---- Use this call after the repository changed, for example after an amend.
+---Read the files and the commits of one range into a session.
+---@param session codeview.Session
+---@param range codeview.vcs.Range Range to read. It becomes the range of the session.
 ---@param cb? fun(session: codeview.Session?, err: codeview.Error?) Callback for the async form.
 ---@return codeview.Session? session
 ---@return codeview.Error? err
-function Session:refresh(cb)
-  if self.closed then
-    return done(cb, nil, errors.new(errors.codes.INVALID_ARG, "the session is closed"))
-  end
-
+local function reread(session, range, cb)
   local state = {}
   local steps = {
     into(function(step_cb)
-      return self.repo:changed_files(self.range, step_cb)
+      return session.repo:changed_files(range, step_cb)
     end, state, "files"),
     into(function(step_cb)
-      return self.repo:log({ range = self.range }, step_cb)
+      return session.repo:log({ range = range }, step_cb)
     end, state, "commits"),
   }
 
@@ -357,13 +357,14 @@ function Session:refresh(cb)
   ---@return codeview.Session? session
   ---@return codeview.Error? err
   local function apply()
-    if self.closed then
+    if session.closed then
       return nil, errors.new(errors.codes.INVALID_ARG, "the session is closed")
     end
-    self.files = with_message(state.files, state.commits)
-    self.commits = state.commits
-    announce("CodeViewSessionRefreshed", self)
-    return self, nil
+    session.range = range
+    session.files = with_message(state.files, state.commits)
+    session.commits = state.commits
+    announce("CodeViewSessionRefreshed", session)
+    return session, nil
   end
 
   if not cb then
@@ -380,6 +381,107 @@ function Session:refresh(cb)
       return
     end
     cb(apply())
+  end)
+  return nil, nil
+end
+
+---Read the changed files and the commits again.
+---
+--- Use this call after the repository changed, for example after an amend.
+--- The range stays as it is. |codeview.Session:reload()| also moves the head
+--- of the range to the working copy.
+---@param cb? fun(session: codeview.Session?, err: codeview.Error?) Callback for the async form.
+---@return codeview.Session? session
+---@return codeview.Error? err
+function Session:refresh(cb)
+  if self.closed then
+    return done(cb, nil, errors.new(errors.codes.INVALID_ARG, "the session is closed"))
+  end
+  return reread(self, self.range, cb)
+end
+
+---Read the review again after a change of the working copy.
+---
+--- The call acts only on a review that holds the commit of the working copy:
+--- `@` on a jj repository. It then writes the working copy into that commit.
+--- The new commit id becomes the head of the range, and the call reads the
+--- files and the commits of that range again. Every other review keeps its
+--- data, and the working copy of the repository stays as it is.
+---
+--- git holds the working copy outside the commits, so a change of a file
+--- moves no commit there. A git session therefore always keeps its data.
+---
+--- The comments stay with the session, because the comment file follows the
+--- session and not the range.
+---@param cb? fun(session: codeview.Session?, err: codeview.Error?) Callback for the async form.
+---@return codeview.Session? session The session. Its data is new when the working copy moved the head.
+---@return codeview.Error? err
+function Session:reload(cb)
+  if self.closed then
+    return done(cb, nil, errors.new(errors.codes.INVALID_ARG, "the session is closed"))
+  end
+
+  ---Range of the session with a new commit at its head.
+  ---@param head string Commit that the working copy sits on now.
+  ---@return codeview.vcs.Range
+  local function moved(head)
+    return { from = self.range.from, to = head, spec = self.range.spec }
+  end
+
+  ---@return codeview.Error
+  local function gone()
+    return errors.new(errors.codes.INVALID_ARG, "the session is closed")
+  end
+
+  if not cb then
+    local head, head_err = self.repo:working_rev()
+    if not head then
+      return nil, head_err
+    end
+    -- The review holds another commit, so the working copy does not belong to
+    -- it. A snapshot then writes the repository for nothing.
+    if head ~= self.range.to then
+      return self, nil
+    end
+    local fresh, snapshot_err = self.repo:snapshot()
+    if not fresh then
+      return nil, snapshot_err
+    end
+    -- The same commit means that the working copy holds no new state.
+    if fresh == head then
+      return self, nil
+    end
+    return reread(self, moved(fresh), nil)
+  end
+
+  self.repo:working_rev(function(head, head_err)
+    if not head then
+      cb(nil, head_err)
+      return
+    end
+    if self.closed then
+      cb(nil, gone())
+      return
+    end
+    if head ~= self.range.to then
+      cb(self, nil)
+      return
+    end
+    self.repo:snapshot(function(fresh, snapshot_err)
+      if not fresh then
+        cb(nil, snapshot_err)
+        return
+      end
+      if self.closed then
+        cb(nil, gone())
+        return
+      end
+      if fresh == head then
+        cb(self, nil)
+        return
+      end
+      reread(self, moved(fresh), cb)
+    end)
   end)
   return nil, nil
 end
