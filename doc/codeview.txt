@@ -802,11 +802,23 @@ The overview buffer holds these maps. |codeview-config| names the keys: >
     <leader>ce  edit the comment under the cursor
     <leader>cd  delete the comment under the cursor, after a question
     <leader>cr  resolve the comment under the cursor, or open it again
+    <leader>cx  show the markdown of the comments in a scratch buffer
+    <leader>cy  write the markdown of the comments into the register
     <leader>co  close the overview
     q           close the overview
 <
 `q` closes the overview only. The session stays open, and the changed-files
 sidebar stays open.
+
+                                                    *codeview-overview-export*
+`<leader>cx` shows the markdown of the export in a scratch buffer. The buffer
+holds every comment of the session, so you copy one part of the text or the
+whole text. See |codeview-export|.
+
+`<leader>cy` writes the same markdown into the register of the
+`export.register` option. That register is "+" by default, so the key writes
+the review to the clipboard of the system. The key opens no buffer, and the
+cursor stays in the overview.
 
                                                       *codeview-overview-jump*
 `<CR>` on a comment opens the diff of its file and moves the cursor to the
@@ -844,6 +856,10 @@ the state: >lua
 The export renders the comments of the session as markdown. Run
 |:Codeview-export|. The text goes into a scratch buffer and into a register,
 so you paste the review into a chat window or into a pull request description.
+
+The comment overview holds the same two actions on keys. `<leader>cx` shows
+the export in a scratch buffer, and `<leader>cy` writes it into the register
+only. See |codeview-overview-export|.
 
 The default template is plain markdown: >markdown
 
@@ -1422,6 +1438,8 @@ Defaults: >lua
         resolve_comment = "<leader>cr",
         show_comment = "K",
         toggle_overview = "<leader>co",
+        export = "<leader>cx",
+        copy_comments = "<leader>cy",
         editor_save = "ZZ",
         editor_cancel = { "q", "<Esc><Esc>" },
         close = "q",
@@ -1495,6 +1513,8 @@ The table names the surface of each action: >
     resolve_comment   <leader>cr       O D  resolve the comment, or reopen it
     show_comment      K                  D  show the comment in a float
     toggle_overview   <leader>co     S O D  open or close the overview
+    export            <leader>cx       O    show the export in a buffer
+    copy_comments     <leader>cy       O    write the export into the register
     editor_save       ZZ                   E  save the comment
     editor_cancel     q  <Esc><Esc>       E  discard the comment
     close             q              S O D  close the session or the panel

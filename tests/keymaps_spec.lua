@@ -61,6 +61,9 @@ describe("codeview keymaps", function()
       { surface = "view", mode = "n" },
       { surface = "overview", mode = "n" },
     },
+    -- The export keys act on the whole review, so they sit in the overview.
+    export = { { surface = "overview", mode = "n" } },
+    copy_comments = { { surface = "overview", mode = "n" } },
     editor_save = { { surface = "editor", mode = "n" } },
     editor_cancel = { { surface = "editor", mode = "n" } },
     close = {
@@ -208,14 +211,17 @@ describe("codeview keymaps", function()
   end)
 
   it("takes a key of the user for every action", function()
+    -- One key of the user per action. The lower case letters and the upper
+    -- case letters together hold 52 actions.
+    local letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
     ---@type table<string, string>
     local custom = {}
     local index = 0
     for action in pairs(config.defaults.keymaps) do
       index = index + 1
-      custom[action] = "," .. string.char(96 + index)
+      custom[action] = "," .. letters:sub(index, index)
     end
-    assert.is_true(index <= 26, "the audit needs one letter per action")
+    assert.is_true(index <= #letters, "the audit needs one letter per action")
     config.setup({ commit_message = false, comments = { dir = store_dir }, diff = { max_lines = 1 }, keymaps = custom })
 
     local keys = surface_keys(open_session())

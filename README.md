@@ -51,7 +51,10 @@ To set options, set the opts:
 3. Press `i` on a line to write a comment. Save it with `:w`. Press `i` again
    to edit it.
 4. Press `<leader>co` to see all comments of the review.
-5. Run `:Codeview export` to put the review into your clipboard.
+5. Press `<leader>cx` there to read the review as markdown.
+6. Press `<leader>cy` to put the review into your clipboard.
+
+`:Codeview export` runs the same export from any window of the session.
 
 On a jj repository the argument is a revset, for example
 `:Codeview trunk()..@`. For a GitHub pull request, run `:Codeview pr 128`.

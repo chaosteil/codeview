@@ -82,6 +82,20 @@ describe("codeview.hints", function()
     assert.is_truthy(diff_text:find("]h", 1, true), diff_text)
   end)
 
+  it("names the export keys of the comment overview", function()
+    local session = open_session()
+    hints.open({ session = session })
+    local bar = assert(overview.open({ session = session }))
+    api.nvim_set_current_win(bar.panel:window())
+    hints.refresh()
+
+    local text = assert(hints.text())
+    -- The row writes the leader of the user before the key, so the test reads
+    -- the part after it.
+    assert.is_truthy(text:find("cx export", 1, true), text)
+    assert.is_truthy(text:find("cy copy", 1, true), text)
+  end)
+
   it("leaves the keys that the window shows out", function()
     local session = open_session()
     hints.open({ session = session })

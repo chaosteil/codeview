@@ -568,6 +568,54 @@ describe("codeview.overview", function()
     end)
   end)
 
+  describe("the export keys", function()
+    ---Set the register of the export to a register that needs no clipboard.
+    local function with_register()
+      assert(config.setup({ comments = { dir = dir }, export = { register = "z" } }))
+      vim.fn.setreg("z", "")
+    end
+
+    it("shows the markdown of the comments in a scratch buffer", function()
+      with_register()
+      add_comment({ file = "call.lua", start_line = 1, end_line = 1, body = "please rename" })
+      local bar = open_overview({ focus = true })
+
+      press("<leader>cx")
+      local buf = api.nvim_get_current_buf()
+      assert.are.equal("markdown", vim.bo[buf].filetype)
+      assert.is_false(vim.bo[buf].modifiable)
+      local text = table.concat(api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
+      assert.is_truthy(text:find("## call.lua", 1, true), text)
+      assert.is_truthy(text:find("please rename", 1, true), text)
+      -- The buffer takes the focus, and the register holds the same text.
+      assert.are_not.equal(bar.panel:window(), api.nvim_get_current_win())
+      assert.is_truthy(vim.fn.getreg("z"):find("please rename", 1, true))
+    end)
+
+    it("writes the markdown into the register without a buffer", function()
+      with_register()
+      add_comment({ file = "call.lua", start_line = 1, end_line = 1, body = "please rename" })
+      local bar = open_overview({ focus = true })
+
+      press("<leader>cy")
+      assert.is_truthy(vim.fn.getreg("z"):find("please rename", 1, true))
+      assert.are.equal(bar.panel:window(), api.nvim_get_current_win())
+      for _, buf in ipairs(api.nvim_list_bufs()) do
+        assert.is_nil(api.nvim_buf_get_name(buf):find("export.md", 1, true))
+      end
+    end)
+
+    it("needs no comment", function()
+      with_register()
+      local bar = open_overview()
+
+      local result = assert(bar:copy())
+      assert.are.equal(0, result.count)
+      assert.are.equal("z", result.register)
+      assert.is_truthy(vim.fn.getreg("z"):find("No comments.", 1, true))
+    end)
+  end)
+
   describe("the refresh events", function()
     it("shows a comment that the diff view adds", function()
       local bar = open_overview()

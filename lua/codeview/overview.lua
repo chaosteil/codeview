@@ -19,6 +19,12 @@
 --- Each of them writes the session file and sends an event of
 --- |codeview.events|, so the diff view draws its extmarks again at once.
 ---
+--- Two more keys act on the whole review. The export key shows the markdown
+--- of |codeview.export| in a scratch buffer. The copy key writes the same
+--- markdown into the register of the `export.register` option. That register
+--- is `+` by default, so the copy key writes the review to the clipboard of
+--- the system.
+---
 --- The overview uses |codeview.panel| for the window and |codeview.tree| for
 --- the tree, like the changed-files sidebar. The plugin keeps one overview. It
 --- belongs to the session that runs, and it closes with that session.
@@ -26,6 +32,7 @@
 local comments_mod = require("codeview.comments")
 local config = require("codeview.config")
 local errors = require("codeview.error")
+local export = require("codeview.export")
 local message = require("codeview.message")
 local events = require("codeview.events")
 local highlight = require("codeview.highlight")
@@ -746,6 +753,36 @@ function Overview:set_state(state)
   return comments_mod.set_state({ id = comment.id, state = state, session = self.session })
 end
 
+---Show the markdown of the comments in a scratch buffer.
+---
+--- The buffer holds the whole export. A reader copies one part of the text, or
+--- the whole text. The call also writes the register of the `export.register`
+--- option. See |codeview-export|.
+---@return codeview.export.Result? result Nil after an error.
+function Overview:export()
+  local result, err = export.run({ session = self.session })
+  if err then
+    report(err)
+    return nil
+  end
+  return result
+end
+
+---Write the markdown of the comments into the register.
+---
+--- The register comes from the `export.register` option. This option holds `+`
+--- by default, so the text goes to the clipboard of the system. The call opens
+--- no buffer, and the cursor stays in the overview.
+---@return codeview.export.Result? result Nil after an error.
+function Overview:copy()
+  local result, err = export.run({ session = self.session, buffer = false })
+  if err then
+    report(err)
+    return nil
+  end
+  return result
+end
+
 ---Close the overview. The session stays open.
 ---@return boolean closed
 function Overview:close()
@@ -803,6 +840,12 @@ local function keymaps(overview)
   add(keys.resolve_comment, function()
     overview:set_state()
   end, "resolve the comment under the cursor, or open it again")
+  add(keys.export, function()
+    overview:export()
+  end, "show the markdown of the comments in a scratch buffer")
+  add(keys.copy_comments, function()
+    overview:copy()
+  end, "write the markdown of the comments into the register")
   add(keys.toggle_overview, function()
     overview:close()
   end, "close the comment overview")

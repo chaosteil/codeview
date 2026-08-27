@@ -162,6 +162,11 @@ M.defaults = {
     resolve_comment = '<leader>cr',
     show_comment = 'K',
     toggle_overview = '<leader>co',
+    -- The comment overview holds the whole review, so the export keys are
+    -- there. `<leader>cx` shows the markdown in a buffer. `<leader>cy` writes
+    -- the markdown into the register of the `export.register` option.
+    export = '<leader>cx',
+    copy_comments = '<leader>cy',
     editor_save = 'ZZ',
     editor_cancel = { 'q', '<Esc><Esc>' },
     close = 'q',

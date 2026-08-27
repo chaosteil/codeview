@@ -62,6 +62,8 @@ M.actions = {
     { action = "edit_comment", text = "edit" },
     { action = "delete_comment", text = "delete" },
     { action = "resolve_comment", text = "resolve" },
+    { action = "export", text = "export" },
+    { action = "copy_comments", text = "copy" },
     { action = "toggle_overview", text = "close" },
   },
 }
