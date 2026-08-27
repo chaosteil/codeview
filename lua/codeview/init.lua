@@ -41,7 +41,7 @@ end
 ---Open a review session.
 ---
 --- The argument is user text (`a`, `a..b`, `a...b`) or a range table. Without
---- a callback the call blocks. The command `:CodeView` calls this function.
+--- a callback the call blocks. The command `:Codeview` calls this function.
 ---@param spec string|codeview.vcs.Range|codeview.vcs.RangeSpec Revision argument.
 ---@param opts? codeview.session.OpenOpts
 ---@param cb? fun(session: codeview.Session?, err: codeview.Error?) Callback for the async form.
@@ -62,7 +62,7 @@ end
 ---
 --- The call reads the pull request with the gh CLI, fetches its commits into
 --- the refs of the plugin, and opens the range `base...head`. The working copy
---- does not change. The command `:CodeView pr <number>` calls this function.
+--- does not change. The command `:Codeview pr <number>` calls this function.
 ---@param number integer? Number of the pull request. Nil takes the pull request of the branch.
 ---@param opts? { dir?: string, repo?: string, remote?: string, comments?: boolean }
 ---@param cb? fun(session: codeview.Session?, err: codeview.Error?) Callback for the async form.
@@ -292,7 +292,7 @@ end
 ---
 --- The call renders the markdown, writes it into the register of the
 --- `export.register` option, and shows it in a scratch buffer. The command
---- `:CodeView export` calls this function.
+--- `:Codeview export` calls this function.
 ---@param opts? codeview.export.Opts
 ---@return codeview.export.Result? result
 ---@return codeview.Error? err
@@ -313,7 +313,7 @@ end
 ---Send the comments of the session that runs to the pull request.
 ---
 --- The call shows a summary and posts only after the user confirms it. The
---- command `:CodeView submit` calls this function.
+--- command `:Codeview submit` calls this function.
 ---@param opts? codeview.submit.Opts
 ---@param cb? fun(result: codeview.submit.Result?, err: codeview.Error?) Handler of the answer.
 function M.submit(opts, cb)

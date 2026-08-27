@@ -1,6 +1,6 @@
 ---@brief Review of a GitHub pull request.
 ---
---- `:CodeView pr <number>` reads the pull request with |codeview.gh|, brings
+--- `:Codeview pr <number>` reads the pull request with |codeview.gh|, brings
 --- its commits into the repository, and opens a normal review session on them.
 --- Every feature of a local review then works on the pull request: the
 --- changed-files sidebar, both diff styles, the comments, and the export.

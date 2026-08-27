@@ -67,11 +67,11 @@ describe("codeview documentation", function()
     -- that defines the command runs here. The plugin holds one command, and
     -- the table of `codeview.command` holds every subcommand of it.
     vim.cmd.source(vim.fs.joinpath(helpers.root, "plugin", "codeview.lua"))
-    assert.are.same({ "CodeView" }, vim.fn.getcompletion("CodeView", "command"))
+    assert.are.same({ "Codeview" }, vim.fn.getcompletion("Codeview", "command"))
 
-    local names = { ":CodeView", ":CodeView pr" }
+    local names = { ":Codeview", ":Codeview pr" }
     for name in pairs(require("codeview.command").subcommands) do
-      names[#names + 1] = ":CodeView " .. name
+      names[#names + 1] = ":Codeview " .. name
     end
     assert.is_true(#names >= 8, "the plugin defines the subcommands")
     assert.are.same({}, missing_from(vimdoc, names))
@@ -84,8 +84,8 @@ describe("codeview documentation", function()
     -- plugin. One command needs one name, as a string or as a list.
     local value =
       assert(readme:match("cmd = (%b{})") or readme:match('cmd = ("[^"]*")'), "the README holds a cmd value")
-    assert.is_truthy(value:find('"CodeView"', 1, true), "the cmd value holds the command: " .. value)
-    assert.is_nil(value:match('"CodeView%a'), "the cmd value holds no other command: " .. value)
+    assert.is_truthy(value:find('"Codeview"', 1, true), "the cmd value holds the command: " .. value)
+    assert.is_nil(value:match('"Codeview%a'), "the cmd value holds no other command: " .. value)
   end)
 
   it("names every configuration option", function()

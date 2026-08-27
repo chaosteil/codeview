@@ -392,7 +392,7 @@ describe("codeview.export", function()
     end)
   end)
 
-  describe(":CodeView export", function()
+  describe(":Codeview export", function()
     it("reports a run without a session", function()
       local messages = {}
       local notify = vim.notify
@@ -416,7 +416,7 @@ describe("codeview.export", function()
 
     it("completes the register of the argument with the lead", function()
       local res = helpers.clean_nvim(
-        'print(#vim.fn.getcompletion("CodeView export ", "cmdline"), vim.inspect(vim.fn.getcompletion("CodeView export z", "cmdline")))'
+        'print(#vim.fn.getcompletion("Codeview export ", "cmdline"), vim.inspect(vim.fn.getcompletion("Codeview export z", "cmdline")))'
       )
       assert.are.equal(0, res.code)
       assert.is_truthy(res.output:find('{ "z" }', 1, true), res.output)

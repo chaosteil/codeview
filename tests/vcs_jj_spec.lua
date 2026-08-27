@@ -349,7 +349,7 @@ describe("codeview.picker on a jj repository", function()
     assert.are.equal(fixture.ids.init, review.range.from)
     assert.are.equal(fixture.ids.shuffle, review.range.to)
 
-    -- The label must stay valid input for `:CodeView`. jj writes the parent of
+    -- The label must stay valid input for `:Codeview`. jj writes the parent of
     -- a commit as `<rev>-`, not as `<rev>^`.
     local label = review:label()
     assert.is_truthy(label:find("-..", 1, true), label)
@@ -461,7 +461,7 @@ describe("codeview.vcs.jj in a colocated repository", function()
     opened:close()
   end)
 
-  it("opens a session through :CodeView with a revset", function()
+  it("opens a session through :Codeview with a revset", function()
     local command = require("codeview.command")
     local session = require("codeview.session")
     local out, finished = {}, false

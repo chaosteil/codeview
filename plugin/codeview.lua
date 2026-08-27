@@ -21,7 +21,7 @@ end
 -- One command drives the plugin. `codeview.command` holds the subcommands, so
 -- the completion reads its table. The require stays inside the callbacks: the
 -- module loads on the first run and on the first completion, not at startup.
-vim.api.nvim_create_user_command("CodeView", function(opts)
+vim.api.nvim_create_user_command("Codeview", function(opts)
   require("codeview.command").run(opts)
 end, {
   nargs = "*",

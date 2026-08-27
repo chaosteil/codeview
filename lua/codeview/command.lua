@@ -1,16 +1,16 @@
 ---@brief The user command of codeview.
 ---
---- `:CodeView` drives the whole plugin. `:CodeView <rev>` reviews one commit,
---- and `:CodeView <rev>..<rev>` reviews a range. On a jj repository the
---- argument is a revset, for example `:CodeView ::@` or
---- `:CodeView trunk()..@`. `:CodeView` without an argument opens the commit
---- picker, and `:CodeView!` opens the picker in the range mode.
+--- `:Codeview` drives the whole plugin. `:Codeview <rev>` reviews one commit,
+--- and `:Codeview <rev>..<rev>` reviews a range. On a jj repository the
+--- argument is a revset, for example `:Codeview ::@` or
+--- `:Codeview trunk()..@`. `:Codeview` without an argument opens the commit
+--- picker, and `:Codeview!` opens the picker in the range mode.
 ---
 --- The first word can also name a subcommand: `pr`, or one name of
 --- `M.subcommands`. That table holds the handler, the values of the argument
 --- completion, and the description of every subcommand. A subcommand name
 --- wins over a revision of the same name. Write such a revision as a range,
---- for example `:CodeView close^..close`.
+--- for example `:Codeview close^..close`.
 ---
 --- The command file in `plugin/` registers the command. It reads
 --- `M.subcommands` for the completion, and it calls this module only when the
@@ -39,13 +39,13 @@ local M = {}
 
 ---@class codeview.command.RunOpts
 ---@field args string? Text after the command name.
----@field bang boolean? True after `:CodeView!`.
+---@field bang boolean? True after `:Codeview!`.
 ---@field dir string? Directory for the repository detection.
 ---@field on_open fun(session: codeview.Session?, err: codeview.Error?)? Handler of the answer.
 
 ---@class codeview.command.SubOpts
 ---@field args string? Text after the name of the subcommand.
----@field bang boolean? True after `:CodeView!`.
+---@field bang boolean? True after `:Codeview!`.
 ---@field on_done fun(result: codeview.submit.Result?, err: codeview.Error?)? Handler of the answer of a submit.
 
 ---Report an error to the user.
@@ -85,7 +85,7 @@ local function opened(review, err)
   api.nvim_echo({ { "codeview: " .. review:summary() } }, false, {})
 end
 
----Read the arguments of `:CodeView`.
+---Read the arguments of `:Codeview`.
 ---
 --- The text goes to the backend as it is. Each backend reads the revision
 --- language that it knows: git reads `a`, `a..b`, and `a...b`, and jj reads a
@@ -99,7 +99,7 @@ end
 --- `pr <number>` reviews a GitHub pull request. `pr` without a number takes
 --- the pull request of the current branch.
 ---@param args string? Text after the command name.
----@param bang boolean? True after `:CodeView!`.
+---@param bang boolean? True after `:Codeview!`.
 ---@return codeview.command.Args? parsed
 ---@return codeview.Error? err
 function M.parse(args, bang)
@@ -128,7 +128,7 @@ function M.parse(args, bang)
     return { action = "pr", text = text, number = tonumber(number) }, nil
   end
   if lower:match("^pr%s") then
-    return nil, errors.new(errors.codes.INVALID_ARG, "the pr argument needs a number: :CodeView pr <number>")
+    return nil, errors.new(errors.codes.INVALID_ARG, "the pr argument needs a number: :Codeview pr <number>")
   end
 
   local range, err = vcs.parse_range(text)
@@ -138,7 +138,7 @@ function M.parse(args, bang)
   return { action = "review", text = text, range = range }, nil
 end
 
----Run `:CodeView`.
+---Run `:Codeview`.
 ---
 --- The argument table comes from the user command. `dir` and `on_open` are
 --- extra fields for callers inside the plugin: `dir` sets the directory of the
@@ -172,19 +172,19 @@ function M.run(opts)
   session.open(parsed.text --[[@as string]], { dir = opts.dir }, opts.on_open or opened)
 end
 
----Run `:CodeView close`.
+---Run `:Codeview close`.
 function M.close()
   if not session.close() then
     vim.notify("codeview: no review session", vim.log.levels.WARN)
   end
 end
 
----Run `:CodeView back`.
+---Run `:Codeview back`.
 function M.back()
   require("codeview.view").back()
 end
 
----Run `:CodeView files`.
+---Run `:Codeview files`.
 ---
 --- The command closes the sidebar when it is open. Otherwise it opens the
 --- sidebar and puts the cursor in it.
@@ -199,7 +199,7 @@ function M.files()
   end
 end
 
----Run `:CodeView comments`.
+---Run `:Codeview comments`.
 ---
 --- The command closes the comment overview when it is open. Otherwise it opens
 --- the overview and puts the cursor in it.
@@ -214,7 +214,7 @@ function M.overview()
   end
 end
 
----Run `:CodeView export`.
+---Run `:Codeview export`.
 ---
 --- The argument names the register that receives the markdown. Without an
 --- argument the call takes the `export.register` option. After `!` the export
@@ -235,7 +235,7 @@ function M.export(opts)
   return result
 end
 
----Run `:CodeView submit`.
+---Run `:Codeview submit`.
 ---
 --- The argument names the event of the review: `comment`, `approve`, or
 --- `request-changes`. Without an argument the call asks for the event. After
@@ -257,7 +257,7 @@ end
 ---@field args string[]? Values that the completion offers for the argument.
 ---@field desc string One line about the subcommand.
 
----The subcommands of `:CodeView`.
+---The subcommands of `:Codeview`.
 ---
 --- This table is the single source of truth. `M.run` takes the handler from
 --- it, and the completion of the command takes the names and the values of

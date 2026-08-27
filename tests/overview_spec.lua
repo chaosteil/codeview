@@ -692,9 +692,9 @@ describe("codeview.overview", function()
   end)
 
   describe("the command", function()
-    it("knows :CodeView comments", function()
+    it("knows :Codeview comments", function()
       local command = require("codeview.command")
-      assert.is_truthy(api.nvim_get_commands({}).CodeView)
+      assert.is_truthy(api.nvim_get_commands({}).Codeview)
       assert.are.equal(command.overview, command.subcommands.comments.run)
     end)
 

@@ -146,7 +146,7 @@ end
 
 ---Operator that names the parent of a commit, per backend.
 ---
---- The label of a range must stay valid input for `:CodeView`. git writes the
+--- The label of a range must stay valid input for `:Codeview`. git writes the
 --- parent of a commit as `<rev>^`, jj writes it as `<rev>-`.
 ---@type table<string, string>
 local PARENT = {

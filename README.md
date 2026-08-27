@@ -26,7 +26,7 @@ With [lazy.nvim](https://github.com/folke/lazy.nvim):
 ```lua
 {
   "chaosteil/codeview",
-  cmd = "CodeView",
+  cmd = "Codeview",
 }
 ```
 To set options, set the opts:
@@ -34,7 +34,7 @@ To set options, set the opts:
 ```lua
 {
   "chaosteil/codeview",
-  cmd = "CodeView",
+  cmd = "Codeview",
   opts = {,
     diff = { style = "split" },
     sidebar = { position = "right", width = 50 },
@@ -46,30 +46,30 @@ To set options, set the opts:
 
 ## Quick start
 
-1. Run `:CodeView HEAD~3..HEAD` in a repository.
+1. Run `:Codeview HEAD~3..HEAD` in a repository.
 2. Walk the files in the sidebar. Press `<CR>` to open a diff.
 3. Press `i` on a line to write a comment. Save it with `:w`. Press `i` again
    to edit it.
 4. Press `<leader>co` to see all comments of the review.
-5. Run `:CodeView export` to put the review into your clipboard.
+5. Run `:Codeview export` to put the review into your clipboard.
 
 On a jj repository the argument is a revset, for example
-`:CodeView trunk()..@`. For a GitHub pull request, run `:CodeView pr 128`.
+`:Codeview trunk()..@`. For a GitHub pull request, run `:Codeview pr 128`.
 
 ## Commands
 
 ```vim
-:CodeView HEAD             " one commit
-:CodeView HEAD~3..HEAD     " a range of commits
-:CodeView main...feature   " the changes since the merge base
-:CodeView pr 128           " review a GitHub pull request
-:CodeView                  " pick one commit from the log
-:CodeView close            " close the session
-:CodeView files            " open or close the changed-files sidebar
-:CodeView comments         " open or close the comment overview
-:CodeView back             " back to the review from a file
-:CodeView export           " render the comments as markdown
-:CodeView submit           " send the comments to the pull request
+:Codeview HEAD             " one commit
+:Codeview HEAD~3..HEAD     " a range of commits
+:Codeview main...feature   " the changes since the merge base
+:Codeview pr 128           " review a GitHub pull request
+:Codeview                  " pick one commit from the log
+:Codeview close            " close the session
+:Codeview files            " open or close the changed-files sidebar
+:Codeview comments         " open or close the comment overview
+:Codeview back             " back to the review from a file
+:Codeview export           " render the comments as markdown
+:Codeview submit           " send the comments to the pull request
 ```
 
 ## Documentation

@@ -382,7 +382,7 @@ describe("codeview.pr", function()
     end)
   end)
 
-  describe(":CodeView pr", function()
+  describe(":Codeview pr", function()
     it("reads the number", function()
       local command = require("codeview.command")
       local parsed = assert(command.parse("pr 12"))

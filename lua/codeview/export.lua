@@ -338,7 +338,7 @@ end
 --- The buffer is read-only and holds markdown. A second export of the same
 --- session takes the name of the first one, so the tab page keeps one export
 --- buffer. The buffer and the window belong to the session, so
---- |:CodeView-close| removes them.
+--- |:Codeview-close| removes them.
 ---@param session codeview.Session Session of the export.
 ---@param text string Markdown of the export.
 ---@param opts? { focus?: boolean }

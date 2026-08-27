@@ -113,10 +113,10 @@ describe("codeview", function()
     -- The old commands are gone, and the command loads no module of the plugin
     -- before it runs.
     local res = helpers.clean_nvim(
-      'print(vim.fn.exists(":CodeView"), vim.fn.exists(":CodeViewClose"), vim.inspect(vim.fn.getcompletion("CodeView", "command")), package.loaded["codeview.command"] == nil, package.loaded["codeview.session"] == nil)'
+      'print(vim.fn.exists(":Codeview"), vim.fn.exists(":CodeviewClose"), vim.inspect(vim.fn.getcompletion("Codeview", "command")), package.loaded["codeview.command"] == nil, package.loaded["codeview.session"] == nil)'
     )
     assert.are.equal(0, res.code)
-    assert.is_truthy(res.output:find('2 0 { "CodeView" } true true', 1, true), res.output)
+    assert.is_truthy(res.output:find('2 0 { "Codeview" } true true', 1, true), res.output)
   end)
 
   it("reads options from vim.g.codeview", function()

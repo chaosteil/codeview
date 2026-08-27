@@ -1,6 +1,6 @@
 ---@brief Send the comments of a session to a GitHub pull request.
 ---
---- `:CodeView submit` posts every comment of the session that no submit sent
+--- `:Codeview submit` posts every comment of the session that no submit sent
 --- yet. The plugin sends the comments as one review, with
 --- `POST /pulls/<n>/reviews`. The pull request then shows one entry with all
 --- the lines, not one entry per comment.
