@@ -147,7 +147,8 @@ names, write the revision as a range, for example `:Codeview close^..close`.
 :Codeview back
     Go back to the review from a file of the working copy. The window takes
     the diff of the file again, with the cursor on the row of the line that
-    the file holds. See |codeview-edit-back|.
+    the file holds. A review of the working-copy commit reads its data again
+    first. See |codeview-edit-back| and |codeview-edit-reload|.
 
                                                              *:Codeview-files*
 :Codeview files
@@ -213,6 +214,10 @@ session object. To use the session methods, read the session with
 <
 The close event comes after the session ended. |codeview.session()| gives nil
 in that handler.
+
+A session reads its data again with `session:refresh()`. On a review of the
+working-copy commit, `session:reload()` also takes the new state of the
+working copy. See |codeview-edit-reload|.
 
                                                      *codeview-commit-message*
 The commits of the range come before the files. Every commit is one entry of
@@ -554,6 +559,25 @@ the diff buffer wipes itself when the window leaves it.
 
 A file with changes that are not written needs 'hidden', or a write first,
 because the window cannot leave a modified buffer otherwise.
+
+                                                        *codeview-edit-reload*
+The file that you write is a file of the working copy. On jj the working copy
+is the commit `@`. A review of `@` therefore holds old content after your
+write.
+
+The way back reads the review again for you. If the head of the range is the
+commit of the working copy, codeview writes the working copy into that commit.
+The new commit id becomes the head of the range. codeview then reads the files
+and the commits of the range again, and the sidebar and the comment overview
+show the new list.
+
+git holds the working copy outside the commits, so a write moves no commit
+there. A git review therefore keeps its data.
+
+Set `auto_reload` to false to keep the data of the review: >lua
+
+    require("codeview").setup({ auto_reload = false })
+<
 
 ==============================================================================
 8. COMMENTS                                                  *codeview-comments*
@@ -1356,6 +1380,7 @@ A session answers these calls: >lua
     session:file(index)      -- one changed file
     session:index_of(path)   -- position of a path in the list
     session:refresh(cb)      -- read the files and the commits again
+    session:reload(cb)       -- read a review of the working copy again
     session:close()          -- close the session
 <
 ==============================================================================
@@ -1365,6 +1390,7 @@ Defaults: >lua
 
     {
       backend = "auto",              -- "auto" | "git" | "jj"
+      auto_reload = true,            -- read a review of the working copy again
       commit_message = true,         -- the commit message as the first file
       diff = {
         style = "inline",            -- "inline" | "split"
@@ -1462,10 +1488,12 @@ because the user drives such a repository with jj. Set the option to "git" or
 to "jj" to force one backend. A forced backend needs its executable in $PATH.
 Without the executable the plugin reports an error.
 
-The jj backend reads the repository only. Every jj call runs with
-`--ignore-working-copy`, so no call snapshots the working copy. A file that
-you changed after the last snapshot keeps its old content in the review. For a
-symbolic link the backend shows the target of the link.
+The jj backend reads the repository. Every jj call runs with
+`--ignore-working-copy`, so a call does not snapshot the working copy. A file
+that you changed after the last snapshot keeps its old content in the review.
+One call is different: the reload of a review of `@` snapshots the working
+copy first. See |codeview-edit-reload|. For a symbolic link the backend shows
+the target of the link.
 
 A revset that names no commit gives an error that says so, for example
 `trunk()..@` on a workspace with no new commit. The virtual root commit of jj

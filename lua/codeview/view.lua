@@ -1319,7 +1319,11 @@ end
 --- The window takes the diff of the file again, with the cursor on the line
 --- that the file holds. A file that the range does not change gets a message,
 --- because the review has no diff to show for it.
----@param opts? { win?: integer, line?: integer }
+---
+--- The file of the working copy can hold a change that the review does not
+--- know. A review of the working-copy commit therefore reads its data again
+--- first. See |codeview.Session:reload()| and the `auto_reload` option.
+---@param opts? { win?: integer, line?: integer, reload?: boolean } `reload = false` keeps the data of the session.
 ---@return boolean opened
 function M.back(opts)
   opts = opts or {}
@@ -1352,16 +1356,26 @@ function M.back(opts)
     path = full:sub(#prefix + 1)
   end
 
-  local index = session:index_of(path)
-  if not index then
-    notify("the range does not change " .. path)
-    return false
-  end
-
   -- A modified buffer stays loaded while the window shows the diff, but only
   -- when Neovim can hide it. Without 'hidden' the write comes first.
   if vim.bo[buf].modified and not vim.o.hidden then
     notify("write " .. path .. " first, or set 'hidden'")
+    return false
+  end
+
+  -- The reload can add a file to the range and remove another one, so the
+  -- position of the path comes after it. A failed reload keeps the data of
+  -- the session, which still shows a diff.
+  if opts.reload ~= false and config.get().auto_reload then
+    local _, reload_err = session:reload()
+    if reload_err then
+      notify("the reload failed: " .. tostring(reload_err), vim.log.levels.WARN)
+    end
+  end
+
+  local index = session:index_of(path)
+  if not index then
+    notify("the range does not change " .. path)
     return false
   end
 

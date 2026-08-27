@@ -413,6 +413,21 @@ describe("codeview.session reload on a jj repository", function()
     assert.is_nil(review:index_of("third.txt"))
   end)
 
+  it("keeps the comments of the session", function()
+    local review = assert(session_mod.open("@", { dir = fixture.dir }))
+    local comments = require("codeview.comments")
+    local store = assert(comments.attach(review))
+    write("fifth.txt", "fifth\n")
+
+    assert(review:reload())
+
+    -- The comment file follows the session, so the new head of the range does
+    -- not move the comments to another file.
+    local after = assert(comments.attach(review))
+    assert.are.equal(store, after)
+    assert.are.equal(store.path, after.path)
+  end)
+
   it("reloads asynchronously", function()
     local review = assert(session_mod.open("@", { dir = fixture.dir }))
     local before = review.range.to
@@ -425,6 +440,60 @@ describe("codeview.session reload on a jj repository", function()
     assert.are.equal(review, same)
     assert.are_not.equal(before, review.range.to)
     assert.is_truthy(review:index_of("fourth.txt"))
+  end)
+
+  it("removes the fixture", function()
+    fixture.cleanup()
+    assert.are.equal(0, vim.fn.isdirectory(fixture.dir))
+  end)
+end)
+
+describe("codeview back to a review of the working copy", function()
+  local fixture = fixtures.jj()
+  local session_mod = require("codeview.session")
+  local view = require("codeview.view")
+
+  ---Open a review of `@` and edit one file of it in the working copy.
+  ---@param name string Path of the file from the repository root.
+  ---@param text string Line that the editor adds to the file.
+  local function edit_file(name, text)
+    local review = assert(session_mod.open("@", { dir = fixture.dir }))
+    local state = assert(view.open(review, assert(review:index_of(name))))
+    vim.api.nvim_set_current_win(state.win)
+    assert.is_true(view.edit())
+
+    local buf = vim.api.nvim_get_current_buf()
+    vim.api.nvim_buf_set_lines(buf, -1, -1, false, { text })
+    vim.cmd.write()
+  end
+
+  ---Text of the diff that the view shows.
+  ---@return string
+  local function diff_text()
+    local state = assert(view.current())
+    return table.concat(vim.api.nvim_buf_get_lines(state.buf, 0, -1, false), "\n")
+  end
+
+  after_each(function()
+    view.close()
+    session_mod.close()
+    require("codeview.config").setup({})
+  end)
+
+  it("shows the line that the editor added", function()
+    edit_file("a.txt", "from the editor")
+
+    assert.is_true(view.back())
+    assert.is_truthy(diff_text():find("+from the editor", 1, true), diff_text())
+  end)
+
+  it("keeps the old diff when auto_reload is off", function()
+    require("codeview.config").setup({ auto_reload = false })
+    -- The write does not reach the repository, because the reload is off.
+    edit_file("a.txt", "not in the review")
+
+    assert.is_true(view.back())
+    assert.is_nil(diff_text():find("not in the review", 1, true), diff_text())
   end)
 
   it("removes the fixture", function()
