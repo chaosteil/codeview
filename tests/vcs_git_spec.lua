@@ -153,3 +153,28 @@ describe("codeview.vcs.git configuration", function()
     fixture.cleanup()
   end)
 end)
+
+describe("codeview.vcs.git on a changed working copy", function()
+  local git = require("codeview.vcs.git")
+  local fixture = fixtures.git()
+  local repo = assert(git.detect(fixture.dir))
+
+  it("keeps the commit of the working copy after a change of a file", function()
+    local before = assert(repo:working_rev())
+    assert.are.equal(fixture.ids.shuffle, before)
+
+    local handle = assert(io.open(vim.fs.joinpath(fixture.dir, "a.txt"), "ab"))
+    handle:write("six\n")
+    handle:close()
+
+    -- git holds the working copy outside the commits, so a change of a file
+    -- moves no commit. Both calls therefore report HEAD.
+    assert.are.equal(before, assert(repo:working_rev()))
+    assert.are.equal(before, assert(repo:snapshot()))
+  end)
+
+  it("removes the fixture", function()
+    fixture.cleanup()
+    assert.are.equal(0, vim.fn.isdirectory(fixture.dir))
+  end)
+end)

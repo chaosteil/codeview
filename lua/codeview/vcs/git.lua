@@ -365,6 +365,30 @@ function Repo:resolve_range(spec, cb)
   return nil, nil
 end
 
+--- Working copy --------------------------------------------------------------
+
+---Read the commit that the working copy sits on.
+---
+--- It is `HEAD`. The call reads the repository only.
+---@param cb? fun(id: string?, err: codeview.Error?) Callback for the async form.
+---@return string? id Full commit id.
+---@return codeview.Error? err
+function Repo:working_rev(cb)
+  return self:resolve_rev("HEAD", cb)
+end
+
+---Write the state of the working copy into the repository, and read its commit.
+---
+--- git holds the working copy outside the commits, so there is nothing to
+--- write. A change of a file does not move `HEAD`. The call therefore gives
+--- the same id as |working_rev|, and it changes nothing.
+---@param cb? fun(id: string?, err: codeview.Error?) Callback for the async form.
+---@return string? id Full commit id.
+---@return codeview.Error? err
+function Repo:snapshot(cb)
+  return self:working_rev(cb)
+end
+
 --- Log -----------------------------------------------------------------------
 
 ---@param record string

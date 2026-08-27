@@ -368,6 +368,30 @@ return function(opts)
       end)
     end)
 
+    describe("working copy", function()
+      it("reports the commit that the working copy sits on", function()
+        local id, err = repo:working_rev()
+        assert.is_nil(err)
+        assert.are.equal(fixture.ids.shuffle, id)
+      end)
+
+      it("keeps the commit when no file changed", function()
+        -- The fixture writes no file after the last commit, so the update of
+        -- the working copy finds nothing new.
+        local id, err = repo:snapshot()
+        assert.is_nil(err)
+        assert.are.equal(fixture.ids.shuffle, id)
+      end)
+
+      it("reads the working-copy commit asynchronously", function()
+        local id, err = await(function(cb)
+          repo:working_rev(cb)
+        end)
+        assert.is_nil(err)
+        assert.are.equal(fixture.ids.shuffle, id)
+      end)
+    end)
+
     describe("cleanup", function()
       it("removes the fixture", function()
         fixture.cleanup()

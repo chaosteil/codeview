@@ -225,6 +225,24 @@ describe("codeview.vcs.jj on a changed working copy", function()
     assert.are.equal("a.txt", assert(repo:file_content("@", "link.txt")))
   end)
 
+  it("keeps the working-copy commit until a snapshot", function()
+    local before = assert(repo:working_rev())
+    local path = vim.fs.joinpath(fixture.dir, "a.txt")
+    local handle = assert(io.open(path, "ab"))
+    handle:write("six\n")
+    handle:close()
+
+    -- Every other call runs with `--ignore-working-copy`, so the new line is
+    -- not in the repository yet.
+    assert.are.equal(before, assert(repo:working_rev()))
+    assert.is_nil(assert(repo:file_content("@", "a.txt")):find("six", 1, true))
+
+    local after = assert(repo:snapshot())
+    assert.are_not.equal(before, after)
+    assert.are.equal(after, assert(repo:working_rev()))
+    assert.is_truthy(assert(repo:file_content("@", "a.txt")):find("six", 1, true))
+  end)
+
   it("removes the fixture", function()
     fixture.cleanup()
     assert.are.equal(0, vim.fn.isdirectory(fixture.dir))

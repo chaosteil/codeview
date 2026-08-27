@@ -89,14 +89,18 @@ local STATUS = {
 local Repo = {}
 Repo.__index = Repo
 
+---@class codeview.vcs.jj.CallOpts: codeview.ExecOpts
+---@field snapshot boolean? True runs the command without `--ignore-working-copy`, so jj snapshots the working copy.
+
 ---Build a jj command line for a repository.
 ---
 --- `--ignore-working-copy` keeps the call read-only. `--color=never` and
 --- `--no-pager` keep the output plain, whatever the user configured.
 ---@param repo codeview.vcs.JjRepo
 ---@param args string[]
+---@param snapshot boolean? True leaves `--ignore-working-copy` out.
 ---@return string[]
-local function jj_cmd(repo, args)
+local function jj_cmd(repo, args, snapshot)
   local cmd = {
     "jj",
     "--repository",
@@ -104,8 +108,10 @@ local function jj_cmd(repo, args)
     "--no-pager",
     "--color=never",
     "--quiet",
-    "--ignore-working-copy",
   }
+  if not snapshot then
+    cmd[#cmd + 1] = "--ignore-working-copy"
+  end
   return vim.list_extend(cmd, args)
 end
 
@@ -113,12 +119,16 @@ end
 ---@param repo codeview.vcs.JjRepo
 ---@param args string[] Arguments after `jj`.
 ---@param handle fun(result: codeview.ExecResult): any?, codeview.Error? Maps the result to a value or an error.
----@param opts? codeview.ExecOpts
+---@param opts? codeview.vcs.jj.CallOpts
 ---@param cb? fun(value: any?, err: codeview.Error?)
 ---@return any?, codeview.Error?
 local function call(repo, args, handle, opts, cb)
-  local cmd = jj_cmd(repo, args)
-  opts = vim.tbl_extend("keep", vim.deepcopy(opts or {}), { cwd = repo.root })
+  opts = vim.deepcopy(opts or {})
+  local snapshot = opts.snapshot
+  -- The field is no option of |codeview.exec|. It belongs to the command line.
+  opts.snapshot = nil
+  local cmd = jj_cmd(repo, args, snapshot)
+  opts = vim.tbl_extend("keep", opts, { cwd = repo.root })
 
   if cb then
     exec.capture(cmd, opts, function(result, err)
@@ -505,6 +515,58 @@ function Repo:resolve_range(spec, cb)
   -- Triple dot: the base is the closest common ancestor of the two sides.
   local base = "heads(::" .. group(from_rev) .. " & ::" .. group(parsed.to) .. ")"
   return resolve_pair(self, base, "no merge base for " .. text, parsed.to, text, cb)
+end
+
+--- Working copy --------------------------------------------------------------
+
+---Read the commit id of the working-copy commit.
+---@param repo codeview.vcs.JjRepo
+---@param snapshot boolean True runs the call without `--ignore-working-copy`.
+---@param cb? fun(id: string?, err: codeview.Error?)
+---@return string? id
+---@return codeview.Error? err
+local function working_copy_id(repo, snapshot, cb)
+  local args = { "log", "--no-graph", "-T", ID_TEMPLATE, "-r", "@" }
+
+  ---@param result codeview.ExecResult
+  local function handle(result)
+    if result.code ~= 0 then
+      return nil, failed(errors.codes.COMMAND_FAILED, "cannot read the working-copy commit", result)
+    end
+    local ids = exec.lines(result.stdout)
+    if #ids == 0 then
+      return nil, failed(errors.codes.NOT_FOUND, "the repository has no working-copy commit", result)
+    end
+    return ids[1], nil
+  end
+
+  return call(repo, args, handle, { snapshot = snapshot }, cb)
+end
+
+---Read the commit that the working copy sits on.
+---
+--- It is `@`. The call runs with `--ignore-working-copy`, so it reports the
+--- commit as the repository holds it now. A file that you changed after the
+--- last snapshot does not move the id.
+---@param cb? fun(id: string?, err: codeview.Error?) Callback for the async form.
+---@return string? id Full commit id.
+---@return codeview.Error? err
+function Repo:working_rev(cb)
+  return working_copy_id(self, false, cb)
+end
+
+---Write the state of the working copy into the repository, and read its commit.
+---
+--- This is the one call of the backend that runs without
+--- `--ignore-working-copy`. jj puts the files of the working copy into `@`.
+--- `@` then gets a new commit id, and jj writes one operation.
+--- |codeview.Session:reload()| makes this call before the session reads a
+--- review of `@` again. See |codeview-backend|.
+---@param cb? fun(id: string?, err: codeview.Error?) Callback for the async form.
+---@return string? id Full commit id after the write.
+---@return codeview.Error? err
+function Repo:snapshot(cb)
+  return working_copy_id(self, true, cb)
 end
 
 --- Log -----------------------------------------------------------------------
