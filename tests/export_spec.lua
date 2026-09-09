@@ -137,6 +137,13 @@ describe("codeview.export", function()
       )
     end)
 
+    it("holds the prompt of the configuration", function()
+      add_comment({ file = "call.lua", start_line = 1, end_line = 1 })
+
+      local data = assert(export.data())
+      assert.are.equal(config.defaults.export.prompt, data.prompt)
+    end)
+
     it("keeps a comment on a file that the range does not change", function()
       add_comment({ file = "call.lua", start_line = 1, end_line = 1 })
       add_comment({ file = "gone.txt", start_line = 2, end_line = 2 })
@@ -165,6 +172,8 @@ describe("codeview.export", function()
       local text = assert(export.render())
       local expected = table.concat({
         "# codeview review: " .. spec(),
+        "",
+        config.defaults.export.prompt,
         "",
         "- range: `" .. short(fixture.ids.base) .. ".." .. short(fixture.ids.change) .. "`",
         "- commits: 1",
@@ -197,6 +206,8 @@ describe("codeview.export", function()
         table.concat({
           "# codeview review: " .. spec(),
           "",
+          config.defaults.export.prompt,
+          "",
           "- range: `" .. short(fixture.ids.base) .. ".." .. short(fixture.ids.change) .. "`",
           "- commits: 1",
           "- comments: 0",
@@ -206,6 +217,38 @@ describe("codeview.export", function()
         }, "\n"),
         text
       )
+    end)
+
+    it("puts the prompt of the configuration under the title", function()
+      assert(config.setup({
+        comments = { dir = dir },
+        export = { register = "z", prompt = "first line\nsecond line" },
+      }))
+      add_comment({ file = "call.lua", start_line = 1, end_line = 1 })
+
+      local text = assert(export.render())
+      local expected = table.concat({
+        "# codeview review: " .. spec(),
+        "",
+        "first line",
+        "second line",
+        "",
+        "- range: `",
+      }, "\n")
+      assert.are.equal(expected, text:sub(1, #expected))
+    end)
+
+    it("writes no prompt for an empty text", function()
+      assert(config.setup({ comments = { dir = dir }, export = { register = "z", prompt = "" } }))
+      add_comment({ file = "call.lua", start_line = 1, end_line = 1 })
+
+      local text = assert(export.render())
+      local expected = table.concat({
+        "# codeview review: " .. spec(),
+        "",
+        "- range: `",
+      }, "\n")
+      assert.are.equal(expected, text:sub(1, #expected))
     end)
 
     it("keeps every line of a body", function()
@@ -235,6 +278,22 @@ describe("codeview.export", function()
       add_comment({ file = "call.lua", start_line = 1, end_line = 1 })
 
       assert.are.equal(spec() .. " has 1 comments", assert(export.render()))
+    end)
+
+    it("gives the prompt of the configuration to the function", function()
+      assert(config.setup({
+        comments = { dir = dir },
+        export = {
+          register = "z",
+          prompt = "read the comments",
+          template = function(_, data)
+            return data.prompt
+          end,
+        },
+      }))
+      add_comment({ file = "call.lua", start_line = 1, end_line = 1 })
+
+      assert.are.equal("read the comments", assert(export.render()))
     end)
 
     it("falls back to the default template when the function fails", function()

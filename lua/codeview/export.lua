@@ -9,6 +9,11 @@
 --- >markdown
 ---     # codeview review: main..@
 ---
+---     A code review of this change produced the comments below. Each comment
+---     names its lines, its side of the diff (old or new), and the commit that
+---     holds the lines. Make the change that each comment asks for. Skip only
+---     a comment that is marked resolved.
+---
 ---     - range: `9b2688a5..ec056be0`
 ---     - commits: 2
 ---     - comments: 3 on 2 files, 1 resolved
@@ -23,6 +28,8 @@
 ---
 ---     two lines
 --- <
+---
+--- The `export.prompt` option replaces the text under the title.
 ---
 --- Every comment holds its line range, its side, and the commit that the lines
 --- come from. A reader locates the code with those three values alone, without
@@ -71,6 +78,7 @@ local M = {}
 ---@field spec string Text that names the range.
 ---@field range string Resolved range, with short revision ids.
 ---@field repo string Absolute path of the repository root.
+---@field prompt string Text under the title, from the `export.prompt` option. Empty for no prompt.
 ---@field files codeview.export.File[] Files with comments, in sidebar order.
 ---@field comments codeview.store.Comment[] Every comment, in the order of the render.
 ---@field count integer Number of comments.
@@ -183,6 +191,7 @@ function M.data(session)
     spec = session:label(),
     range = range_text(session),
     repo = session.repo.root,
+    prompt = config.get().export.prompt,
     files = files,
     comments = ordered,
     count = #ordered,
@@ -239,10 +248,16 @@ function M.markdown(data)
   local out = {
     "# codeview review: " .. data.spec,
     "",
-    "- range: `" .. data.range .. "`",
-    string.format("- commits: %d", #data.session.commits),
-    counts(data),
   }
+
+  if data.prompt ~= "" then
+    vim.list_extend(out, vim.split(data.prompt, "\n", { plain = true }))
+    out[#out + 1] = ""
+  end
+
+  out[#out + 1] = "- range: `" .. data.range .. "`"
+  out[#out + 1] = string.format("- commits: %d", #data.session.commits)
+  out[#out + 1] = counts(data)
 
   if data.count == 0 then
     out[#out + 1] = ""
