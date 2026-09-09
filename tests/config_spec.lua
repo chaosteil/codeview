@@ -134,6 +134,38 @@ describe("codeview.config", function()
     assert.is_truthy(err:find("sidebar.width", 1, true), err)
   end)
 
+  it("names the three tool binaries", function()
+    assert.are.equal("git", config.defaults.git.binary)
+    assert.are.equal("jj", config.defaults.jj.binary)
+    assert.are.equal("gh", config.defaults.github.binary)
+
+    local cfg = assert(config.setup({ git = { binary = "my-git" } }))
+    assert.are.equal("my-git", cfg.git.binary)
+    -- The other tools keep their defaults.
+    assert.are.equal("jj", cfg.jj.binary)
+    assert.are.equal("gh", cfg.github.binary)
+  end)
+
+  it("rejects a binary that is not a string", function()
+    local cfg, err = config.setup({ git = { binary = 1 } })
+    assert.is_nil(cfg)
+    assert.is_truthy(err:find("git.binary", 1, true), err)
+
+    cfg, err = config.setup({ jj = { binary = true } })
+    assert.is_nil(cfg)
+    assert.is_truthy(err:find("jj.binary", 1, true), err)
+  end)
+
+  it("rejects an unknown key of a tool section", function()
+    local cfg, err = config.setup({ git = { bin = "x" } })
+    assert.is_nil(cfg)
+    assert.is_truthy(err:find("unknown option: git.bin", 1, true), err)
+
+    cfg, err = config.setup({ jj = { bin = "x" } })
+    assert.is_nil(cfg)
+    assert.is_truthy(err:find("unknown option: jj.bin", 1, true), err)
+  end)
+
   it("rejects a value outside the enum", function()
     local cfg, err = config.setup({ backend = "hg" })
     assert.is_nil(cfg)

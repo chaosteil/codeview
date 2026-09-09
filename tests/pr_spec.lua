@@ -130,7 +130,7 @@ describe("codeview.pr", function()
     answer = default_answer
     local real = exec.capture
     exec.capture = function(cmd, opts, cb) ---@diagnostic disable-line: duplicate-set-field
-      if cmd[1] ~= "gh" then
+      if cmd[1] ~= gh.binary() then
         return real(cmd, opts, cb)
       end
       gh_calls[#gh_calls + 1] = cmd
@@ -277,6 +277,34 @@ describe("codeview.pr", function()
       local refs, err = pr.fetch(fixture.root, info, { remote = "upstream" })
       assert.is_nil(refs)
       assert.are.equal(errors.codes.NOT_FOUND, err.code)
+    end)
+
+    it("runs the configured git binary", function()
+      local info = assert(pr.view(12, { dir = fixture.dir }))
+      assert(require("codeview.config").setup({
+        commit_message = false,
+        git = { binary = "codeview-no-such-git" },
+      }))
+
+      ---@type string[][]
+      local calls = {}
+      local outer = exec.capture
+      exec.capture = function(cmd, opts, cb) ---@diagnostic disable-line: duplicate-set-field
+        calls[#calls + 1] = cmd
+        return outer(cmd, opts, cb)
+      end
+
+      local refs, err = pr.fetch(fixture.root, info)
+      exec.capture = outer
+
+      -- The name is in no $PATH, so the fetch fails. The command line still
+      -- shows which executable the module tried to run.
+      assert.is_nil(refs)
+      assert.are.equal(errors.codes.SPAWN_FAILED, err.code)
+      assert.is_true(#calls > 0)
+      for _, cmd in ipairs(calls) do
+        assert.are.equal("codeview-no-such-git", cmd[1])
+      end
     end)
   end)
 

@@ -1,8 +1,9 @@
 ---@brief The VCS backend interface.
 ---
---- A backend module has a name, an `available()` check, and a `detect(dir)`
---- function. `detect()` returns a repository handle. Every other call is a
---- method on that handle:
+--- A backend module has a name, a `binary()` call, an `available()` check, and
+--- a `detect(dir)` function. `binary()` gives the name or the path of the
+--- executable, and `available()` looks for it in $PATH. `detect()` returns a
+--- repository handle. Every other call is a method on that handle:
 ---
 --- - `repo:resolve_rev(rev)` — one revision to one commit id.
 --- - `repo:resolve_range(spec)` — user text such as `a..b` to a range of commit ids.
@@ -144,9 +145,10 @@ local function no_repo(dir)
 end
 
 ---@param name string Name of the backend that the configuration forces.
+---@param binary string Name or path of the executable of the backend.
 ---@return codeview.Error
-local function no_executable(name)
-  return errors.new(errors.codes.UNSUPPORTED, "the " .. name .. " backend needs " .. name .. " in $PATH")
+local function no_executable(name, binary)
+  return errors.new(errors.codes.UNSUPPORTED, "the " .. name .. " backend needs " .. binary .. " in $PATH")
 end
 
 ---Keep the repository that holds the other one.
@@ -193,7 +195,7 @@ function M.detect(dir, opts, cb)
       end
       if not backend.available() then
         if forced then
-          return nil, no_executable(candidate)
+          return nil, no_executable(candidate, backend.binary())
         end
       else
         local repo, detect_err = backend.detect(dir)
@@ -233,7 +235,7 @@ function M.detect(dir, opts, cb)
     end
     if not backend.available() then
       if forced then
-        cb(nil, no_executable(candidate))
+        cb(nil, no_executable(candidate, backend.binary()))
         return
       end
       step()

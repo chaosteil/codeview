@@ -60,6 +60,20 @@ describe("codeview.health", function()
     end
   end)
 
+  it("names the configured executable of a tool", function()
+    -- The names are in no $PATH, so the report says so for each of them. The
+    -- test asserts the name only, because CI has no gh.
+    assert(require("codeview.config").setup({
+      git = { binary = "codeview-git-custom" },
+      jj = { binary = "codeview-jj-custom" },
+      github = { binary = "codeview-gh-custom" },
+    }))
+    local text = report()
+    for _, name in ipairs({ "codeview-git-custom", "codeview-jj-custom", "codeview-gh-custom" }) do
+      assert.is_truthy(text:find(name, 1, true), "missing " .. name .. " in:\n" .. text)
+    end
+  end)
+
   it("reports the version of an installed tool", function()
     local text = report()
     if vim.fn.executable("git") == 1 then

@@ -73,6 +73,15 @@ describe("codeview.gh", function()
       assert.are.equal("ok\n", result.stdout)
     end)
 
+    it("takes the name of the executable from the configuration", function()
+      assert(require("codeview.config").setup({ github = { binary = "gh-custom" } }))
+      respond(function()
+        return { stdout = "ok\n" }
+      end)
+      assert(gh.run({ "pr", "view", "12" }))
+      assert.are.equal("gh-custom", calls[1].cmd[1])
+    end)
+
     it("keeps the pager out of the environment", function()
       respond(function()
         return {}

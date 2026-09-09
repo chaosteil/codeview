@@ -14,6 +14,7 @@
 
 local exec = require("codeview.exec")
 local errors = require("codeview.error")
+local config = require("codeview.config")
 local util = require("codeview.util")
 local fs = vim.fs
 local uv = vim.uv
@@ -25,6 +26,12 @@ local M = {}
 ---Name of the backend.
 ---@type string
 M.name = "jj"
+
+---Name or path of the jj executable, from the configuration.
+---@return string binary
+function M.binary()
+  return config.get().jj.binary
+end
 
 ---Field separator inside one record.
 local FIELD = "\31"
@@ -102,7 +109,7 @@ Repo.__index = Repo
 ---@return string[]
 local function jj_cmd(repo, args, snapshot)
   local cmd = {
-    "jj",
+    M.binary(),
     "--repository",
     repo.root,
     "--no-pager",
@@ -226,10 +233,10 @@ local function start_dir(dir)
   return fs.dirname(path)
 end
 
----True when jj is in $PATH.
+---True when the jj executable is in $PATH.
 ---@return boolean
 function M.available()
-  return vim.fn.executable("jj") == 1
+  return vim.fn.executable(M.binary()) == 1
 end
 
 ---Find the jj repository that holds a directory.

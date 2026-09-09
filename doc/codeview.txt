@@ -48,6 +48,9 @@ Then press <CR> on a file of the sidebar. |codeview-keymaps| holds every key.
 - jj, for the jj backend (optional).
 - gh, for GitHub pull request review (optional).
 
+A tool that is not in $PATH needs an option with its path. See
+|codeview-binaries|.
+
 ==============================================================================
 3. SETUP                                                        *codeview-setup*
 
@@ -999,12 +1002,7 @@ local review. |:Codeview-export| gives you the text for the web page.
 The command needs the gh CLI in $PATH, and a login. Run `gh auth login` once.
 `:checkhealth codeview` reports both. See |codeview-health|.
 
-The `github.binary` option names that executable. A name goes to $PATH, and an
-absolute path names the file itself. Use it for a gh that is not in $PATH, or
-for a wrapper of your own: >lua
-
-    require("codeview").setup({ github = { binary = "/opt/gh/bin/gh" } })
-<
+The `github.binary` option names that executable. See |codeview-binaries|.
 
                                                         *codeview-github-refs*
 The working copy does not change. The command fetches two refs of the plugin
@@ -1425,6 +1423,12 @@ Defaults: >lua
 
     {
       backend = "auto",              -- "auto" | "git" | "jj"
+      git = {
+        binary = "git",              -- name or path of the git executable
+      },
+      jj = {
+        binary = "jj",               -- name or path of the jj executable
+      },
       auto_reload = true,            -- read a review of the working copy again
       commit_message = true,         -- the commit message as the first file
       diff = {
@@ -1535,6 +1539,25 @@ the target of the link.
 A revset that names no commit gives an error that says so, for example
 `trunk()..@` on a workspace with no new commit. The virtual root commit of jj
 holds no files, so the backend rejects it as a revision.
+
+                                                        *codeview-binaries*
+Three options name the executables of the external tools: `git.binary` for
+git, `jj.binary` for jj, and `github.binary` for gh. A plain name goes to
+$PATH. An absolute path names the file itself. Use an option for a tool that
+is not in $PATH, or for a wrapper of your own.
+
+The value is one name, or one path. It is not a command line, so it holds no
+argument: >lua
+
+    require("codeview").setup({
+      git = { binary = "/opt/homebrew/bin/git" },
+      jj = { binary = "jj-wrapper" },
+      github = { binary = "/opt/gh/bin/gh" },
+    })
+<
+The plugin reads an option at the time of the call, so a later setup() call
+changes the next command. `:checkhealth codeview` reports the name that you
+set, and whether it finds the file. See |codeview-health|.
 
 ==============================================================================
 15. KEYMAPS                                                   *codeview-keymaps*
@@ -1672,4 +1695,7 @@ Run |:checkhealth| codeview. The report shows: >
 <
 The login check asks GitHub whether the token is valid, so it needs a
 connection. Without a login the report says how to get one.
+
+The report names the executable of each option of |codeview-binaries|, and
+it reads those options at the time of the check.
 vim:tw=78:ts=8:noet:ft=help:norl:

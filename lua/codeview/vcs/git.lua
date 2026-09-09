@@ -5,6 +5,7 @@
 
 local exec = require("codeview.exec")
 local errors = require("codeview.error")
+local config = require("codeview.config")
 local util = require("codeview.util")
 local fs = vim.fs
 local uv = vim.uv
@@ -16,6 +17,12 @@ local M = {}
 ---Name of the backend.
 ---@type string
 M.name = "git"
+
+---Name or path of the git executable, from the configuration.
+---@return string binary
+function M.binary()
+  return config.get().git.binary
+end
 
 ---Field separator inside one log record.
 local FIELD = "\31"
@@ -71,7 +78,7 @@ Repo.__index = Repo
 ---@return string[]
 local function git_cmd(repo, args)
   local cmd = {
-    "git",
+    M.binary(),
     "-C",
     repo.root,
     "--no-pager",
@@ -150,10 +157,10 @@ local function start_dir(dir)
   return fs.dirname(path)
 end
 
----True when git is in $PATH.
+---True when the git executable is in $PATH.
 ---@return boolean
 function M.available()
-  return vim.fn.executable("git") == 1
+  return vim.fn.executable(M.binary()) == 1
 end
 
 ---Find the git repository that holds a directory.
@@ -167,7 +174,7 @@ function M.detect(dir, cb)
     return done(cb, nil, errors.new(errors.codes.NOT_FOUND, "no such directory: " .. tostring(dir)))
   end
 
-  local cmd = { "git", "-C", path, "rev-parse", "--show-toplevel" }
+  local cmd = { M.binary(), "-C", path, "rev-parse", "--show-toplevel" }
   ---@param result codeview.ExecResult
   local function handle(result)
     if result.code ~= 0 then

@@ -102,8 +102,8 @@ local SIGNS = {
 ---@field max_pages integer? Highest number of pages that a list call reads.
 ---@field max integer? Highest number of items that a list call keeps.
 
----Retrieves the github binaary
----@return string
+---Name or path of the gh executable, from the configuration.
+---@return string binary
 function M.binary()
   return config.get().github.binary
 end

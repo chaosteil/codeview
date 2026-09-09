@@ -2,6 +2,8 @@
 
 local errors = require("codeview.error")
 local github = require("codeview.gh")
+local git = require("codeview.vcs.git")
+local jj = require("codeview.vcs.jj")
 
 local health = vim.health
 
@@ -17,12 +19,19 @@ local MIN_NVIM = { 0, 11, 0 }
 ---@field required boolean The plugin does not work without a required tool.
 ---@field purpose string What the plugin does with the tool.
 
----@type codeview.health.Tool[]
-local TOOLS = {
-  { name = "git", args = { "--version" }, required = true, purpose = "the git backend" },
-  { name = "jj", args = { "--version" }, required = false, purpose = "the jj backend" },
-  { name = github.binary(), args = { "--version" }, required = false, purpose = "GitHub pull request review" },
-}
+---List of the external tools of the plugin.
+---
+--- The names come from the configuration, so the call must run at the time of
+--- the check. A list that the module builds at load time keeps the defaults,
+--- because a setup() call comes later.
+---@return codeview.health.Tool[] tools
+local function tools()
+  return {
+    { name = git.binary(), args = { "--version" }, required = true, purpose = "the git backend" },
+    { name = jj.binary(), args = { "--version" }, required = false, purpose = "the jj backend" },
+    { name = github.binary(), args = { "--version" }, required = false, purpose = "GitHub pull request review" },
+  }
+end
 
 ---Read the first output line of a command.
 ---@param cmd string[]
@@ -132,7 +141,7 @@ function M.check()
   end
 
   health.start("codeview: external tools")
-  for _, tool in ipairs(TOOLS) do
+  for _, tool in ipairs(tools()) do
     check_tool(tool)
   end
   check_gh_auth()

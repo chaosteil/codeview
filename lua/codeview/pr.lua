@@ -28,6 +28,7 @@ local config = require("codeview.config")
 local errors = require("codeview.error")
 local exec = require("codeview.exec")
 local gh = require("codeview.gh")
+local git_backend = require("codeview.vcs.git")
 local session_mod = require("codeview.session")
 local util = require("codeview.util")
 local vcs = require("codeview.vcs")
@@ -113,7 +114,7 @@ M.fetch_timeout = 120000
 ---@param timeout? integer Milliseconds before the plugin kills the command.
 ---@return any?, codeview.Error?
 local function git(root, args, handle, cb, timeout)
-  local cmd = vim.list_extend({ "git", "-C", root, "--no-pager" }, args)
+  local cmd = vim.list_extend({ git_backend.binary(), "-C", root, "--no-pager" }, args)
   local opts = { cwd = root, env = GIT_ENV, timeout = timeout }
 
   if cb then

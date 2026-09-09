@@ -11,6 +11,8 @@ local M = {}
 
 ---@class codeview.Config
 ---@field backend "auto"|"git"|"jj" Which VCS backend to use. "auto" detects the repo type.
+---@field git codeview.Config.Git Git backend options.
+---@field jj codeview.Config.Jj Jj backend options.
 ---@field auto_reload boolean Read the review again when you come back from a file and the review holds the working-copy commit.
 ---@field commit_message boolean Show the commit message of the range as the first file of the review.
 ---@field diff codeview.Config.Diff Diff view options.
@@ -22,6 +24,12 @@ local M = {}
 ---@field hints codeview.Config.Hints Key hint row options.
 ---@field keymaps table<string, string|string[]|false> Buffer-local keymaps. A list holds more than one key for one action. Set an entry to false to disable it.
 ---@field log_level integer Minimum level for notifications. Use a `vim.log.levels` value.
+
+---@class codeview.Config.Git
+---@field binary string Name or path of the git executable.
+
+---@class codeview.Config.Jj
+---@field binary string Name or path of the jj executable.
 
 ---@class codeview.Config.Diff
 ---@field style "inline"|"split" Default diff style. "inline" is a unified diff, "split" is side by side.
@@ -73,11 +81,18 @@ local M = {}
 ---@field remote string Git remote that holds the pull requests. An empty text takes origin, or the first remote.
 ---@field comments boolean Read the review comments of the pull request and show them in the diff.
 ---@field max_comments integer Highest number of review comments that one fetch reads.
+---@field binary string Name or path of the gh executable.
 
 ---Default configuration.
 ---@type codeview.Config
 M.defaults = {
   backend = "auto",
+  git = {
+    binary = "git",
+  },
+  jj = {
+    binary = "jj",
+  },
   auto_reload = true,
   commit_message = true,
   diff = {
@@ -258,6 +273,12 @@ end
 function M.validate(opts)
   local ok, err = pcall(function()
     vim.validate("backend", opts.backend, one_of({ "auto", "git", "jj" }))
+
+    vim.validate("git", opts.git, "table")
+    vim.validate("git.binary", opts.git.binary, "string")
+
+    vim.validate("jj", opts.jj, "table")
+    vim.validate("jj.binary", opts.jj.binary, "string")
 
     vim.validate("diff", opts.diff, "table")
     vim.validate("diff.style", opts.diff.style, one_of({ "inline", "split" }))

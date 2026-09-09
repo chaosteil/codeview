@@ -712,3 +712,62 @@ describe("codeview.vcs.jj in a colocated repository", function()
     assert.are.equal(0, vim.fn.isdirectory(fixture.dir))
   end)
 end)
+
+describe("codeview.vcs.jj with a configured binary", function()
+  local config = require("codeview.config")
+  local exec = require("codeview.exec")
+  local jj = require("codeview.vcs.jj")
+  -- The detect call reads the `.jj` directory only. It runs no command, so an
+  -- empty marker directory is enough for this block.
+  local dir = vim.fn.tempname()
+  vim.fn.mkdir(vim.fs.joinpath(dir, ".jj"), "p")
+
+  ---Record every command line, and answer it without a call to jj.
+  ---@return string[][] calls
+  local function record()
+    local calls = {}
+    exec.capture = function(cmd, _opts, cb) ---@diagnostic disable-line: duplicate-set-field
+      calls[#calls + 1] = cmd
+      local result = { command = cmd, code = 0, signal = 0, stdout = "", stderr = "" }
+      if cb then
+        vim.schedule(function()
+          cb(result, nil)
+        end)
+        return nil, nil
+      end
+      return result, nil
+    end
+    return calls
+  end
+
+  it("puts the configured name in front of every command", function()
+    local real = exec.capture
+    local calls = record()
+    config.setup({ jj = { binary = "my-jj" } })
+
+    local repo = jj.detect(dir)
+    if repo then
+      repo:log({ limit = 1 })
+    end
+
+    exec.capture = real
+    config.reset()
+
+    assert.is_truthy(repo)
+    assert.are.equal("my-jj", calls[1][1])
+  end)
+
+  it("looks for the configured name in $PATH", function()
+    config.setup({ jj = { binary = "codeview-no-such-jj" } })
+    local found = jj.available()
+    config.reset()
+
+    assert.is_false(found)
+    assert.is_true(jj.available())
+  end)
+
+  it("removes the directory", function()
+    vim.fn.delete(dir, "rf")
+    assert.are.equal(0, vim.fn.isdirectory(dir))
+  end)
+end)
