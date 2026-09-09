@@ -65,6 +65,10 @@ To set options, set the opts:
 
 `:Codeview export` runs the same export from any window.
 
+The text starts with a prompt that tells an agent what to do with the
+comments. The `export.prompt` option replaces the prompt, and an empty text
+removes it.
+
 On a jj repository the argument is a revset, for example
 `:Codeview trunk()..@`. For a GitHub pull request, run `:Codeview pr 128`.
 `:Codeview submit` then sends your comments to GitHub.

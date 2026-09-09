@@ -894,6 +894,11 @@ The default template is plain markdown: >markdown
 
     # codeview review: main..@
 
+    A code review of this change produced the comments below. Each comment
+    names its lines, its side of the diff (old or new), and the commit that
+    holds the lines. Make the change that each comment asks for. Skip only
+    a comment that is marked resolved.
+
     - range: `9b2688a5..ec056be0`
     - commits: 2
     - comments: 3 on 2 files, 1 resolved
@@ -921,6 +926,23 @@ change any more comes last, with the note "(outside the range)".
 `q` closes the window of the export buffer. A second export of the same session
 replaces the buffer of the first one. |:Codeview-close| closes the export
 window with the other windows of the session.
+
+                                                      *codeview-export-prompt*
+The `export.prompt` option holds the text under the title of the export. The
+default text says that a code review produced the comments below. It tells the
+reader to make the change that each comment asks for, and to skip only a
+comment that is marked resolved. As a result, an agent that reads the export
+acts on the comments without more instructions.
+
+Set the option to replace the text: >lua
+
+    require("codeview").setup({
+      export = { prompt = "Fix every comment below." },
+    })
+<
+An empty text writes no prompt. The export then starts with the title and the
+metadata lines. A template reads the same text in `data.prompt`, so a custom
+renderer keeps the prompt. See |codeview-export-template|.
 
                                                      *codeview-export-register*
 The `export.register` option names the register. The default is "+", the
@@ -958,6 +980,7 @@ The data table holds these fields: >lua
     data.spec       -- text that names the range
     data.range      -- resolved range, with short revision ids
     data.repo       -- absolute path of the repository root
+    data.prompt     -- text under the title, from the export.prompt option
     data.files      -- files with comments, each with its comment list
     data.comments   -- every comment, in the order of the render
     data.count      -- number of comments
@@ -1446,6 +1469,7 @@ Defaults: >lua
       },
       export = {
         register = "+",
+        prompt = "A code review ...",  -- see |codeview-export-prompt|
         template = false,            -- false uses the built-in renderer
       },
       github = {
