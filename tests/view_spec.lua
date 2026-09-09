@@ -707,6 +707,134 @@ describe("codeview.view", function()
     end)
   end)
 
+  describe("refresh", function()
+    -- A refresh that follows a new commit needs a repository of its own,
+    -- because a new commit breaks the ids of the shared fixture.
+
+    ---@type tests.Fixture?
+    local moving
+    ---@type string[]
+    local messages
+    ---@type fun(msg: string, level?: integer, opts?: table)
+    local notify
+
+    ---Run a git command in the private fixture.
+    ---@param cmd string[]
+    local function run(cmd)
+      local env = { GIT_CONFIG_GLOBAL = "/dev/null", GIT_CONFIG_SYSTEM = "/dev/null", HOME = moving.dir }
+      local res = vim.system(cmd, { cwd = moving.dir, env = env, text = true }):wait(30000)
+      assert.are.equal(0, res.code, table.concat(cmd, " ") .. ": " .. (res.stderr or ""))
+    end
+
+    ---Add one commit to the private fixture.
+    ---@param path string
+    local function commit(path)
+      local handle = assert(io.open(vim.fs.joinpath(moving.dir, path), "wb"))
+      handle:write("fresh\n")
+      handle:close()
+      run({ "git", "add", "--", path })
+      run({ "git", "commit", "--quiet", "-m", "add " .. path })
+    end
+
+    ---Open a session of the private fixture.
+    ---@param spec any
+    ---@return codeview.Session
+    local function open_moving(spec)
+      moving = moving or fixtures.git()
+      local review, err = session_mod.open(spec, { dir = moving.dir })
+      assert.is_nil(err)
+      opened = assert(review)
+      return opened
+    end
+
+    ---Row of the buffer that holds one line of the new side.
+    ---@param state codeview.view.State
+    ---@return integer row
+    ---@return integer line
+    local function first_new_row(state)
+      for index, record in ipairs(state.map.rows) do
+        if record.new then
+          return index, record.new
+        end
+      end
+      error("the diff holds no line of the new side")
+    end
+
+    before_each(function()
+      -- The key is the only actor here, so the watcher stays off.
+      require("codeview.config").setup({ commit_message = false, auto_refresh = false })
+      messages = {}
+      notify = vim.notify
+      ---@diagnostic disable-next-line: duplicate-set-field
+      vim.notify = function(text)
+        messages[#messages + 1] = text
+      end
+    end)
+
+    after_each(function()
+      vim.notify = notify
+      if moving then
+        moving.cleanup()
+        moving = nil
+      end
+    end)
+
+    it("keeps the open file and the line of the cursor", function()
+      local review = open_session()
+      local state = assert(view.open(review, 1))
+      local path = state.path
+      local win = state.win
+      local row, line = first_new_row(state)
+      api.nvim_win_set_cursor(win, { row, 0 })
+
+      assert.is_true(view.refresh())
+      local after = assert(view.current())
+      assert.are.equal(path, after.path)
+      assert.are.equal(win, after.win)
+      assert.are.equal(line, after.map.rows[api.nvim_win_get_cursor(win)[1]].new)
+    end)
+
+    it("takes a new commit of the range", function()
+      local review = open_moving("HEAD~1..HEAD")
+      assert(view.open(review, 1))
+      commit("fresh.txt")
+
+      assert.is_true(view.refresh())
+      assert.is_truthy(review:index_of("fresh.txt"), vim.inspect(review.files))
+    end)
+
+    it("closes the view of a file that leaves the range", function()
+      local review = open_moving("HEAD~1..HEAD")
+      local state = assert(view.open(review, 1))
+      local path = state.path
+      commit("fresh.txt")
+
+      assert.is_true(view.refresh())
+      assert.is_nil(review:index_of(path))
+      assert.is_nil(view.current())
+      local said = table.concat(messages, "\n")
+      assert.is_truthy(said:find("does not change " .. path, 1, true), said)
+    end)
+
+    it("reads a range of resolved commits again", function()
+      local review = open_moving({ from = fixture.ids.init, to = fixture.ids.shuffle, spec = "pr-7" })
+      assert.are.equal("pr-7", review.spec)
+      assert(view.open(review, 1))
+
+      assert.is_true(view.refresh())
+      assert.is_truthy(view.current())
+      assert.are.equal(fixture.ids.init, review.range.from)
+      assert.are.equal(fixture.ids.shuffle, review.range.to)
+    end)
+
+    it("reports that no session runs", function()
+      session_mod.close()
+      assert.is_false(view.refresh())
+      local said = table.concat(messages, "\n")
+      assert.is_truthy(said:find("no review session", 1, true), said)
+    end)
+  end)
+
   describe("the diff style", function()
     local diff_fixture = fixtures.git_diff()
     local config

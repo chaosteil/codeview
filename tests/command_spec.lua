@@ -114,6 +114,13 @@ describe("codeview.command", function()
       assert.are.equal("", assert(command.parse("close")).text)
     end)
 
+    it("reads the refresh subcommand", function()
+      local parsed = assert(command.parse("refresh"))
+      assert.are.equal("subcommand", parsed.action)
+      assert.are.equal("refresh", parsed.name)
+      assert.is_function(command.subcommands.refresh.run)
+    end)
+
     it("takes a subcommand before a revision of the same name", function()
       assert.are.equal("subcommand", assert(command.parse("close")).action)
       -- A range form reviews the revision that the subcommand names.
@@ -237,7 +244,7 @@ describe("codeview.command", function()
     it("completes the subcommands of the first word", function()
       local res = helpers.clean_nvim('print(vim.inspect(vim.fn.getcompletion("Codeview ", "cmdline")))')
       assert.are.equal(0, res.code)
-      for _, name in ipairs({ "back", "close", "comments", "export", "files", "pr", "submit" }) do
+      for _, name in ipairs({ "back", "close", "comments", "export", "files", "pr", "refresh", "submit" }) do
         assert.is_truthy(res.output:find('"' .. name .. '"', 1, true), res.output)
       end
     end)

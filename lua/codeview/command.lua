@@ -184,6 +184,14 @@ function M.back()
   require("codeview.view").back()
 end
 
+---Run `:Codeview refresh`.
+---
+--- The command reads the review again from the repository. See
+--- |codeview.view.refresh()|.
+function M.refresh()
+  require("codeview.view").refresh()
+end
+
 ---Run `:Codeview files`.
 ---
 --- The command closes the sidebar when it is open. Otherwise it opens the
@@ -275,6 +283,7 @@ M.subcommands = {
     desc = "Render the comments of the session as markdown",
   },
   files = { run = M.files, desc = "Open or close the changed-files sidebar" },
+  refresh = { run = M.refresh, desc = "Read the review again from the repository" },
   submit = {
     run = M.submit,
     args = { "comment", "approve", "request-changes" },

@@ -12,6 +12,7 @@
 --- - `repo:file_content(rev, path)` — the content of one file at one revision.
 --- - `repo:working_rev()` — the commit that the working copy sits on.
 --- - `repo:snapshot()` — write the working copy into that commit and read it.
+--- - `repo:state_dirs()` — the directories that every repository operation writes.
 ---
 --- Every method takes an optional callback as its last argument. Without a
 --- callback the method blocks and returns `value, err`. With a callback it
@@ -84,6 +85,7 @@ local M = {}
 ---@field file_content fun(self: codeview.vcs.Repo, rev: string?, path: string, cb?: fun(content: string?, err: codeview.Error?)): string?, codeview.Error?
 ---@field working_rev fun(self: codeview.vcs.Repo, cb?: fun(id: string?, err: codeview.Error?)): string?, codeview.Error?
 ---@field snapshot fun(self: codeview.vcs.Repo, cb?: fun(id: string?, err: codeview.Error?)): string?, codeview.Error?
+---@field state_dirs fun(self: codeview.vcs.Repo, cb?: fun(dirs: string[]?, err: codeview.Error?)): string[]?, codeview.Error?
 
 ---@class codeview.vcs.Backend
 ---@field name string Name of the backend.

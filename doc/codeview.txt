@@ -153,6 +153,13 @@ names, write the revision as a range, for example `:Codeview close^..close`.
     the file holds. A review of the working-copy commit reads its data again
     first. See |codeview-edit-back| and |codeview-edit-reload|.
 
+                                                           *:Codeview-refresh*
+:Codeview refresh
+    Read the review again from the repository. The command resolves the range
+    of the review again, so a new commit, an amend, or a rebase reaches the
+    review. On jj it writes the working copy into `@` first. See
+    |codeview-refresh|.
+
                                                              *:Codeview-files*
 :Codeview files
     Open the changed-files sidebar and put the cursor in it. The command
@@ -301,6 +308,7 @@ The sidebar buffer holds these maps. |codeview-config| names the keys: >
     [f          open the previous file
     <leader>ct  switch the diff style
     <leader>co  open or close the comment overview
+    <leader>cR  read the review again from the repository
     q           close the review session
 <
 The next-file key and the previous-file key follow the order of the tree.
@@ -505,6 +513,7 @@ The diff buffer holds these maps. |codeview-config| names the keys: >
     <leader>cd  delete the comment under the cursor
     <leader>cr  resolve the comment, or open it again
     <leader>co  open or close the comment overview
+    <leader>cR  read the review again from the repository
     K           show the comment under the cursor in a float
     q           close the review session
 <
@@ -586,6 +595,48 @@ Set `auto_reload` to false to keep the data of the review as-is: >lua
 
     require("codeview").setup({ auto_reload = false })
 <
+                                                            *codeview-refresh*
+The reload takes the working copy only. It never moves the base of the range,
+and it never adds a commit to the review. `<leader>cR` does that: it reads the
+whole review again from the repository.
+
+The key resolves the text of the range again. `trunk()..@` and `HEAD~3..HEAD`
+therefore follow the new commits, so a `jj new`, a `git commit`, an amend, or
+a rebase reaches the review. On jj the key writes the working copy into `@`
+first, like the reload. A review of a pull request holds two resolved commits,
+so it reads the same two commits again.
+
+The key works in the sidebar, in the diff view, and in the comment overview.
+The open file stays open, with the cursor on the same line of the file. A file
+that leaves the range gets a message, and its window closes.
+
+`:Codeview refresh` and `require("codeview").refresh()` do the same from any
+window.
+
+                                                       *codeview-auto-refresh*
+An open review also follows the repository by itself. codeview watches the
+state directories of the repository: `.jj/repo/op_heads/heads` on jj, and the
+git directory with `refs/heads` on git. Every operation writes there.
+
+After such a write, codeview resolves the range of the review again. New
+commit ids mean that the range moved, so the plugin reads the files and the
+commits again. The sidebar, the comment overview, and the open diff show the
+new state. Equal ids mean that the review is current, and nothing happens.
+
+So a `jj new`, a `jj describe`, a `git commit`, an amend, or a rebase in
+another terminal reaches the review within a second. The check reads the
+repository only. It never writes the working copy into a commit, because the
+working copy belongs to you. The refresh key takes the working copy with it.
+See |codeview-refresh|.
+
+A failed check keeps the data of the review and gives one message. The next
+checks stay quiet until a check succeeds.
+
+Set `auto_refresh` to false to stop the watcher: >lua
+
+    require("codeview").setup({ auto_refresh = false })
+<
+The refresh key and `:Codeview refresh` still work then.
 
 ==============================================================================
 8. COMMENTS                                                  *codeview-comments*
@@ -836,6 +887,7 @@ The overview buffer holds these maps. |codeview-config| names the keys: >
     <leader>cr  resolve the comment under the cursor, or open it again
     <leader>cx  show the markdown of the comments in a scratch buffer
     <leader>cy  write the markdown of the comments into the register
+    <leader>cR  read the review again from the repository
     <leader>co  close the overview
     q           close the overview
 <
@@ -1301,6 +1353,17 @@ codeview.edit_file({opts})
     Return: ~
         True when a file opened.
 
+                                                          *codeview.refresh()*
+codeview.refresh()
+    Read the review again from the repository. The call resolves the range of
+    the session again, so a new commit, an amend, or a rebase reaches the
+    review. On jj it writes the working copy into `@` first. The open file
+    stays open, on the same line of the file. See |codeview-refresh|.
+
+    Return: ~
+        True after the read. False with a message when there is no session,
+        or when the call failed.
+
                                                    *codeview.toggle_context()*
 codeview.toggle_context({id}, {expanded})
     Show or hide the lines of a collapsed section. Without {id} the call acts
@@ -1412,7 +1475,7 @@ A session answers these calls: >lua
     session:changed_files()  -- list of changed files
     session:file(index)      -- one changed file
     session:index_of(path)   -- position of a path in the list
-    session:refresh(cb)      -- read the files and the commits again
+    session:refresh(opts, cb) -- resolve the range again and read the data
     session:reload(cb)       -- read a review of the working copy again
     session:close()          -- close the session
 <
@@ -1430,6 +1493,7 @@ Defaults: >lua
         binary = "jj",               -- name or path of the jj executable
       },
       auto_reload = true,            -- read a review of the working copy again
+      auto_refresh = true,           -- follow the repository of the review
       commit_message = true,         -- the commit message as the first file
       diff = {
         style = "inline",            -- "inline" | "split"
@@ -1505,6 +1569,7 @@ Defaults: >lua
         resolve_comment = "<leader>cr",
         show_comment = "K",
         toggle_overview = "<leader>co",
+        refresh = "<leader>cR",
         export = "<leader>cx",
         copy_comments = "<leader>cy",
         editor_save = "ZZ",
@@ -1601,6 +1666,7 @@ The table names the surface of each action: >
     resolve_comment   <leader>cr       O D  resolve the comment, or reopen it
     show_comment      K                  D  show the comment in a float
     toggle_overview   <leader>co     S O D  open or close the overview
+    refresh           <leader>cR     S O D  read the review again
     export            <leader>cx       O    show the export in a buffer
     copy_comments     <leader>cy       O    write the export into the register
     editor_save       ZZ                   E  save the comment

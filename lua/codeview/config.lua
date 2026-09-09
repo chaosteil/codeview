@@ -14,6 +14,7 @@ local M = {}
 ---@field git codeview.Config.Git Git backend options.
 ---@field jj codeview.Config.Jj Jj backend options.
 ---@field auto_reload boolean Read the review again when you come back from a file and the review holds the working-copy commit.
+---@field auto_refresh boolean Read the review again when the repository changes while the review is open.
 ---@field commit_message boolean Show the commit message of the range as the first file of the review.
 ---@field diff codeview.Config.Diff Diff view options.
 ---@field sidebar codeview.Config.Sidebar Changed-files sidebar options.
@@ -94,6 +95,7 @@ M.defaults = {
     binary = "jj",
   },
   auto_reload = true,
+  auto_refresh = true,
   commit_message = true,
   diff = {
     style = "inline",
@@ -187,6 +189,9 @@ M.defaults = {
     resolve_comment = "<leader>cr",
     show_comment = "K",
     toggle_overview = "<leader>co",
+    -- The key reads the review again from the repository. It sits next to the
+    -- reload of the working copy, which runs by itself.
+    refresh = "<leader>cR",
     -- The comment overview holds the whole review, so the export keys are
     -- there. `<leader>cx` shows the markdown in a buffer. `<leader>cy` writes
     -- the markdown into the register of the `export.register` option.
@@ -338,6 +343,7 @@ function M.validate(opts)
     end
 
     vim.validate("auto_reload", opts.auto_reload, "boolean")
+    vim.validate("auto_refresh", opts.auto_refresh, "boolean")
     vim.validate("commit_message", opts.commit_message, "boolean")
     vim.validate("log_level", opts.log_level, "number")
   end)

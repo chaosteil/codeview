@@ -241,6 +241,168 @@ describe("codeview.session", function()
     end)
   end)
 
+  describe("refresh of a repository that moves", function()
+    -- Each case writes its own repository, because a new commit breaks the
+    -- commit ids of the fixture of the other tests.
+
+    ---@type tests.Fixture?
+    local moving
+
+    ---Environment of a git call in the private fixture.
+    ---@return table<string, string>
+    local function env_of()
+      if moving.env then
+        return moving.env
+      end
+      return { GIT_CONFIG_GLOBAL = "/dev/null", GIT_CONFIG_SYSTEM = "/dev/null", HOME = moving.dir }
+    end
+
+    ---Run a command in the private fixture.
+    ---@param cmd string[]
+    local function run(cmd)
+      local res = vim.system(cmd, { cwd = moving.dir, env = env_of(), text = true }):wait(30000)
+      assert.are.equal(0, res.code, table.concat(cmd, " ") .. ": " .. (res.stderr or ""))
+    end
+
+    ---Write one file of the private fixture.
+    ---@param path string
+    ---@param text string
+    local function write(path, text)
+      local handle = assert(io.open(vim.fs.joinpath(moving.dir, path), "wb"))
+      handle:write(text)
+      handle:close()
+    end
+
+    ---Open a session of the private fixture.
+    ---@param spec any
+    ---@return codeview.Session
+    local function open_moving(spec)
+      local opened, err = session.open(spec, { dir = moving.dir })
+      assert.is_nil(err)
+      return assert(opened)
+    end
+
+    before_each(function()
+      -- The manual call is the only actor here, so the watcher stays off.
+      require("codeview.config").setup({ commit_message = false, auto_refresh = false })
+    end)
+
+    after_each(function()
+      if moving then
+        moving.cleanup()
+        moving = nil
+      end
+    end)
+
+    it("takes a new commit of a git range", function()
+      moving = fixtures.git()
+      local opened = open_moving("HEAD~1..HEAD")
+      local head = opened.range.to
+
+      write("fresh.txt", "fresh\n")
+      run({ "git", "add", "--", "fresh.txt" })
+      run({ "git", "commit", "--quiet", "-m", "add fresh.txt" })
+
+      local same, err = opened:refresh()
+      assert.is_nil(err)
+      assert.are.equal(opened, same)
+      assert.are_not.equal(head, opened.range.to)
+      assert.is_truthy(opened:index_of("fresh.txt"), vim.inspect(opened.files))
+    end)
+
+    it("resolves the range again in the async form", function()
+      moving = fixtures.git()
+      local opened = open_moving("HEAD~1..HEAD")
+
+      write("fresh.txt", "fresh\n")
+      run({ "git", "add", "--", "fresh.txt" })
+      run({ "git", "commit", "--quiet", "-m", "add fresh.txt" })
+
+      local same, err = await(function(cb)
+        opened:refresh(cb)
+      end)
+      assert.is_nil(err)
+      assert.are.equal(opened, same)
+      assert.is_truthy(opened:index_of("fresh.txt"), vim.inspect(opened.files))
+    end)
+
+    it("reads a pull request range again without a change", function()
+      -- A pull request opens a range of two resolved commits. The refresh
+      -- reads the same two commits again.
+      moving = fixtures.git()
+      local opened = open_moving({ from = moving.ids.init, to = moving.ids.shuffle, spec = "pr-7" })
+      assert.are.equal("pr-7", opened.spec)
+
+      local same, err = opened:refresh()
+      assert.is_nil(err)
+      assert.are.equal(opened, same)
+      assert.are.equal(moving.ids.init, opened.range.from)
+      assert.are.equal(moving.ids.shuffle, opened.range.to)
+    end)
+
+    -- The jj cases need jj in $PATH.
+    if vim.fn.executable("jj") == 1 then
+      it("takes a new commit of a jj revset", function()
+        moving = fixtures.jj()
+        local opened = open_moving(moving.ids.init .. "..@")
+        assert.are.equal(2, #opened.commits)
+
+        run({ "jj", "--no-pager", "new" })
+        write("fresh.txt", "fresh\n")
+        run({ "jj", "--no-pager", "describe", "-m", "add fresh.txt" })
+
+        local same, err = opened:refresh()
+        assert.is_nil(err)
+        assert.are.equal(opened, same)
+        assert.are.equal(3, #opened.commits)
+        assert.is_truthy(opened:index_of("fresh.txt"), vim.inspect(opened.files))
+      end)
+
+      it("takes a write of the jj working copy without a jj command", function()
+        moving = fixtures.jj()
+        local opened = open_moving(moving.ids.edit .. "..@")
+        assert.is_nil(opened:index_of("fresh.txt"))
+
+        write("fresh.txt", "fresh\n")
+
+        local same, err = opened:refresh()
+        assert.is_nil(err)
+        assert.are.equal(opened, same)
+        assert.is_truthy(opened:index_of("fresh.txt"), vim.inspect(opened.files))
+      end)
+
+      it("moves the head of a range of commit ids to the snapshot", function()
+        -- The commit picker opens such a range. The id resolves to the commit
+        -- before the snapshot, so the head takes the new commit.
+        moving = fixtures.jj()
+        local opened = open_moving({ kind = "range", from = moving.ids.edit, to = moving.ids.shuffle, spec = "picked" })
+        assert.are.equal(moving.ids.shuffle, opened.range.to)
+
+        write("fresh.txt", "fresh\n")
+
+        local same, err = opened:refresh()
+        assert.is_nil(err)
+        assert.are.equal(opened, same)
+        assert.are_not.equal(moving.ids.shuffle, opened.range.to)
+        assert.is_truthy(opened:index_of("fresh.txt"), vim.inspect(opened.files))
+      end)
+
+      it("leaves the working copy alone without a snapshot", function()
+        moving = fixtures.jj()
+        local opened = open_moving(moving.ids.edit .. "..@")
+        local head = opened.range.to
+
+        write("fresh.txt", "fresh\n")
+
+        local same, err = opened:refresh({ snapshot = false })
+        assert.is_nil(err)
+        assert.are.equal(opened, same)
+        assert.are.equal(head, opened.range.to)
+        assert.is_nil(opened:index_of("fresh.txt"))
+      end)
+    end
+  end)
+
   describe("reload", function()
     it("keeps a git session, because a file moves no commit there", function()
       -- The head of the range is HEAD, so the reload asks the backend for the

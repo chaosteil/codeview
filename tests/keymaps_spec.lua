@@ -61,6 +61,11 @@ describe("codeview keymaps", function()
       { surface = "view", mode = "n" },
       { surface = "overview", mode = "n" },
     },
+    refresh = {
+      { surface = "sidebar", mode = "n" },
+      { surface = "view", mode = "n" },
+      { surface = "overview", mode = "n" },
+    },
     -- The export keys act on the whole review, so they sit in the overview.
     export = { { surface = "overview", mode = "n" } },
     copy_comments = { { surface = "overview", mode = "n" } },

@@ -576,6 +576,53 @@ function Repo:snapshot(cb)
   return working_copy_id(self, true, cb)
 end
 
+---Read the directory that holds the repository of a workspace.
+---
+--- `.jj/repo` is the repository directory of the default workspace. Every
+--- other workspace holds a text file of that name. The file holds the path of
+--- the real repository directory, relative to the `.jj` directory.
+---@param root string Root of the workspace.
+---@return string path
+local function repo_dir(root)
+  local jj_dir = fs.joinpath(root, ".jj")
+  local path = fs.joinpath(jj_dir, "repo")
+  local stat = uv.fs_stat(path)
+  if not stat or stat.type ~= "file" then
+    return path
+  end
+  local handle = io.open(path, "r")
+  if not handle then
+    return path
+  end
+  local text = vim.trim(handle:read("*a") or "")
+  handle:close()
+  if text == "" then
+    return path
+  end
+  if not vim.startswith(text, "/") then
+    text = fs.joinpath(jj_dir, text)
+  end
+  return fs.normalize(uv.fs_realpath(text) or text)
+end
+
+---Read the directories that every jj operation writes.
+---
+--- jj keeps the head of its operation log in `op_heads/heads`. Every command
+--- that writes the repository puts a new file there and removes the old one.
+--- A watcher of that directory therefore sees every commit, every describe,
+--- every rebase, and every `jj new`.
+---@param cb? fun(dirs: string[]?, err: codeview.Error?) Callback for the async form.
+---@return string[]? dirs Directories that exist now.
+---@return codeview.Error? err
+function Repo:state_dirs(cb)
+  local heads = fs.joinpath(repo_dir(self.root), "op_heads", "heads")
+  local dirs = {}
+  if uv.fs_stat(heads) then
+    dirs[#dirs + 1] = heads
+  end
+  return done(cb, dirs, nil)
+end
+
 --- Log -----------------------------------------------------------------------
 
 ---@param record string

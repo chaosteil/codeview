@@ -392,6 +392,27 @@ return function(opts)
       end)
     end)
 
+    describe("state_dirs", function()
+      it("reports directories that exist", function()
+        local dirs, err = repo:state_dirs()
+        assert.is_nil(err)
+        assert.is_true(#dirs > 0, "the backend reports no state directory")
+        for _, dir in ipairs(dirs) do
+          assert.are.equal(1, vim.fn.isdirectory(dir), dir .. " is no directory")
+          assert.is_truthy(dir:find(fixture.root, 1, true), dir .. " is outside " .. fixture.root)
+        end
+      end)
+
+      it("reports the same directories asynchronously", function()
+        local first = assert(repo:state_dirs())
+        local dirs, err = await(function(cb)
+          repo:state_dirs(cb)
+        end)
+        assert.is_nil(err)
+        assert.are.same(first, dirs)
+      end)
+    end)
+
     describe("cleanup", function()
       it("removes the fixture", function()
         fixture.cleanup()

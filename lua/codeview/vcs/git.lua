@@ -66,6 +66,7 @@ local GIT_ENV = {
 }
 
 ---@class codeview.vcs.GitRepo: codeview.vcs.Repo
+---@field git_dir string? Absolute path of the git directory. The handle reads it once.
 local Repo = {}
 Repo.__index = Repo
 
@@ -394,6 +395,51 @@ end
 ---@return codeview.Error? err
 function Repo:snapshot(cb)
   return self:working_rev(cb)
+end
+
+---Directories to watch under one git directory.
+---@param git_dir string Absolute path of the git directory.
+---@return string[] dirs Directories that exist now.
+local function watch_dirs(git_dir)
+  local dirs = { git_dir }
+  local heads = fs.joinpath(git_dir, "refs", "heads")
+  if uv.fs_stat(heads) then
+    dirs[#dirs + 1] = heads
+  end
+  return dirs
+end
+
+---Read the directories that every git operation writes.
+---
+--- The git directory itself holds `HEAD`, `index`, `ORIG_HEAD`,
+--- `packed-refs`, and `COMMIT_EDITMSG`. A commit, an amend, a rebase, and a
+--- checkout all write one of them. The `refs/heads` subdirectory holds the
+--- branches, so a branch that moves shows there too.
+---
+--- The handle keeps the path of the git directory, because that path does not
+--- move while the repository is open.
+---@param cb? fun(dirs: string[]?, err: codeview.Error?) Callback for the async form.
+---@return string[]? dirs
+---@return codeview.Error? err
+function Repo:state_dirs(cb)
+  if self.git_dir then
+    return done(cb, watch_dirs(self.git_dir), nil)
+  end
+
+  ---@param result codeview.ExecResult
+  local function handle(result)
+    if result.code ~= 0 then
+      return nil, failed(errors.codes.COMMAND_FAILED, "cannot read the git directory", result)
+    end
+    local dir = vim.trim(result.stdout)
+    if dir == "" then
+      return nil, failed(errors.codes.NOT_FOUND, "the repository has no git directory", result)
+    end
+    self.git_dir = fs.normalize(dir)
+    return watch_dirs(self.git_dir), nil
+  end
+
+  return call(self, { "rev-parse", "--absolute-git-dir" }, handle, nil, cb)
 end
 
 --- Log -----------------------------------------------------------------------

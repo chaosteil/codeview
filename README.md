@@ -9,6 +9,8 @@ the comments as markdown, and you send them to a GitHub pull request.
 - Works on git and on [jj](https://github.com/jj-vcs/jj), through one backend
   interface. A review of the jj commit `@` snapshots the working copy, so the
   diff holds the writes of your editor.
+- Follows the repository. The review reads itself again when you commit, amend,
+  or rebase in another terminal, and `<leader>cR` reads it again by hand.
 - Reviews a GitHub pull request without a checkout. The `gh` CLI reads the pull
   request and posts your review. git fetches its two commits into refs of the
   plugin. The diff also shows the review comments that the pull request already
@@ -59,9 +61,10 @@ To set options, set the opts:
 3. Press `i` on a line to write a comment. Save it with `:w`. Press `i` again
    to edit it.
 4. Press `gf` to edit the real file. Press `<leader>cb` to come back.
-5. Go to the sidebar. Press `<leader>co` to see all comments of the review.
-6. Press `<leader>cx` there to read the review as markdown.
-7. Press `<leader>cy` to put the review into the `+` register.
+5. Press `<leader>cR` to read the review again after a new commit or an amend.
+6. Go to the sidebar. Press `<leader>co` to see all comments of the review.
+7. Press `<leader>cx` there to read the review as markdown.
+8. Press `<leader>cy` to put the review into the `+` register.
 
 `:Codeview export` runs the same export from any window.
 
@@ -87,6 +90,7 @@ On a jj repository the argument is a revset, for example
 :Codeview files            " open or close the changed-files sidebar
 :Codeview comments         " open or close the comment overview
 :Codeview back             " back to the review from a file
+:Codeview refresh          " read the review again from the repository
 :Codeview export [reg]     " render the comments as markdown
 :Codeview submit [event]   " send the comments to the pull request
 ```

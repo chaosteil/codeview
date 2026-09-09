@@ -12,9 +12,10 @@
 --- callback it blocks and returns `session, err`. With a callback it returns
 --- at once and calls `cb(session, err)` on the main loop.
 ---
---- A session reads its data again with |codeview.Session:refresh()|. On a
---- review of the working-copy commit, |codeview.Session:reload()| also takes
---- the new state of the working copy.
+--- A session reads its data again with |codeview.Session:refresh()|. That call
+--- resolves the argument of the open call again, so the range follows the new
+--- commits of the repository. On a review of the working-copy commit,
+--- |codeview.Session:reload()| takes the new state of the working copy only.
 
 local config = require("codeview.config")
 local errors = require("codeview.error")
@@ -33,6 +34,7 @@ local M = {}
 ---@field id integer Number of the session. It counts from 1.
 ---@field repo codeview.vcs.Repo Repository handle of the backend.
 ---@field range codeview.vcs.Range Range with resolved commit ids.
+---@field input string|codeview.vcs.Range|codeview.vcs.RangeSpec Argument of the open call. A refresh resolves it again.
 ---@field spec string Text that names the range.
 ---@field files codeview.vcs.FileChange[] Files that the range changes.
 ---@field commits codeview.vcs.Commit[] Commits of the range, newest first.
@@ -204,6 +206,7 @@ function M.open(spec, opts, cb)
       id = counter,
       repo = state.repo,
       range = state.range,
+      input = spec,
       spec = label_of(state.range, spec, opts.label),
       files = with_message(state.files, state.commits),
       commits = state.commits,
@@ -222,6 +225,8 @@ function M.open(spec, opts, cb)
     if store_err then
       vim.notify("codeview: " .. tostring(store_err), vim.log.levels.WARN)
     end
+    -- The review follows the repository from here on. See |codeview.watch|.
+    require("codeview.watch").start(session)
     announce("CodeViewSessionOpened", session)
     return session
   end
@@ -407,19 +412,85 @@ local function reread(session, range, cb)
   return nil, nil
 end
 
----Read the changed files and the commits again.
+---@class codeview.session.RefreshOpts
+---@field snapshot boolean? False keeps the working copy out of the repository. True by default.
+
+---Read the review again from the repository.
 ---
---- Use this call after the repository changed, for example after an amend.
---- The range stays as it is. |codeview.Session:reload()| also moves the head
---- of the range to the working copy.
+--- The call resolves the argument of the open call again. Text such as
+--- `trunk()..@` or `HEAD~3..HEAD` therefore follows the new commits of the
+--- repository. A review of a pull request holds a resolved range, so it reads
+--- the same two commits again.
+---
+--- The call snapshots the working copy first. On jj that writes your files
+--- into `@`, the way |codeview.Session:reload()| does. An argument that names
+--- a commit id resolves to the commit before the snapshot, so the call moves
+--- the head of the range to the new commit itself.
+---
+--- Set `opts.snapshot` to false to leave the working copy alone. The watcher
+--- of |codeview.watch| uses that form, because a repository operation must not
+--- write the working copy behind your back.
+---
+--- The call then reads the changed files and the commits of the new range, and
+--- it sends CodeViewSessionRefreshed.
+---@param opts? codeview.session.RefreshOpts
 ---@param cb? fun(session: codeview.Session?, err: codeview.Error?) Callback for the async form.
 ---@return codeview.Session? session
 ---@return codeview.Error? err
-function Session:refresh(cb)
+function Session:refresh(opts, cb)
+  if type(opts) == "function" then
+    cb, opts = opts, nil
+  end
+  opts = opts or {}
   if self.closed then
     return done(cb, nil, errors.new(errors.codes.INVALID_ARG, "the session is closed"))
   end
-  return reread(self, self.range, cb)
+  local snapshot = opts.snapshot ~= false
+
+  local state = {}
+  local steps = {}
+  if snapshot then
+    steps[#steps + 1] = into(function(step_cb)
+      return self.repo:working_rev(step_cb)
+    end, state, "old_head")
+    steps[#steps + 1] = into(function(step_cb)
+      return self.repo:snapshot(step_cb)
+    end, state, "head")
+  end
+  steps[#steps + 1] = into(function(step_cb)
+    return self.repo:resolve_range(self.input, step_cb)
+  end, state, "range")
+
+  ---Range of the answer, with the head of the snapshot.
+  ---
+  --- An argument that holds a commit id resolves to that commit, and the
+  --- snapshot wrote the working copy into a new one. The head of the range
+  --- then takes the new commit, the way |codeview.Session:reload()| moves it.
+  ---@return codeview.vcs.Range
+  local function fresh()
+    local range = state.range --[[@as codeview.vcs.Range]]
+    if snapshot and range.to == state.old_head and state.head ~= state.old_head then
+      range.to = state.head
+    end
+    return range
+  end
+
+  if not cb then
+    local ok, err = chain(steps)
+    if not ok then
+      return nil, err
+    end
+    return reread(self, fresh(), nil)
+  end
+
+  chain(steps, function(ok, err)
+    if not ok then
+      cb(nil, err)
+      return
+    end
+    reread(self, fresh(), cb)
+  end)
+  return nil, nil
 end
 
 ---Read the review again after a change of the working copy.

@@ -260,6 +260,9 @@ local function set_keymaps(session, buf)
   add(keys.toggle_style, function()
     M.toggle_style()
   end, "switch the diff style")
+  add(keys.refresh, function()
+    M.refresh()
+  end, "read the review again")
   add(keys.close, function()
     session:close()
   end, "close the session")
@@ -1382,6 +1385,97 @@ function M.back(opts)
     return false
   end
   M.go_to_line(line, "new")
+  return true
+end
+
+---@class codeview.view.Open
+---@field path string Path of the file that the view showed.
+---@field index integer Position of the file before the refresh.
+---@field virtual boolean True for a commit message document.
+---@field line integer Line of the new side under the cursor.
+---@field win integer Window of the view.
+
+---State of the open file, before the session reads its data again.
+---@param view codeview.view.State
+---@return codeview.view.Open
+local function open_state(view)
+  local entry = view.session:file(view.index)
+  local row = api.nvim_win_is_valid(view.win) and api.nvim_win_get_cursor(view.win)[1] or 1
+  return {
+    path = view.path,
+    index = view.index,
+    virtual = entry ~= nil and entry.virtual == true,
+    line = working_line(view, row),
+    win = view.win,
+  }
+end
+
+---Position of the open file after the refresh.
+---
+--- The path answers first. The document of a commit takes the id of that
+--- commit in its path, so a snapshot of the working copy gives it a new path.
+--- Its position stays, because the range holds the same commits.
+---@param session codeview.Session
+---@param before codeview.view.Open
+---@return integer? index Nil when the range does not hold the file any more.
+local function position_after(session, before)
+  local found = session:index_of(before.path)
+  if found then
+    return found
+  end
+  if before.virtual then
+    local entry = session:file(before.index)
+    return entry and entry.virtual and before.index or nil
+  end
+  return nil
+end
+
+---Read the review again from the repository.
+---
+--- The call resolves the range of the session again, so the review follows a
+--- new commit, an amend, or a rebase. See |codeview.Session:refresh()|. The
+--- sidebar and the comment overview draw themselves again, because the
+--- session sends CodeViewSessionRefreshed.
+---
+--- The file that the view shows opens again, with the cursor on the same line
+--- of the file. A file that leaves the range gets a message, and the view
+--- closes, because the review has no diff to show for it.
+---@param opts? codeview.session.RefreshOpts `snapshot = false` keeps the working copy out of the repository.
+---@return boolean refreshed False with a message when the call failed.
+function M.refresh(opts)
+  local session = require("codeview.session").current()
+  if not session or not session:is_active() then
+    notify("no review session")
+    return false
+  end
+
+  -- The state of the view reads first. The refresh replaces the file list of
+  -- the session, so a later read gives another file.
+  local view = M.current()
+  local before = view and open_state(view) or nil
+
+  local _, err = session:refresh(opts)
+  if err then
+    notify(tostring(err), vim.log.levels.ERROR)
+    return false
+  end
+  if not before then
+    return true
+  end
+
+  local index = position_after(session, before)
+  if not index then
+    notify("the range does not change " .. before.path .. " any more")
+    M.close()
+    return true
+  end
+
+  local fresh_view, open_err = M.open(session, index, { win = before.win })
+  if not fresh_view then
+    notify(tostring(open_err), vim.log.levels.ERROR)
+    return false
+  end
+  M.go_to_line(before.line, "new")
   return true
 end
 

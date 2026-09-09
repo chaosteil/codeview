@@ -320,6 +320,17 @@ function M.submit(opts, cb)
   return require("codeview.submit").run(opts, cb)
 end
 
+---Read the review again from the repository.
+---
+--- The call resolves the range of the session again, so the review follows a
+--- new commit, an amend, or a rebase. On jj it writes the working copy into
+--- `@` first. The open file stays open, on the same line. The command
+--- `:Codeview refresh` calls this function.
+---@return boolean refreshed False with a message when there is no session, or when the call failed.
+function M.refresh()
+  return require("codeview.view").refresh()
+end
+
 ---Run the health check of the plugin.
 ---
 --- The same report comes from `:checkhealth codeview`.

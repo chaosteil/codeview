@@ -42,6 +42,7 @@ M.actions = {
     { action = "toggle_style", text = "style" },
     { action = "edit_file", text = "edit the file" },
     { action = "toggle_overview", text = "comments" },
+    { action = "refresh", text = "refresh" },
     { action = "close", text = "close" },
   },
   view = {
@@ -54,6 +55,7 @@ M.actions = {
     { action = "edit_comment", text = "edit comment" },
     { action = "delete_comment", text = "delete comment" },
     { action = "toggle_overview", text = "comments" },
+    { action = "refresh", text = "refresh" },
   },
   file = {
     { action = "back", text = "back to the review" },
@@ -64,6 +66,7 @@ M.actions = {
     { action = "resolve_comment", text = "resolve" },
     { action = "export", text = "export" },
     { action = "copy_comments", text = "copy" },
+    { action = "refresh", text = "refresh" },
     { action = "toggle_overview", text = "close" },
   },
 }
