@@ -66,6 +66,7 @@ local M = {}
 
 ---@class codeview.Config.Export
 ---@field register string Register that receives the exported markdown. An empty text writes no register.
+---@field prompt string Text under the title of the export. An empty text writes no prompt.
 ---@field template fun(session: codeview.Session, data: codeview.export.Data): string|false Custom renderer. False uses the built-in renderer.
 
 ---@class codeview.Config.GitHub
@@ -123,6 +124,13 @@ M.defaults = {
   },
   export = {
     register = "+",
+    -- The text under the title tells an agent what to do with the comments.
+    prompt = table.concat({
+      "A code review of this change produced the comments below.",
+      "Each comment names its lines, its side of the diff (old or new), and the commit that holds the lines.",
+      "Make the change that each comment asks for.",
+      "Skip only a comment that is marked resolved.",
+    }, " "),
     template = false,
   },
   github = {
@@ -292,6 +300,7 @@ function M.validate(opts)
 
     vim.validate("export", opts.export, "table")
     vim.validate("export.register", opts.export.register, "string")
+    vim.validate("export.prompt", opts.export.prompt, "string")
     vim.validate("export.template", opts.export.template, function(value)
       return value == false or type(value) == "function"
     end, "function or false")

@@ -105,6 +105,17 @@ describe("codeview.config", function()
     assert.are.equal(fn, cfg.export.template)
   end)
 
+  it("accepts an empty prompt", function()
+    local cfg = assert(config.setup({ export = { prompt = "" } }))
+    assert.are.equal("", cfg.export.prompt)
+  end)
+
+  it("rejects a prompt that is not a text", function()
+    local cfg, err = config.setup({ export = { prompt = 42 } })
+    assert.is_nil(cfg)
+    assert.is_truthy(err:find("export.prompt", 1, true), err)
+  end)
+
   it("rejects an unknown top-level option", function()
     local cfg, err = config.setup({ colour = "red" })
     assert.is_nil(cfg)
