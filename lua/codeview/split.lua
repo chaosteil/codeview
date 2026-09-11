@@ -66,6 +66,11 @@ M.line_hl = {
   message = "CodeViewDiffMessage",
 }
 
+---Priority of a row highlight. One below the default of an extmark, so
+--- the word marks and the marks of other plugins paint over a row.
+---@type integer
+M.row_priority = 4095
+
 ---Window options of a diff window. They apply to the buffer of the window.
 ---
 --- The two windows scroll and move the cursor together. Both sides hold the
@@ -367,10 +372,19 @@ local function write(buf, build, side)
   api.nvim_buf_clear_namespace(buf, M.ns, 0, -1)
   -- Every filler row of the side shares one chunk list. Neovim copies it.
   local chunks = { { filler_text(fill_width(buf)), "CodeViewDiffFiller" } }
+  -- A line highlight covers every range mark of the line, so the rows are range
+  -- marks and the word marks paint over them.
   for lnum, row in ipairs(content.map.rows) do
     local group = group_of(row)
     if group then
-      local extmark = { line_hl_group = group }
+      local extmark = {
+        end_row = lnum, -- the next row (0-based), so the range covers the line break
+        end_col = 0,
+        hl_eol = true, -- paint to the end of the screen line, like a line highlight
+        hl_group = group,
+        priority = M.row_priority,
+        strict = false, -- the last row has no next row
+      }
       if row.kind == "filler" and not row.gap then
         -- The row is not part of the file. Virtual text marks it as free.
         extmark.virt_text = chunks

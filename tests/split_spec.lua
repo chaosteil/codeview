@@ -47,8 +47,8 @@ describe("codeview.split", function()
   local function line_groups(buf)
     local out = {}
     for _, mark in ipairs(api.nvim_buf_get_extmarks(buf, split.ns, 0, -1, { details = true })) do
-      if mark[4].line_hl_group then
-        out[mark[2] + 1] = mark[4].line_hl_group
+      if mark[4].hl_group and mark[4].hl_eol and mark[3] == 0 then
+        out[mark[2] + 1] = mark[4].hl_group
       end
     end
     return out
@@ -60,7 +60,7 @@ describe("codeview.split", function()
   local function inner_marks(buf)
     local out = {}
     for _, mark in ipairs(api.nvim_buf_get_extmarks(buf, split.ns, 0, -1, { details = true })) do
-      if mark[4].hl_group then
+      if mark[4].hl_group and not mark[4].hl_eol then
         out[#out + 1] = { row = mark[2] + 1, col = mark[3], end_col = mark[4].end_col, hl = mark[4].hl_group }
       end
     end
@@ -294,7 +294,8 @@ describe("codeview.split", function()
       local marks = api.nvim_buf_get_extmarks(old_buf, split.ns, { 4, 0 }, { 4, -1 }, { details = true })
       assert.are.equal(1, #marks)
       local details = marks[1][4]
-      assert.are.equal("CodeViewDiffFiller", details.line_hl_group)
+      assert.are.equal("CodeViewDiffFiller", details.hl_group)
+      assert.is_true(details.hl_eol)
       assert.are.equal("CodeViewDiffFiller", details.virt_text[1][2])
       assert.is_truthy(details.virt_text[1][1]:find(split.filler_char, 1, true))
       drop(old_buf, new_buf)
@@ -315,6 +316,28 @@ describe("codeview.split", function()
       local old_buf, new_buf = render(diff.compute("local value = 1\n", "local value = 2\n"), { word_diff = true })
       assert.are.same({ { row = 2, col = 14, end_col = 15, hl = "CodeViewDiffTextDelete" } }, inner_marks(old_buf))
       assert.are.same({ { row = 2, col = 14, end_col = 15, hl = "CodeViewDiffTextAdd" } }, inner_marks(new_buf))
+      drop(old_buf, new_buf)
+    end)
+
+    it("paints a row below the word marks", function()
+      local old_buf, new_buf = render(diff.compute("local value = 1\n", "local value = 2\n"), { word_diff = true })
+      assert.is_true(split.row_priority < 4096)
+
+      for _, buf in ipairs({ old_buf, new_buf }) do
+        local rows, words = 0, 0
+        for _, mark in ipairs(api.nvim_buf_get_extmarks(buf, split.ns, 0, -1, { details = true })) do
+          local details = mark[4]
+          if details.hl_eol then
+            rows = rows + 1
+            assert.are.equal(split.row_priority, details.priority)
+          elseif details.hl_group then
+            words = words + 1
+            assert.are.equal(4096, details.priority)
+          end
+        end
+        assert.is_true(rows > 0)
+        assert.is_true(words > 0)
+      end
       drop(old_buf, new_buf)
     end)
 

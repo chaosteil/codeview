@@ -47,8 +47,8 @@ describe("codeview.inline", function()
     local out = {}
     for _, mark in ipairs(api.nvim_buf_get_extmarks(buf, inline.ns, 0, -1, { details = true })) do
       local details = mark[4]
-      if details.line_hl_group then
-        out[mark[2] + 1] = details.line_hl_group
+      if details.hl_group and details.hl_eol and mark[3] == 0 then
+        out[mark[2] + 1] = details.hl_group
       end
     end
     return out
@@ -61,7 +61,7 @@ describe("codeview.inline", function()
     local out = {}
     for _, mark in ipairs(api.nvim_buf_get_extmarks(buf, inline.ns, 0, -1, { details = true })) do
       local details = mark[4]
-      if details.hl_group then
+      if details.hl_group and not details.hl_eol then
         out[#out + 1] = { row = mark[2] + 1, col = mark[3], end_col = details.end_col, hl = details.hl_group }
       end
     end
@@ -339,6 +339,26 @@ describe("codeview.inline", function()
         { row = 2, col = 15, end_col = 16, hl = "CodeViewDiffTextDelete" },
         { row = 3, col = 15, end_col = 16, hl = "CodeViewDiffTextAdd" },
       }, inner_marks(buf))
+      api.nvim_buf_delete(buf, { force = true })
+    end)
+
+    it("paints a row below the word marks", function()
+      local buf = render(diff.compute("local value = 1\n", "local value = 2\n"), { word_diff = true })
+      local rows, words = 0, 0
+      for _, mark in ipairs(api.nvim_buf_get_extmarks(buf, inline.ns, 0, -1, { details = true })) do
+        local details = mark[4]
+        if details.hl_eol then
+          rows = rows + 1
+          assert.are.equal(inline.row_priority, details.priority)
+        elseif details.hl_group then
+          words = words + 1
+          assert.are.equal(4096, details.priority)
+        end
+      end
+
+      assert.is_true(inline.row_priority < 4096)
+      assert.is_true(rows > 0)
+      assert.is_true(words > 0)
       api.nvim_buf_delete(buf, { force = true })
     end)
 

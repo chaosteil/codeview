@@ -69,6 +69,11 @@ M.line_hl = {
   message = "CodeViewDiffMessage",
 }
 
+---Priority of a row highlight. One below the default of an extmark, so
+--- the word marks and the marks of other plugins paint over a row.
+---@type integer
+M.row_priority = 4095
+
 ---Window options of a diff window. They apply to the buffer of the window.
 ---@type table<string, any>
 M.window_options = layout.window_options
@@ -269,10 +274,19 @@ end
 ---@param build codeview.inline.Build
 local function apply_marks(buf, build)
   api.nvim_buf_clear_namespace(buf, M.ns, 0, -1)
+  -- A line highlight covers every range mark of the line, so the rows are range
+  -- marks and the word marks paint over them.
   for lnum, row in ipairs(build.map.rows) do
     local group = M.line_hl[row.kind]
     if group then
-      api.nvim_buf_set_extmark(buf, M.ns, lnum - 1, 0, { line_hl_group = group })
+      api.nvim_buf_set_extmark(buf, M.ns, lnum - 1, 0, {
+        end_row = lnum, -- the next row (0-based), so the range covers the line break
+        end_col = 0,
+        hl_eol = true, -- paint to the end of the screen line, like a line highlight
+        hl_group = group,
+        priority = M.row_priority,
+        strict = false, -- the last row has no next row
+      })
     end
   end
   for _, mark in ipairs(build.marks) do
