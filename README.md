@@ -6,6 +6,8 @@ inline or side by side, and write comments on the lines. The sidebar also holds
 the message of each commit, and you comment on it in the same way. You export
 the comments as markdown, and you send them to a GitHub pull request.
 
+![screenshot](./pic.png)
+
 - Works on git and on [jj](https://github.com/jj-vcs/jj), through one backend
   interface. A review of the jj commit `@` snapshots the working copy, so the
   diff holds the writes of your editor.
@@ -38,6 +40,7 @@ With [lazy.nvim](https://github.com/folke/lazy.nvim):
   cmd = "Codeview",
 }
 ```
+
 To set options, set the opts:
 
 ```lua
