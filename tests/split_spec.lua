@@ -234,6 +234,21 @@ describe("codeview.split", function()
       assert.are.same({ { row = 2, col = 14, end_col = 15, hl = "CodeViewDiffTextAdd" } }, build.new.marks)
     end)
 
+    it("marks the pairs of a hunk that also adds a line", function()
+      local file = diff.compute("5. one\n6. two\n", "5. zero\n6. one\n7. two\n")
+      local build = split.build(file, { word_diff = true })
+
+      -- Row 2 holds the inserted line `5. zero`, which has no partner.
+      assert.are.same({
+        { row = 3, col = 0, end_col = 1, hl = "CodeViewDiffTextDelete" },
+        { row = 4, col = 0, end_col = 1, hl = "CodeViewDiffTextDelete" },
+      }, build.old.marks)
+      assert.are.same({
+        { row = 3, col = 0, end_col = 1, hl = "CodeViewDiffTextAdd" },
+        { row = 4, col = 0, end_col = 1, hl = "CodeViewDiffTextAdd" },
+      }, build.new.marks)
+    end)
+
     it("marks nothing when the option is off", function()
       local file = diff.compute("local value = 1\n", "local value = 2\n")
       local build = split.build(file, { word_diff = false })

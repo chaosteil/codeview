@@ -18,10 +18,18 @@
 --- and `indent_heuristic` select the settings of git instead. |codeview.submit|
 --- needs them, because GitHub accepts only the lines of the diff of git.
 ---
+--- The display also aligns the lines inside a hunk. |vim.diff()| pairs
+--- a removed line with the added line that looks most like it, up to
+--- `linematch` lines per hunk. A hunk that renumbers a list then splits
+--- into one insert and one change, and the renderer marks the changed
+--- words of each pair. The line map of |codeview.submit| runs without
+--- the alignment, because GitHub takes only the hunks of git.
+---
 --- Two limits keep a large file fast. |codeview.diff.algorithm()| selects the
 --- algorithm from the size of the two sides. `max_lines` stops the comparison
 --- of a file that holds more lines than the reader wants to see. The result
 --- then holds no hunk and the field `limited`, and the renderer shows a note.
+--- A large file takes neither the histogram algorithm nor the alignment.
 
 local config = require("codeview.config")
 local errors = require("codeview.error")
@@ -57,11 +65,17 @@ local M = {}
 ---@field context integer? Context length. The `diff.context` option by default.
 ---@field algorithm string? Algorithm of |vim.diff()|. |codeview.diff.algorithm()| by default.
 ---@field indent_heuristic boolean? True moves a change to the line that the indent suggests. False by default.
+---@field linematch integer? Highest number of lines of a hunk that |vim.diff()| aligns by similarity. 0 turns the alignment off. |codeview.diff.linematch()| by default.
 ---@field max_lines integer? Highest number of lines of the two sides together. 0 removes the limit. The `diff.max_lines` option by default.
 
 ---Highest number of lines of one side for the histogram algorithm.
 ---@type integer
 M.histogram_limit = 4000
+
+---Highest number of lines of a hunk that |vim.diff()| aligns by
+--- similarity. The value of the 'diffopt' default of Neovim.
+---@type integer
+M.linematch_limit = 40
 
 ---Split file content into lines.
 ---
@@ -101,6 +115,21 @@ function M.algorithm(old, new)
     return "myers"
   end
   return "histogram"
+end
+
+---Line alignment of |vim.diff()| for two sides of a given size.
+---
+--- The alignment costs time that grows with the square of the number of
+--- hunks, like the histogram algorithm. A file above |codeview.diff.histogram_limit|
+--- therefore takes no alignment, so it stays fast.
+---@param old integer Number of lines of the old side.
+---@param new integer Number of lines of the new side.
+---@return integer linematch Value for the `linematch` field of |vim.diff()|. 0 turns it off.
+function M.linematch(old, new)
+  if math.max(old, new) > M.histogram_limit then
+    return 0
+  end
+  return M.linematch_limit
 end
 
 ---Revisions of the two sides of a changed file.
@@ -184,6 +213,7 @@ function M.compute(old_text, new_text, opts)
     ctxlen = 0,
     algorithm = opts.algorithm or M.algorithm(#old_lines, #new_lines),
     indent_heuristic = opts.indent_heuristic == true,
+    linematch = opts.linematch or M.linematch(#old_lines, #new_lines),
   }) --[[@as integer[][] ]]
 
   for index, hunk in ipairs(indices or {}) do

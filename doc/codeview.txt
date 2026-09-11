@@ -396,7 +396,9 @@ A line that only one side holds shows one number. The plugin highlights a
 removed line with |hl-CodeViewDiffDelete| and an added line with
 |hl-CodeViewDiffAdd|. With `diff.word_diff` the changed part of a line also
 gets |hl-CodeViewDiffTextDelete| on the removed line and
-|hl-CodeViewDiffTextAdd| on the added line.
+|hl-CodeViewDiffTextAdd| on the added line. The diff pairs a removed line
+with the added line that looks most like it, so a renumbered list shows only
+the changed numbers. A line without a similar partner keeps a plain row.
 
                                                          *codeview-diff-syntax*
 The diff keeps the colors of the code. A diff buffer holds two revisions with
@@ -1145,10 +1147,10 @@ review then holds one default line.
 
                                                     *codeview-submit-position*
 The position of a comment comes from a line map of the diff. The map runs with
-the diff settings of git, the myers algorithm with the indent heuristic,
-because GitHub takes only the lines of the diff of git. The review itself
-shows the histogram diff, which reads better. The map gives the fields of the
-review API of GitHub: >
+the diff settings of git, the myers algorithm with the indent heuristic, and
+without the line alignment of the display, because GitHub takes only the lines
+of the diff of git. The review itself shows the histogram diff, which reads
+better. The map gives the fields of the review API of GitHub: >
 
     side          LEFT for the old side, RIGHT for the new side
     line          last line of the comment

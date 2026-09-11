@@ -229,6 +229,9 @@ function M.build(diff, opts)
           hunk = hunk.index,
         })
       end
+      -- The diff aligns similar lines inside a hunk, so a hunk that replaces
+      -- as many lines as it adds pairs its lines by position. A hunk with
+      -- other counts holds lines that are too different to pair.
       if word_diff and hunk.old_count == hunk.new_count then
         for step = 1, hunk.old_count do
           mark_words(

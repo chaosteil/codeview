@@ -452,6 +452,7 @@ describe("codeview.submit", function()
       for _, opts in ipairs(seen) do
         assert.are.equal("myers", opts.algorithm)
         assert.is_true(opts.indent_heuristic)
+        assert.are.equal(0, opts.linematch)
       end
     end)
 

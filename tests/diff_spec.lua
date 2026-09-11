@@ -145,6 +145,54 @@ describe("codeview.diff", function()
       assert.is_true(seen.indent_heuristic)
     end)
 
+    it("aligns similar lines inside a hunk by default", function()
+      local seen
+      local real = vim.diff
+      vim.diff = function(old, new, opts) ---@diagnostic disable-line: duplicate-set-field
+        seen = opts
+        return real(old, new, opts)
+      end
+      local ok = pcall(diff.compute, "one\n", "two\n")
+      vim.diff = real
+      assert.is_true(ok)
+      assert.are.equal(40, seen.linematch)
+
+      local result = diff.compute("5. one\n6. two\n", "5. zero\n6. one\n7. two\n")
+      assert.are.equal(2, #result.hunks)
+      assert.are.equal(0, result.hunks[1].old_count)
+      assert.are.equal(1, result.hunks[1].new_count)
+      assert.are.equal(2, result.hunks[2].old_count)
+      assert.are.equal(2, result.hunks[2].new_count)
+    end)
+
+    it("aligns no lines above the histogram limit", function()
+      local seen
+      local real = vim.diff
+      vim.diff = function(old, new, opts) ---@diagnostic disable-line: duplicate-set-field
+        seen = opts
+        return real(old, new, opts)
+      end
+      local limit = diff.histogram_limit
+      diff.histogram_limit = 2
+      local above_ok = pcall(diff.compute, "one\ntwo\nthree\n", "one\ntwo\nfour\n")
+      local above = seen
+      local below_ok = pcall(diff.compute, "one\n", "two\n")
+      local below = seen
+      diff.histogram_limit = limit
+      vim.diff = real
+      assert.is_true(above_ok)
+      assert.is_true(below_ok)
+      assert.are.equal(0, above.linematch)
+      assert.are.equal(40, below.linematch)
+    end)
+
+    it("turns the alignment off with linematch 0", function()
+      local result = diff.compute("5. one\n6. two\n", "5. zero\n6. one\n7. two\n", { linematch = 0 })
+      assert.are.equal(1, #result.hunks)
+      assert.are.equal(2, result.hunks[1].old_count)
+      assert.are.equal(3, result.hunks[1].new_count)
+    end)
+
     it("counts the added and the removed lines", function()
       local result = diff.compute("one\ntwo\n", "one\ntwo changed\nthree\n")
       local added, removed = diff.stat(result)

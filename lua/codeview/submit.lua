@@ -81,10 +81,13 @@ M.context = 3
 --- not hold, and the API then rejects the whole review. The map and the
 --- coverage of a submit take the settings of git for that reason.
 ---
+--- `linematch = 0` runs the map without the line alignment of the display,
+--- because git has none.
+---
 --- `max_lines = 0` removes the line limit of the display. A comment on a large
 --- file must map, whether the reader rendered that diff or not.
 ---@type codeview.diff.Opts
-M.diff_opts = { algorithm = "myers", indent_heuristic = true, max_lines = 0 }
+M.diff_opts = { algorithm = "myers", indent_heuristic = true, linematch = 0, max_lines = 0 }
 
 ---@class codeview.submit.Position
 ---@field path string Path of the file in the pull request.

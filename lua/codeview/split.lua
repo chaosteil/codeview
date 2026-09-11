@@ -270,8 +270,9 @@ function M.build(diff, opts)
       build.new.fillers[#build.new.fillers + 1] = lnum
     end
 
-    -- Two lines of the same position are a pair only when the hunk replaces
-    -- as many lines as it adds.
+    -- The diff aligns similar lines inside a hunk, so a hunk that replaces
+    -- as many lines as it adds pairs its lines by position. A hunk with
+    -- other counts holds lines that are too different to pair.
     local hunk = word_diff and row.kind == "change" and diff.hunks[row.hunk] or nil
     if hunk and hunk.old_count == hunk.new_count then
       local prefix, old_to, new_to = layout.word_range(old_text, new_text)

@@ -286,9 +286,17 @@ describe("codeview.inline", function()
       assert.are.same({}, inline.build(file, { word_diff = false }).marks)
     end)
 
-    it("marks nothing when the two sides have another line count", function()
-      local file = diff.compute("one\n", "one changed\ntwo\n")
-      assert.are.same({}, inline.build(file, { word_diff = true }).marks)
+    it("marks the pairs of a hunk that also adds a line", function()
+      local file = diff.compute("5. one\n6. two\n", "5. zero\n6. one\n7. two\n")
+      local build = inline.build(file, { word_diff = true })
+
+      -- Row 2 holds the inserted line `5. zero`, which has no partner.
+      assert.are.same({
+        { row = 3, col = 1, end_col = 2, hl = "CodeViewDiffTextDelete" },
+        { row = 5, col = 1, end_col = 2, hl = "CodeViewDiffTextAdd" },
+        { row = 4, col = 1, end_col = 2, hl = "CodeViewDiffTextDelete" },
+        { row = 6, col = 1, end_col = 2, hl = "CodeViewDiffTextAdd" },
+      }, build.marks)
     end)
   end)
 
