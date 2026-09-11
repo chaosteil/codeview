@@ -146,6 +146,34 @@ describe("codeview.syntax", function()
     end)
   end)
 
+  describe("the word colors", function()
+    it("mixes the diff color into the row background", function()
+      vim.cmd("highlight DiffAdd guibg=#000000")
+      vim.cmd("highlight DiffDelete guibg=#000000")
+      vim.cmd("highlight Added guifg=#ff0000")
+      vim.cmd("highlight Removed guifg=#0000ff")
+      highlight.apply()
+
+      -- A quarter of 255 is 63.75, which rounds to 64, or 0x40.
+      local add = api.nvim_get_hl(0, { name = "CodeViewDiffTextAdd", link = false })
+      assert.are.equal(0x400000, add.bg)
+      assert.is_nil(add.fg)
+      local removed = api.nvim_get_hl(0, { name = "CodeViewDiffTextDelete", link = false })
+      assert.are.equal(0x000040, removed.bg)
+      assert.is_nil(removed.fg)
+    end)
+
+    it("links to the shared group when a color is missing", function()
+      vim.cmd("highlight Added guifg=NONE")
+      vim.cmd("highlight Removed guifg=NONE")
+      highlight.apply()
+      for group in pairs(highlight.diff_words) do
+        local hl = api.nvim_get_hl(0, { name = group })
+        assert.are.equal("CodeViewDiffText", hl.link)
+      end
+    end)
+  end)
+
   it("removes the fixture", function()
     fixture.cleanup()
     assert.are.equal(0, vim.fn.isdirectory(fixture.dir))

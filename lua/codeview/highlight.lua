@@ -4,6 +4,10 @@
 --- keeps control: an own `:highlight` command, or a link in a colorscheme,
 --- wins over the default link.
 ---
+--- The row groups and the word groups of a diff are the exceptions. The
+--- module computes their colors from the colorscheme, so they carry no link
+--- and no `default`.
+---
 --- The links go away when a colorscheme runs `:highlight clear`. The module
 --- sets them again on the |ColorScheme| event.
 
@@ -70,12 +74,26 @@ M.diff_rows = {
   CodeViewDiffDelete = "DiffDelete",
 }
 
+---@class codeview.highlight.WordSource
+---@field row string Standard group that gives the background of the row.
+---@field color string Standard group that gives the diff color.
+
+---Groups of the changed words of a line, and the standard groups they
+--- derive from. |codeview.highlight.apply_diff_words()| defines them, so
+--- they are not part of |codeview.highlight.links|.
+---@type table<string, codeview.highlight.WordSource>
+M.diff_words = {
+  CodeViewDiffTextAdd = { row = "DiffAdd", color = "Added" },
+  CodeViewDiffTextDelete = { row = "DiffDelete", color = "Removed" },
+}
+
 ---Define every group.
 function M.apply()
   for group, target in pairs(M.links) do
     api.nvim_set_hl(0, group, { link = target, default = true })
   end
   M.apply_diff_rows()
+  M.apply_diff_words()
 end
 
 ---Background of one group, or nil when the group carries none.
@@ -87,6 +105,33 @@ local function background_of(name)
     return nil
   end
   return hl.bg
+end
+
+---Foreground of one group, or nil when the group carries none.
+---@param name string
+---@return integer? fg
+local function foreground_of(name)
+  local ok, hl = pcall(api.nvim_get_hl, 0, { name = name, link = false })
+  if not ok or type(hl) ~= "table" then
+    return nil
+  end
+  return hl.fg
+end
+
+---Mix of two colors, as a 24-bit integer.
+---@param fg integer First color.
+---@param bg integer Second color.
+---@param weight number Part of the first color, from 0 to 1.
+---@return integer color
+local function blend(fg, bg, weight)
+  local out = 0
+  -- One pass per channel: red at bit 16, green at bit 8, blue at bit 0.
+  for _, shift in ipairs({ 16, 8, 0 }) do
+    local f = bit.band(bit.rshift(fg, shift), 0xff)
+    local b = bit.band(bit.rshift(bg, shift), 0xff)
+    out = out + bit.lshift(math.floor(f * weight + b * (1 - weight) + 0.5), shift)
+  end
+  return out
 end
 
 ---Colors of the added rows and the removed rows.
@@ -112,6 +157,33 @@ function M.apply_diff_rows()
       api.nvim_set_hl(0, group, { bg = bg })
     else
       api.nvim_set_hl(0, group, { link = target })
+    end
+  end
+end
+
+---Colors of the changed words of a pair of lines.
+---
+--- A changed word takes the color of its own side: green in an added line,
+--- red in a removed line. The group puts a quarter of the color of `Added` or
+--- `Removed` on the background of the row, so the word stands out from the
+--- rest of the row and still names the side. It carries no foreground, so the
+--- code keeps the colors of its language.
+---
+--- The group links to `CodeViewDiffText` when the colorscheme gives no
+--- background to the row or no foreground to the color. The shared group is
+--- then the fallback, with the colors of the user or of the colorscheme.
+---
+--- The two groups carry no `default`, like the row groups. Their value follows
+--- a colorscheme, so the call computes it again on each run. To give them your
+--- own colors, set them from your own |ColorScheme| autocmd.
+function M.apply_diff_words()
+  for group, source in pairs(M.diff_words) do
+    local bg = background_of(source.row)
+    local fg = foreground_of(source.color)
+    if bg and fg then
+      api.nvim_set_hl(0, group, { bg = blend(fg, bg, 0.25) })
+    else
+      api.nvim_set_hl(0, group, { link = "CodeViewDiffText" })
     end
   end
 end

@@ -170,10 +170,10 @@ function M.build(diff, opts)
       return
     end
     if old_to > prefix then
-      marks[#marks + 1] = { row = old_row, col = prefix + 1, end_col = old_to + 1, hl = "CodeViewDiffText" }
+      marks[#marks + 1] = { row = old_row, col = prefix + 1, end_col = old_to + 1, hl = "CodeViewDiffTextDelete" }
     end
     if new_to > prefix then
-      marks[#marks + 1] = { row = new_row, col = prefix + 1, end_col = new_to + 1, hl = "CodeViewDiffText" }
+      marks[#marks + 1] = { row = new_row, col = prefix + 1, end_col = new_to + 1, hl = "CodeViewDiffTextAdd" }
     end
   end
 

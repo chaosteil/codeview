@@ -278,11 +278,11 @@ function M.build(diff, opts)
       if prefix then
         if old_to > prefix then
           build.old.marks[#build.old.marks + 1] =
-            { row = lnum, col = prefix, end_col = old_to, hl = "CodeViewDiffText" }
+            { row = lnum, col = prefix, end_col = old_to, hl = "CodeViewDiffTextDelete" }
         end
         if new_to > prefix then
           build.new.marks[#build.new.marks + 1] =
-            { row = lnum, col = prefix, end_col = new_to, hl = "CodeViewDiffText" }
+            { row = lnum, col = prefix, end_col = new_to, hl = "CodeViewDiffTextAdd" }
         end
       end
     end

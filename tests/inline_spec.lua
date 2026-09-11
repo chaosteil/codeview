@@ -263,8 +263,8 @@ describe("codeview.inline", function()
       local file = diff.compute("local value = 1\n", "local value = 2\n")
       local build = inline.build(file, { word_diff = true })
       assert.are.same({
-        { row = 2, col = 15, end_col = 16, hl = "CodeViewDiffText" },
-        { row = 3, col = 15, end_col = 16, hl = "CodeViewDiffText" },
+        { row = 2, col = 15, end_col = 16, hl = "CodeViewDiffTextDelete" },
+        { row = 3, col = 15, end_col = 16, hl = "CodeViewDiffTextAdd" },
       }, build.marks)
     end)
 
@@ -328,8 +328,8 @@ describe("codeview.inline", function()
     it("highlights the changed part of a line", function()
       local buf = render(diff.compute("local value = 1\n", "local value = 2\n"), { word_diff = true })
       assert.are.same({
-        { row = 2, col = 15, end_col = 16, hl = "CodeViewDiffText" },
-        { row = 3, col = 15, end_col = 16, hl = "CodeViewDiffText" },
+        { row = 2, col = 15, end_col = 16, hl = "CodeViewDiffTextDelete" },
+        { row = 3, col = 15, end_col = 16, hl = "CodeViewDiffTextAdd" },
       }, inner_marks(buf))
       api.nvim_buf_delete(buf, { force = true })
     end)
@@ -434,7 +434,14 @@ describe("codeview.inline", function()
     end)
 
     it("gives other colors on a light background and on a dark background", function()
-      local groups = { "CodeViewDiffAdd", "CodeViewDiffDelete", "CodeViewDiffText", "CodeViewDiffFold" }
+      local groups = {
+        "CodeViewDiffAdd",
+        "CodeViewDiffDelete",
+        "CodeViewDiffText",
+        "CodeViewDiffTextAdd",
+        "CodeViewDiffTextDelete",
+        "CodeViewDiffFold",
+      }
       local seen = {}
       for _, name in ipairs({ "dark", "light" }) do
         vim.o.background = name
@@ -445,6 +452,7 @@ describe("codeview.inline", function()
           seen[name][group] = resolve(group)
         end
         assert.are_not.same(seen[name].CodeViewDiffAdd, seen[name].CodeViewDiffDelete)
+        assert.are_not.same(seen[name].CodeViewDiffTextAdd, seen[name].CodeViewDiffTextDelete)
       end
       for _, group in ipairs(groups) do
         assert.are_not.same(seen.dark[group], seen.light[group])
