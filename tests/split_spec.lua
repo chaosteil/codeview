@@ -455,6 +455,44 @@ describe("codeview.split", function()
       drop(old_buf, new_buf)
     end)
 
+    it("takes the view of the lead window", function()
+      local file = diff.compute(numbered(200), numbered(200, { [150] = " changed" }))
+      -- The context covers the whole file, so both buffers hold 200 rows.
+      local old_buf, new_buf = render(file, { context = 200 })
+
+      local new_win = api.nvim_open_win(new_buf, true, { split = "right" })
+      local old_win = api.nvim_open_win(old_buf, false, { split = "left", win = new_win })
+      split.attach_window(old_win)
+      split.attach_window(new_win)
+      assert.is_true(split.bind(old_win, new_win))
+
+      local top_of = function(win)
+        return api.nvim_win_call(win, function()
+          return vim.fn.line("w0")
+        end)
+      end
+
+      -- A scroll of the old side alone, as a mouse wheel makes it. The wheel
+      -- pushes the cursor of that window into the new view.
+      api.nvim_win_call(old_win, function()
+        vim.fn.winrestview({ topline = 40, lnum = 50 })
+      end)
+      assert.is_true(split.bind(old_win, new_win, old_win))
+
+      assert.are.equal(40, top_of(old_win))
+      assert.are.equal(40, top_of(new_win))
+      assert.are.equal(50, api.nvim_win_get_cursor(new_win)[1])
+
+      -- The bind reset the offset, so the next scroll moves both sides.
+      api.nvim_set_current_win(new_win)
+      press("<C-e>")
+      assert.are.equal(top_of(new_win), top_of(old_win))
+
+      api.nvim_win_close(old_win, true)
+      api.nvim_win_close(new_win, true)
+      drop(old_buf, new_buf)
+    end)
+
     it("reports a window that is gone", function()
       assert.is_false(split.bind(nil, nil))
       assert.is_false(split.bind(9999, 9998))

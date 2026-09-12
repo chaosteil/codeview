@@ -443,6 +443,12 @@ end
 --- Both windows hold the same number of rows, so the same top line puts the
 --- two sides on the same screen row. 'scrollbind' keeps them there.
 ---
+--- The lead window gives the view. The other window takes its top line, its
+--- left column, and its cursor row. The cursor moves as well, because Neovim
+--- keeps the cursor of a window inside the view: a cursor above or below the
+--- new top line pulls the window back on the next redraw. Both buffers hold
+--- the same rows, so the row of the lead is a row of the other side too.
+---
 --- A bound window keeps the offset that it had when the binding started. The
 --- call releases the binding first, puts the two top lines on the same row,
 --- and binds again. The offset of the new binding is then zero.
@@ -451,14 +457,18 @@ end
 --- next scroll of a bound window, which moves one side alone.
 ---@param old_win integer Window of the old side.
 ---@param new_win integer Window of the new side.
+---@param lead integer? Window that gives the view. The new side by default.
 ---@return boolean bound False when a window is gone.
-function M.bind(old_win, new_win)
+function M.bind(old_win, new_win, lead)
   if not old_win or not new_win then
     return false
   end
   if not api.nvim_win_is_valid(old_win) or not api.nvim_win_is_valid(new_win) then
     return false
   end
+
+  lead = lead or new_win
+  local other = lead == old_win and new_win or old_win
 
   local wins = { old_win, new_win }
   for _, win in ipairs(wins) do
@@ -467,8 +477,9 @@ function M.bind(old_win, new_win)
     end)
   end
 
-  local view = api.nvim_win_call(new_win, vim.fn.winsaveview)
-  api.nvim_win_call(old_win, function()
+  local view = api.nvim_win_call(lead, vim.fn.winsaveview)
+  pcall(api.nvim_win_set_cursor, other, api.nvim_win_get_cursor(lead))
+  api.nvim_win_call(other, function()
     vim.fn.winrestview({ topline = view.topline, leftcol = view.leftcol })
   end)
 
