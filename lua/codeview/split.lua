@@ -21,6 +21,11 @@
 --- the file. Because both sides hold the same row count, 'scrollbind' and
 --- 'cursorbind' keep the two windows aligned, also across the fillers.
 ---
+--- Neovim runs the 'scrollbind' check only for the window that has the focus.
+--- A scroll of the other window alone, for example from the mouse wheel, then
+--- moves one side by itself. A |WinScrolled| guard of |codeview.view| finds
+--- that state and repairs it with `align()`.
+---
 --- The buffers hold the text of the file, without a marker column. The line
 --- numbers come from the status column: the left window shows the numbers of
 --- the old file, and the right window the numbers of the new file.
@@ -490,6 +495,56 @@ function M.bind(old_win, new_win, lead)
       vim.wo[win][0].cursorbind = true
     end)
   end
+  return true
+end
+
+---Put the two windows back on the same row after a scroll of one window.
+---
+--- Neovim runs the 'scrollbind' check only for the window that has the focus,
+--- and only after a command. The mouse wheel scrolls the window under the
+--- pointer. With the pointer over the other window, or with the focus outside
+--- the two windows, the check does not run and one side moves alone. The call
+--- finds that state and binds the two windows again, from the window that
+--- moved.
+---@param old_win integer Window of the old side.
+---@param new_win integer Window of the new side.
+---@param event table? Value of |vim.v.event| of a |WinScrolled| event.
+---@return boolean aligned False when a window is gone, or when both sides already match.
+function M.align(old_win, new_win, event)
+  if not old_win or not new_win then
+    return false
+  end
+  if not api.nvim_win_is_valid(old_win) or not api.nvim_win_is_valid(new_win) then
+    return false
+  end
+
+  local old_view = api.nvim_win_call(old_win, vim.fn.winsaveview)
+  local new_view = api.nvim_win_call(new_win, vim.fn.winsaveview)
+  if old_view.topline == new_view.topline and old_view.leftcol == new_view.leftcol then
+    return false
+  end
+
+  -- The event holds one record per window that moved, under the window handle
+  -- as a string. A record with a top line delta of zero moved sideways only.
+  local moved = {}
+  for _, win in ipairs({ old_win, new_win }) do
+    local record = event and event[tostring(win)]
+    if record and record.topline ~= 0 then
+      moved[#moved + 1] = win
+    end
+  end
+
+  local lead
+  if #moved == 1 then
+    lead = moved[1]
+  else
+    -- None of the two moved, both moved, or the call brings no event. The
+    -- window with the focus knows best where the reader looks.
+    local current = api.nvim_get_current_win()
+    lead = (current == old_win or current == new_win) and current or new_win
+  end
+
+  M.bind(old_win, new_win, lead)
   return true
 end
 

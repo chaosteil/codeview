@@ -566,7 +566,9 @@ local repair_split
 ---Watch the two windows of the side-by-side style.
 ---
 --- The windows show one diff together, so the view does not stay in the split
---- style with one window.
+--- style with one window. The guards also keep the two windows on the same
+--- row: a scroll that moves one window alone, for example from the mouse
+--- wheel, binds the two windows again.
 ---@param view codeview.view.State
 ---@param wins integer[] Windows of the style.
 local function watch_split(view, wins)
@@ -585,6 +587,19 @@ local function watch_split(view, wins)
       end,
     })
   end
+
+  -- The event has no pattern. The pattern of |WinScrolled| names only the
+  -- first window that moved, which is not enough for a pair of windows.
+  view.guards[#view.guards + 1] = api.nvim_create_autocmd("WinScrolled", {
+    group = group,
+    desc = "Keep the two windows of the codeview split on the same row",
+    callback = function()
+      if state ~= view or view.style ~= "split" then
+        return
+      end
+      split.align(view.old_win --[[@as integer]], view.win, vim.v.event)
+    end,
+  })
 end
 
 ---Map the load key on the buffers of a diff that the line limit stopped.

@@ -884,6 +884,45 @@ describe("codeview.view", function()
       assert.is_true(vim.wo[old_win][0].cursorbind)
     end)
 
+    it("binds the two windows again after a scroll of one window", function()
+      open_long()
+      view.set_style("split")
+      local state = assert(view.current())
+      local old_win = state.old_win --[[@as integer]]
+      local group = opened:augroup()
+
+      assert.are.equal(1, #api.nvim_get_autocmds({ event = "WinScrolled", group = group }))
+
+      local top_of = function(win)
+        return api.nvim_win_call(win, function()
+          return vim.fn.line("w0")
+        end)
+      end
+
+      -- Both buffers need more rows than the window shows.
+      view.expand_all()
+      api.nvim_win_call(state.win, function()
+        vim.fn.winrestview({ topline = 5, lnum = 15 })
+      end)
+
+      -- The old side moves alone, as a mouse wheel moves it.
+      api.nvim_win_call(old_win, function()
+        vim.fn.winrestview({ topline = 3, lnum = 13 })
+      end)
+      assert.are.equal(3, top_of(old_win))
+      assert.are.equal(5, top_of(state.win))
+
+      -- The call carries no window in |vim.v.event|, so the window with the
+      -- focus leads.
+      api.nvim_set_current_win(state.win)
+      api.nvim_exec_autocmds("WinScrolled", { group = group })
+      assert.are.equal(5, top_of(state.win))
+      assert.are.equal(5, top_of(old_win))
+
+      view.close()
+      assert.are.equal(0, #api.nvim_get_autocmds({ event = "WinScrolled", group = group }))
+    end)
+
     it("keeps the cursor on the same content line in both directions", function()
       local state = open_long()
       -- Row 5 of the inline style is the added line of the first hunk.

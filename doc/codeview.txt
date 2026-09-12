@@ -481,10 +481,11 @@ a filler row at the right. A filler row holds no text. It shows the highlight
 file.
 
 The two windows scroll and move the cursor together, through 'scrollbind' and
-'cursorbind'. The status column of the left window shows the line numbers of
-the old file, and the status column of the right window the numbers of the new
-file. Both styles hide the same unchanged sections, and `za`, `zR`, and `zM`
-work in both.
+'cursorbind'. The mouse wheel scrolls both windows too, also when the pointer
+sits over the window without the focus. The status column of the left window
+shows the line numbers of the old file, and the status column of the right
+window the numbers of the new file. Both styles hide the same unchanged
+sections, and `za`, `zR`, and `zM` work in both.
 
 The two windows show one diff together. If you close one of them, the view
 takes the inline style in the window that stays. The `diff.style` option keeps

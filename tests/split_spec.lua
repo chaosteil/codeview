@@ -498,4 +498,78 @@ describe("codeview.split", function()
       assert.is_false(split.bind(9999, 9998))
     end)
   end)
+
+  describe("align", function()
+    ---Two bound windows with a diff of 200 rows on each side.
+    ---@return integer old_win
+    ---@return integer new_win
+    ---@return integer old_buf
+    ---@return integer new_buf
+    local function pair()
+      local file = diff.compute(numbered(200), numbered(200, { [150] = " changed" }))
+      -- The context covers the whole file, so both buffers hold 200 rows.
+      local old_buf, new_buf = render(file, { context = 200 })
+      local new_win = api.nvim_open_win(new_buf, true, { split = "right" })
+      local old_win = api.nvim_open_win(old_buf, false, { split = "left", win = new_win })
+      split.attach_window(old_win)
+      split.attach_window(new_win)
+      split.bind(old_win, new_win)
+      return old_win, new_win, old_buf, new_buf
+    end
+
+    ---Top line of a window.
+    ---@param win integer
+    ---@return integer
+    local function top_of(win)
+      return api.nvim_win_call(win, function()
+        return vim.fn.line("w0")
+      end)
+    end
+
+    it("leaves two windows that share the top line", function()
+      local old_win, new_win, old_buf, new_buf = pair()
+
+      assert.is_false(split.align(old_win, new_win))
+      assert.are.equal(top_of(new_win), top_of(old_win))
+
+      api.nvim_win_close(old_win, true)
+      api.nvim_win_close(new_win, true)
+      drop(old_buf, new_buf)
+    end)
+
+    it("takes the window that the event reports", function()
+      local old_win, new_win, old_buf, new_buf = pair()
+
+      api.nvim_win_call(old_win, function()
+        vim.fn.winrestview({ topline = 40, lnum = 50 })
+      end)
+      assert.is_true(split.align(old_win, new_win, { [tostring(old_win)] = { topline = 3 } }))
+
+      assert.are.equal(40, top_of(old_win))
+      assert.are.equal(40, top_of(new_win))
+      assert.are.equal(50, api.nvim_win_get_cursor(new_win)[1])
+
+      api.nvim_win_close(old_win, true)
+      api.nvim_win_close(new_win, true)
+      drop(old_buf, new_buf)
+    end)
+
+    it("takes the new side without an event and without the focus", function()
+      local old_win, new_win, old_buf, new_buf = pair()
+      local other = api.nvim_open_win(api.nvim_create_buf(false, true), true, { split = "above" })
+
+      api.nvim_win_call(old_win, function()
+        vim.fn.winrestview({ topline = 40, lnum = 50 })
+      end)
+      assert.is_true(split.align(old_win, new_win))
+
+      assert.are.equal(1, top_of(new_win))
+      assert.are.equal(1, top_of(old_win))
+
+      api.nvim_win_close(other, true)
+      api.nvim_win_close(old_win, true)
+      api.nvim_win_close(new_win, true)
+      drop(old_buf, new_buf)
+    end)
+  end)
 end)
