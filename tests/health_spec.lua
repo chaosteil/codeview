@@ -1,10 +1,18 @@
 local helpers = require("tests.helpers")
 
 ---Run `:checkhealth codeview` and read the report.
+---
+--- Neovim 0.13 runs the checks after the command returns, and writes the
+--- lines later. The report buffer is modifiable until the checks are done, so
+--- the call waits for that on every version.
 ---@return string
 local function report()
   vim.cmd("checkhealth codeview")
-  local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+  local buf = vim.api.nvim_get_current_buf()
+  vim.wait(10000, function()
+    return not vim.bo[buf].modifiable
+  end, 10)
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   local text = table.concat(lines, "\n")
   vim.cmd("bwipeout!")
   return text
