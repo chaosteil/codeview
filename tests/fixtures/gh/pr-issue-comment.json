@@ -1,0 +1,10 @@
+{
+  "id": 3000000001,
+  "node_id": "IC_kwDOAPphoM5yy9Dq",
+  "url": "https://api.github.com/repos/ada/demo/issues/comments/3000000001",
+  "html_url": "https://github.com/ada/demo/pull/12#issuecomment-3000000001",
+  "user": { "login": "ada", "id": 1024 },
+  "body": "looks good overall",
+  "created_at": "2026-08-13T09:41:12Z",
+  "updated_at": "2026-08-13T09:41:12Z"
+}

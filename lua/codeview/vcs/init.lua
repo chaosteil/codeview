@@ -56,6 +56,7 @@ local M = {}
 ---@field label string? Name for the user. A virtual entry sets it, because its path is no file name.
 ---@field group string? Name of the group node that holds a virtual entry.
 ---@field group_path string? Path key of that group node.
+---@field order integer? Position of a virtual entry among the virtual entries. A lower number reads first. 0 without a value.
 ---@field commit codeview.vcs.Commit? Commit of a commit entry.
 
 ---@class codeview.vcs.Range

@@ -109,9 +109,11 @@ local function surface_of(win)
 end
 
 ---Text of one key, for the reader.
+---
+--- `<leader>` reads as the leader of the user.
 ---@param lhs string
----@return string
-local function key_text(lhs)
+---@return string text
+function M.key_text(lhs)
   local text = lhs:gsub("<[lL]eader>", vim.g.mapleader == " " and "<space>" or (vim.g.mapleader or "\\"))
   return text
 end
@@ -132,7 +134,7 @@ function M.chunks(name)
       if #out > 0 then
         out[#out + 1] = { text = "  ", hl = "CodeViewHint" }
       end
-      out[#out + 1] = { text = key_text(lhs), hl = "CodeViewHintKey" }
+      out[#out + 1] = { text = M.key_text(lhs), hl = "CodeViewHintKey" }
       out[#out + 1] = { text = " " .. entry.text, hl = "CodeViewHint" }
     end
   end

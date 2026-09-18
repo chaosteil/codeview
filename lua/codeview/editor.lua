@@ -31,6 +31,7 @@ M.filetype = "markdown"
 ---@field title string? Text of the window border. "Comment" by default.
 ---@field text string? Body to edit. Empty for a new comment.
 ---@field on_save fun(body: string) Handler of a save. The call trims the body.
+---@field on_send fun(body: string)? Handler of the send key. Without it the key reports that the comment has no pull request.
 ---@field on_cancel fun()? Handler of a discard.
 ---@field anchor codeview.editor.Anchor? Row that the inline style opens under.
 
@@ -39,6 +40,7 @@ M.filetype = "markdown"
 ---@field win integer Window of the editor.
 ---@field group integer? Autocmd group of the editor.
 ---@field on_save fun(body: string)
+---@field on_send fun(body: string)?
 ---@field on_cancel fun()?
 ---@field done boolean True after a save or a discard.
 ---@field style codeview.editor.Style Style that the editor opened with.
@@ -148,6 +150,34 @@ function M.submit()
   return true
 end
 
+---Save the comment and send it to the pull request.
+---
+--- The key posts the one comment of the editor. An editor without a send
+--- handler belongs to a local review, so the key reports that and keeps the
+--- editor open. An empty body stays open too, because there is nothing to
+--- send.
+---@return boolean sent False when no editor is open, the editor has no send handler, or the body is empty.
+function M.send()
+  local editor = M.current()
+  if not editor then
+    return false
+  end
+  if not editor.on_send then
+    vim.notify("codeview: this comment has no pull request to go to", vim.log.levels.WARN)
+    return false
+  end
+  local body = M.body() or ""
+  if body == "" then
+    vim.notify("codeview: the comment is empty", vim.log.levels.WARN)
+    return false
+  end
+  editor.done = true
+  local on_send = editor.on_send
+  unmount(editor)
+  on_send(body)
+  return true
+end
+
 ---Remove the space that the inline editor holds in the diff buffer.
 ---
 --- The spacer is an extmark with virtual lines. It adds no line to the buffer,
@@ -250,6 +280,11 @@ local function set_keymaps(buf)
   for _, lhs in ipairs(config.keys(keys.editor_save)) do
     vim.keymap.set("n", lhs, M.submit, opts)
   end
+  -- The map exists on every editor, with or without a handler, so that the
+  -- audit of the keymaps sees it.
+  for _, lhs in ipairs(config.keys(keys.editor_send)) do
+    vim.keymap.set("n", lhs, M.send, opts)
+  end
 end
 
 ---Open the comment editor.
@@ -262,6 +297,7 @@ end
 function M.open(opts)
   vim.validate("opts", opts, "table")
   vim.validate("opts.on_save", opts.on_save, "callable")
+  vim.validate("opts.on_send", opts.on_send, "callable", true)
   vim.validate("opts.on_cancel", opts.on_cancel, "callable", true)
   vim.validate("opts.title", opts.title, "string", true)
   vim.validate("opts.text", opts.text, "string", true)
@@ -293,12 +329,22 @@ function M.open(opts)
   end
 
   local win_config = window_config(style, anchor)
+  local hints = require("codeview.hints")
   local cancel = config.keys(config.get().keymaps.editor_cancel)[1]
+  local send = opts.on_send and config.keys(config.get().keymaps.editor_send)[1] or nil
+  local parts = { ":w saves" }
+  if cancel then
+    parts[#parts + 1] = hints.key_text(cancel) .. " discards"
+  end
+  if send then
+    parts[#parts + 1] = hints.key_text(send) .. " sends"
+  end
+  local hint = table.concat(parts, " · ")
   if style == "float" then
     -- A border carries the title. The inline style has none, so its hint goes
     -- into the winbar, where it reads as part of the row.
     win_config.title = " " .. (opts.title or "Comment") .. " "
-    win_config.footer = cancel and (" :w saves · " .. cancel .. " discards ") or " :w saves "
+    win_config.footer = " " .. hint .. " "
     win_config.footer_pos = "right"
   end
   local ok, win = pcall(api.nvim_open_win, buf, true, win_config)
@@ -316,9 +362,8 @@ function M.open(opts)
   vim.wo[win][0].cursorline = false
   if style == "inline" then
     vim.wo[win][0].winhighlight = "Normal:NormalFloat"
-    local hint = cancel and (" " .. (opts.title or "Comment") .. " · :w saves · " .. cancel .. " discards")
-      or (" " .. (opts.title or "Comment") .. " · :w saves")
-    vim.wo[win][0].winbar = "%#Comment#" .. hint:gsub("%%", "%%%%")
+    local bar = " " .. (opts.title or "Comment") .. " · " .. hint
+    vim.wo[win][0].winbar = "%#Comment#" .. bar:gsub("%%", "%%%%")
   end
 
   ---@type codeview.editor.State
@@ -326,6 +371,7 @@ function M.open(opts)
     buf = buf,
     win = win,
     on_save = opts.on_save,
+    on_send = opts.on_send,
     on_cancel = opts.on_cancel,
     done = false,
     style = style,

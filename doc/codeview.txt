@@ -709,10 +709,16 @@ In the editor: >
     ZZ          save the comment
     q           discard the comment
     <Esc><Esc>  discard the comment
+    <leader>cs  send the comment to the pull request
 <
 An empty body counts as a discard. A close of the window discards the comment
 too. The `editor_save` option and the `editor_cancel` option name the two keys.
 The `:w` write runs from an autocmd, so it saves with any key of your own.
+
+In a pull request review, the send key saves the comment and posts it to
+GitHub at once, without a summary. The `editor_send` option names the key. See
+|codeview-submit-send|. In a local review the key reports that the comment has
+no pull request.
 
                                                     *codeview-comments-anchor*
 The anchor of a comment comes from the line map of the render. The cursor row
@@ -931,7 +937,7 @@ also runs a |User| autocmd: >
     CodeViewCommentAdded      a new comment went into the store
     CodeViewCommentChanged    the body or the state of a comment changed
     CodeViewCommentDeleted    a comment left the store
-    CodeViewReviewSubmitted   a submit sent comments to GitHub
+    CodeViewReviewSubmitted   a submit or a send posted comments to GitHub
 <
 The payload holds the id of the comment, the file, the id of the session, and
 the state: >lua
@@ -1076,6 +1082,17 @@ The review range is `base...head`, so it starts at the merge base of the two
 refs. That is the range of the "Files changed" tab of GitHub. The sidebar
 header shows the number and the title of the pull request.
 
+                                                    *codeview-github-document*
+The sidebar lists the pull request itself as the first entry, under the node
+"Pull request". The document shows the title, the author, the branches, the
+state, the link to the web page, the description, and the commits. Press
+`gx` on the link to open the pull request in the browser.
+
+A comment on this document is an overall comment on the pull request. The
+send key of the editor posts it to the conversation of the pull request. A
+submit of the session takes it as the text of the review. See
+|codeview-submit|.
+
 A pull request review needs a git repository. A colocated jj repository holds
 one, so it works there too.
 
@@ -1135,8 +1152,13 @@ The post is always explicit: >
        that stays local.
     5. It posts after you pick "submit".
 <
-Nothing reaches GitHub before that pick. No autocommand, no write of a file,
-and no keymap posts by itself.
+Nothing reaches GitHub before that pick. No autocommand and no write of a
+file posts by itself. The send key of the editor is the one key that posts,
+and it posts one comment. See |codeview-submit-send|.
+
+A comment on the pull request document goes into the text of the review. The
+command then asks for no text, and the summary lists the comment under the
+line "into the text of the review".
 
 `:Codeview submit {event}` skips the question about the event. The events are: >
 
@@ -1147,6 +1169,18 @@ and no keymap posts by itself.
 `:Codeview! submit` skips the question about the text of the review. GitHub
 needs a text for the comment event and for the request-changes event, so the
 review then holds one default line.
+
+                                                        *codeview-submit-send*
+The send key of the comment editor, `<leader>cs` by default, saves the
+comment and posts it at once. It posts that one comment only, so it shows
+no summary. A comment on a line goes to the review comments of the pull
+request. A comment on the pull request document goes to the conversation of
+the pull request. A comment on a commit message stays local, because GitHub
+has no place for it.
+
+The comment gets the sync state of a submit after GitHub confirms the post.
+See |codeview-submit-state|. A failed post marks nothing, and the report
+holds the answer of the server.
 
                                                     *codeview-submit-position*
 The position of a comment comes from a line map of the diff. The map runs with
@@ -1464,6 +1498,20 @@ codeview.submit({opts}, {cb})
     GitHub took, the number of comments that stay local, the review of the
     answer, and its address. See |codeview-submit|.
 
+                                                             *codeview.send()*
+codeview.send({opts}, {cb})
+    Send one comment to the pull request. The send key of the comment
+    editor calls this function. >lua
+
+        require("codeview").send({
+          id = "0001",    -- id of the comment in the store
+          session = nil,  -- session that holds the comment, the active session by default
+          dir = nil,      -- directory that gh runs in, the repository root by default
+          notify = true,  -- false silences the reports
+        }, function(result, err) end)
+<
+    The result holds the same fields as |codeview.submit()|.
+
                                                       *codeview.export_text()*
 codeview.export_text({opts})
     Render the comments of the session as markdown. The call writes no
@@ -1582,6 +1630,7 @@ Defaults: >lua
         export = "<leader>cx",
         copy_comments = "<leader>cy",
         editor_save = "ZZ",
+        editor_send = "<leader>cs",
         editor_cancel = { "q", "<Esc><Esc>" },
         close = "q",
       },
@@ -1679,6 +1728,7 @@ The table names the surface of each action: >
     export            <leader>cx       O    show the export in a buffer
     copy_comments     <leader>cy       O    write the export into the register
     editor_save       ZZ                   E  save the comment
+    editor_send       <leader>cs           E  send the comment to the pull request
     editor_cancel     q  <Esc><Esc>       E  discard the comment
     close             q              S O D  close the session or the panel
                                          X  close the export window

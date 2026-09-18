@@ -16,7 +16,9 @@ the comments as markdown, and you send them to a GitHub pull request.
 - Reviews a GitHub pull request without a checkout. The `gh` CLI reads the pull
   request and posts your review. git fetches its two commits into refs of the
   plugin. The diff also shows the review comments that the pull request already
-  holds.
+  holds. The sidebar lists the pull request itself first, with its description
+  and its link, and a comment on it goes to the conversation of the pull
+  request.
 - Writes no file in your project. The comments live in one markdown file per
   review, in the data directory of Neovim.
 - No runtime dependency. The plugin uses the standard library of Neovim.
@@ -68,6 +70,8 @@ To set options, set the opts:
 6. Go to the sidebar. Press `<leader>co` to see all comments of the review.
 7. Press `<leader>cx` there to read the review as markdown.
 8. Press `<leader>cy` to put the review into the `+` register.
+9. In a pull request review, press `<leader>cs` in the comment editor to send
+   the comment to GitHub at once.
 
 `:Codeview export` runs the same export from any window.
 

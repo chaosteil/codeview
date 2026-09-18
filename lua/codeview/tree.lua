@@ -39,6 +39,7 @@ local STATUS_ORDER = {
 ---@field file codeview.vcs.FileChange? Changed file of a file node.
 ---@field index integer? Position of the file in the file list of the session.
 ---@field virtual boolean? True for a file that the repository does not hold, like the commit message.
+---@field order integer? Position among the virtual nodes. See |codeview.vcs.FileChange|.
 
 ---Split a path into its directory and its name.
 ---@param path string
@@ -60,6 +61,11 @@ local function before(a, b)
   -- The commit message reads before the code that it describes.
   if (a.virtual or false) ~= (b.virtual or false) then
     return a.virtual == true
+  end
+  -- A virtual node takes its place from its order. The pull request reads
+  -- before the commits.
+  if a.virtual and b.virtual and (a.order or 0) ~= (b.order or 0) then
+    return (a.order or 0) < (b.order or 0)
   end
   if a.kind ~= b.kind then
     return a.kind == "dir"
@@ -99,6 +105,7 @@ local function group_node(root, dirs, file)
   end
   node = dir_node(file.group --[[@as string]], path)
   node.virtual = true
+  node.order = file.order
   root.children[#root.children + 1] = node
   dirs[path] = node
   return node
@@ -221,6 +228,7 @@ function M.build(files, opts)
       file = file,
       index = index,
       virtual = file.virtual or false,
+      order = file.order,
     }
   end
 

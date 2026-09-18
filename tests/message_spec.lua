@@ -88,6 +88,11 @@ describe("codeview.message", function()
       assert.are.equal(commit.short_id .. " " .. commit.subject, session.files[1].label)
     end)
 
+    it("keeps the commit document order", function()
+      local session = open_session()
+      assert.are.equal(2, message.entries(session.commits)[1].order)
+    end)
+
     it("keeps the commits out of the file count", function()
       local session = open_session()
       assert.are.equal(#session.files - #session.commits, session:changed_count())

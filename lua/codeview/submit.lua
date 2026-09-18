@@ -5,10 +5,21 @@
 --- `POST /pulls/<n>/reviews`. The pull request then shows one entry with all
 --- the lines, not one entry per comment.
 ---
---- The post is always explicit. The call shows a summary first: the number of
---- comments, the event, and every comment that the diff of the pull request
---- does not hold. Nothing reaches GitHub before the user confirms that
---- summary. No autocommand, no save, and no keymap posts by itself.
+--- `:Codeview submit` is explicit. The call shows a summary first: the number
+--- of comments, the event, and every comment that the diff of the pull
+--- request does not hold. Nothing reaches GitHub before the user confirms
+--- that summary. No autocommand and no save posts by itself.
+---
+--- The send key of the comment editor is the one key that posts. It saves
+--- the comment of the editor and posts that one comment, with
+--- |codeview.submit.send()|. A comment on a line goes to
+--- `POST /pulls/<n>/comments`. A comment on the pull request document goes
+--- to `POST /issues/<n>/comments`, so it reads in the conversation of the
+--- pull request and not on a line of the code.
+---
+--- A comment on the pull request document is an overall comment. A submit of
+--- the session takes every such comment as the text of the review, so the
+--- summary of the review and the notes on the lines go out together.
 ---
 --- The position of a comment comes from a line map of the diff. The map runs
 --- with the diff settings of git, because GitHub accepts only the lines of the
@@ -112,6 +123,7 @@ M.diff_opts = { algorithm = "myers", indent_heuristic = true, linematch = 0, max
 ---@field event string Name of the event: comment, approve, or request-changes.
 ---@field body string Text of the review itself.
 ---@field entries codeview.submit.Entry[] Comments that the post carries.
+---@field notes codeview.store.Comment[] Comments on the pull request document. They go into the text of the review.
 ---@field skipped codeview.submit.Skipped[] Comments that stay local.
 ---@field synced integer Number of comments that an earlier submit sent.
 ---@field total integer Number of comments of the session.
@@ -416,6 +428,31 @@ end
 
 --- Plan --------------------------------------------------------------------
 
+---Session, pull request, and comment store of a call.
+---@param opts codeview.submit.Opts|codeview.submit.SendOpts
+---@return codeview.Session? session
+---@return codeview.pr.Info? info
+---@return codeview.store.Store? store
+---@return codeview.Error? err
+local function target(opts)
+  local session = opts.session or session_mod.current()
+  if not session or not session:is_active() then
+    return nil, nil, nil, errors.new(errors.codes.INVALID_ARG, "no review session")
+  end
+  local info = require("codeview.pr").current(session)
+  if not info then
+    return nil, nil, nil, errors.new(errors.codes.INVALID_ARG, "the session does not review a pull request")
+  end
+  if info.repo == "" then
+    return nil, nil, nil, errors.new(errors.codes.NOT_FOUND, "the pull request has no repository")
+  end
+  local store, store_err = require("codeview.comments").store(session)
+  if not store then
+    return nil, nil, nil, store_err
+  end
+  return session, info, store, nil
+end
+
 ---Collect the comments of a session for one review.
 ---
 --- The call reads the diff of every file that holds a comment and maps every
@@ -430,16 +467,9 @@ function M.plan(opts, cb)
   end
   opts = opts or {}
 
-  local session = opts.session or session_mod.current()
-  if not session or not session:is_active() then
-    return done(cb, nil, errors.new(errors.codes.INVALID_ARG, "no review session"))
-  end
-  local info = require("codeview.pr").current(session)
-  if not info then
-    return done(cb, nil, errors.new(errors.codes.INVALID_ARG, "the session does not review a pull request"))
-  end
-  if info.repo == "" then
-    return done(cb, nil, errors.new(errors.codes.NOT_FOUND, "the pull request has no repository"))
+  local session, info, store, target_err = target(opts)
+  if not session then
+    return done(cb, nil, target_err)
   end
   local event = M.normalize_event(opts.event or "comment")
   if not event then
@@ -451,10 +481,6 @@ function M.plan(opts, cb)
         "unknown review event: " .. tostring(opts.event) .. ". Use " .. table.concat(M.event_names, ", ")
       )
     )
-  end
-  local store, store_err = require("codeview.comments").store(session)
-  if not store then
-    return done(cb, nil, store_err)
   end
 
   local synced = 0
@@ -471,12 +497,25 @@ function M.plan(opts, cb)
     event = event,
     body = type(opts.body) == "string" and opts.body or "",
     entries = {},
+    notes = {},
     skipped = {},
     synced = synced,
     total = #store.comments,
   }
 
-  local by_file, paths = group(store:unsynced())
+  -- A comment on the pull request document is an overall comment. It takes no
+  -- position of the diff, so it goes into the text of the review.
+  local message = require("codeview.message")
+  local on_lines = {}
+  for _, comment in ipairs(store:unsynced()) do
+    if message.is_pr(comment.file) then
+      plan.notes[#plan.notes + 1] = comment
+    else
+      on_lines[#on_lines + 1] = comment
+    end
+  end
+
+  local by_file, paths = group(on_lines)
 
   ---Keep every comment of one file as unmappable.
   ---@param path string
@@ -592,7 +631,7 @@ function M.summary(plan)
   local out = {
     string.format(
       "submit %s to PR #%d of %s as %s",
-      comment_count(#plan.entries),
+      comment_count(#plan.entries + #plan.notes),
       plan.pr.number,
       plan.pr.repo,
       plan.event
@@ -607,6 +646,16 @@ function M.summary(plan)
       entry.comment.side,
       preview(entry.comment, 50)
     )
+  end
+  if #plan.notes > 0 then
+    out[#out + 1] = string.format(
+      "%s %s into the text of the review:",
+      comment_count(#plan.notes),
+      #plan.notes == 1 and "goes" or "go"
+    )
+    for _, note in ipairs(plan.notes) do
+      out[#out + 1] = "  " .. preview(note, 70)
+    end
   end
   if #plan.skipped > 0 then
     out[#out + 1] = string.format("%s stays local:", comment_count(#plan.skipped))
@@ -639,16 +688,27 @@ end
 
 ---Text of the review itself.
 ---
+--- The text of the review holds the text of the user and every comment on the
+--- pull request document, one after the other.
+---
 --- GitHub rejects a review without a body for the comment event and for the
 --- request-changes event. A plan without a body then takes the fallback text.
 ---@param plan codeview.submit.Plan
 ---@return string body
 function M.body(plan)
+  local parts = {}
   local text = vim.trim(plan.body or "")
-  if text == "" and M.needs_body[plan.event] then
+  if text ~= "" then
+    parts[#parts + 1] = text
+  end
+  for _, note in ipairs(plan.notes or {}) do
+    parts[#parts + 1] = vim.trim(note.body or "")
+  end
+  local body = table.concat(parts, "\n\n")
+  if body == "" and M.needs_body[plan.event] then
     return M.fallback_body
   end
-  return text
+  return body
 end
 
 ---Build the request body of one review.
@@ -682,6 +742,35 @@ function M.payload(plan)
     payload.comments = comments
   end
   return payload
+end
+
+---Endpoint and request body of one comment.
+---
+--- Without a position the comment goes to the conversation of the pull
+--- request. With a position it goes to the review comments, on the line of
+--- the position.
+---@param info codeview.pr.Info Pull request that receives the comment.
+---@param comment codeview.store.Comment Comment of the session.
+---@param position codeview.submit.Position? Position of a comment on a line.
+---@return string path Path of the endpoint.
+---@return table payload Request body.
+function M.send_payload(info, comment, position)
+  local number = math.floor(info.number)
+  if not position then
+    return string.format("repos/%s/issues/%d/comments", info.repo, number), { body = comment.body }
+  end
+  local payload = {
+    body = comment.body,
+    commit_id = info.head_sha,
+    path = position.path,
+    line = position.line,
+    side = position.side,
+  }
+  if position.start_line then
+    payload.start_line = position.start_line
+    payload.start_side = position.start_side
+  end
+  return string.format("repos/%s/pulls/%d/comments", info.repo, number), payload
 end
 
 --- Post --------------------------------------------------------------------
@@ -743,6 +832,12 @@ function M.apply(plan, review)
       count = count + 1
     end
   end
+  for _, note in ipairs(plan.notes or {}) do
+    local comment = plan.store:mark_synced(note.id, { time = time, review_id = id })
+    if comment then
+      count = count + 1
+    end
+  end
   if count == 0 then
     return 0, nil
   end
@@ -765,7 +860,11 @@ end
 ---@param cb fun(name: string?) Nil when the user cancels.
 local function ask_event(plan, cb)
   vim.ui.select(M.event_names, {
-    prompt = string.format("codeview: submit %s to PR #%d as", comment_count(#plan.entries), plan.pr.number),
+    prompt = string.format(
+      "codeview: submit %s to PR #%d as",
+      comment_count(#plan.entries + #plan.notes),
+      plan.pr.number
+    ),
     format_item = M.event_label,
   }, function(choice)
     cb(choice and M.normalize_event(choice) or nil)
@@ -794,7 +893,7 @@ function M.confirm(plan, cb)
   vim.ui.select({ "submit", "cancel" }, {
     prompt = string.format(
       "codeview: post %s to PR #%d as %s?",
-      comment_count(#plan.entries),
+      comment_count(#plan.entries + #plan.notes),
       plan.pr.number,
       plan.event
     ),
@@ -876,7 +975,7 @@ function M.run(opts, cb)
       finish(nil, err)
       return
     end
-    if #plan.entries == 0 then
+    if #plan.entries == 0 and #plan.notes == 0 then
       if loud then
         local reason = "no comment to submit"
         if #plan.skipped > 0 then
@@ -921,6 +1020,11 @@ function M.run(opts, cb)
         with_body(opts.body)
         return
       end
+      if #plan.notes > 0 then
+        -- The notes are the text of the review, so the call asks for none.
+        with_body("")
+        return
+      end
       ask_body(plan, with_body)
     end
 
@@ -929,6 +1033,137 @@ function M.run(opts, cb)
       return
     end
     ask_event(plan, with_event)
+  end)
+end
+
+---@class codeview.submit.SendOpts
+---@field id string Id of the comment in the store of the session.
+---@field session codeview.Session? Session that holds the comment. The session that runs by default.
+---@field dir string? Directory that gh runs in. The repository root by default.
+---@field notify boolean? False silences the reports of the call.
+
+---Send one comment to the pull request.
+---
+--- The send key of the comment editor calls this function. It posts at once,
+--- without a summary, because the reviewer pressed the key on the one
+--- comment that goes out. A comment on a line goes to the review comments
+--- of the pull request. A comment on the pull request document goes to the
+--- conversation of the pull request. A comment on a commit message stays
+--- local, because GitHub has no place for it.
+---
+--- A comment that went out already stays as it is. A failed post marks
+--- nothing.
+---@param opts codeview.submit.SendOpts
+---@param cb? fun(result: codeview.submit.Result?, err: codeview.Error?) Handler of the answer.
+function M.send(opts, cb)
+  opts = opts or {}
+  local loud = opts.notify ~= false
+
+  ---@param result codeview.submit.Result?
+  ---@param err codeview.Error?
+  local function finish(result, err)
+    if err and loud then
+      notify(M.error_text(err), vim.log.levels.ERROR)
+    end
+    if cb then
+      cb(result, err)
+    end
+  end
+
+  local session, info, store, target_err = target(opts)
+  if not session then
+    finish(nil, target_err)
+    return
+  end
+  if type(opts.id) ~= "string" then
+    finish(nil, errors.new(errors.codes.INVALID_ARG, "the call needs the id of a comment"))
+    return
+  end
+  local comment = store:get(opts.id)
+  if not comment then
+    finish(nil, errors.new(errors.codes.NOT_FOUND, "no comment with the id " .. opts.id))
+    return
+  end
+  if store_mod.is_synced(comment) then
+    if loud then
+      notify("the comment went to the pull request already")
+    end
+    finish({ posted = 0, skipped = 0, cancelled = true, review = nil, url = "" }, nil)
+    return
+  end
+
+  local index = session:index_of(comment.file)
+  local file = index and session:file(index)
+  if not file then
+    finish(nil, errors.new(errors.codes.NOT_FOUND, "the pull request does not change this file"))
+    return
+  end
+
+  ---Post one comment and mark it after GitHub confirms it.
+  ---@param path string
+  ---@param payload table
+  local function post(path, payload)
+    local api_opts = {
+      method = "POST",
+      input = "-",
+      stdin = vim.json.encode(payload),
+      cwd = opts.dir or session.repo.root,
+    }
+    gh.api(path, api_opts, function(answer, post_err)
+      if not answer then
+        finish(nil, post_err)
+        return
+      end
+      -- A line comment belongs to a review of one comment. A comment of the
+      -- conversation belongs to no review, so its id is empty.
+      local id = review_id({ id = answer.pull_request_review_id })
+      store:mark_synced(comment.id, { time = os.time(), review_id = id })
+      local ok, save_err = store:save()
+      if not ok and loud then
+        notify(
+          "the comment is on GitHub, but the session file did not change: "
+            .. tostring(save_err)
+            .. ". Do not send it again",
+          vim.log.levels.ERROR
+        )
+      end
+      events.emit("review_submitted", { session = session.id, count = 1, review = id })
+      local url = type(answer.html_url) == "string" and answer.html_url or ""
+      if loud then
+        local message = string.format("the comment went to PR #%d", info.number)
+        notify(url ~= "" and (message .. ": " .. url) or message)
+      end
+      finish({ posted = 1, skipped = 0, cancelled = false, review = answer, url = url }, nil)
+    end)
+  end
+
+  local message = require("codeview.message")
+  if message.is_pr(file.path) then
+    post(M.send_payload(info, comment, nil))
+    return
+  end
+  if file.virtual then
+    finish(
+      nil,
+      errors.new(
+        errors.codes.INVALID_ARG,
+        "GitHub takes no comment on a commit message. Write an overall comment on the pull request document"
+      )
+    )
+    return
+  end
+
+  map_of(session, file, function(entry, reason)
+    if not entry then
+      finish(nil, errors.new(errors.codes.INVALID_ARG, reason or "the file has no diff"))
+      return
+    end
+    local position, why = M.position(entry.map, comment, entry.coverage)
+    if not position then
+      finish(nil, errors.new(errors.codes.INVALID_ARG, why or "the comment does not map"))
+      return
+    end
+    post(M.send_payload(info, comment, position))
   end)
 end
 

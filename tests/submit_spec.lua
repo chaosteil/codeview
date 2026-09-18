@@ -200,6 +200,13 @@ describe("codeview.submit", function()
       return { stdout = pr_view() }
     end
     if cmd[2] == "api" then
+      local path = cmd[3] or ""
+      if path:find("/pulls/12/comments$") then
+        return { stdout = fixtures.gh_text("pr-comment.json") }
+      end
+      if path:find("/issues/12/comments$") then
+        return { stdout = fixtures.gh_text("pr-issue-comment.json") }
+      end
       return { stdout = fixtures.gh_text("pr-review.json") }
     end
     return { code = 1, stderr = "unexpected gh call: " .. table.concat(cmd, " ") }
@@ -272,6 +279,21 @@ describe("codeview.submit", function()
     wait_for(function()
       return finished
     end, "the submit did not answer")
+    return out.result, out.err
+  end
+
+  ---Send one comment and wait for the answer.
+  ---@param opts? table
+  ---@return codeview.submit.Result? result
+  ---@return codeview.Error? err
+  local function send(opts)
+    local out, finished = {}, false
+    submit.send(opts or {}, function(result, err)
+      out.result, out.err, finished = result, err, true
+    end)
+    wait_for(function()
+      return finished
+    end, "the send did not answer")
     return out.result, out.err
   end
 
@@ -470,6 +492,27 @@ describe("codeview.submit", function()
       assert.is_nil(plan)
       assert.are.equal(errors.codes.INVALID_ARG, err.code)
     end)
+
+    it("takes a comment on the pull request document as the text of the review", function()
+      local session = open_session()
+      local store = store_of(session)
+      add(store)
+      local note = add(store, {
+        file = require("codeview.message").pr_path(12),
+        start_line = 1,
+        end_line = 1,
+        body = "looks good overall",
+      })
+
+      local plan = assert(plan_of({ session = session }))
+      assert.are.equal(1, #plan.entries)
+      assert.are.equal(1, #plan.notes)
+      assert.are.equal(0, #plan.skipped)
+      assert.are.equal(note.body, submit.body(plan))
+
+      plan.body = "hello"
+      assert.are.equal("hello\n\n" .. note.body, submit.body(plan))
+    end)
   end)
 
   describe("payload", function()
@@ -531,6 +574,22 @@ describe("codeview.submit", function()
       assert.is_truthy(text:find("a.txt L2 new", 1, true), text)
       assert.is_truthy(text:find("1 comment stays local", 1, true), text)
       assert.is_truthy(text:find("main.txt L2 new: the pull request does not change this file", 1, true), text)
+    end)
+
+    it("names the comments that go into the text of the review", function()
+      local session = open_session()
+      local store = store_of(session)
+      add(store, {
+        file = require("codeview.message").pr_path(12),
+        start_line = 1,
+        end_line = 1,
+        body = "looks good overall",
+      })
+
+      local plan = assert(plan_of({ session = session, event = "approve" }))
+      local text = table.concat(submit.summary(plan), "\n")
+      assert.is_truthy(text:find("into the text of the review", 1, true), text)
+      assert.is_truthy(text:find("looks good overall", 1, true), text)
     end)
   end)
 
@@ -745,6 +804,260 @@ describe("codeview.submit", function()
       assert.is_nil(result)
       assert.are.equal(errors.codes.INVALID_ARG, err.code)
       assert.are.equal(0, #api_calls())
+    end)
+
+    it("sends the notes as the text of the review without a prompt", function()
+      local session = open_session()
+      local store = store_of(session)
+      local line = add(store)
+      local note = add(store, {
+        file = require("codeview.message").pr_path(12),
+        start_line = 1,
+        end_line = 1,
+        body = "looks good overall",
+      })
+
+      local result = assert(run({ session = session, event = "comment" }))
+      assert.are.equal(2, result.posted)
+      local sent = vim.json.decode(api_calls()[1].opts.stdin)
+      assert.are.equal(note.body, sent.body)
+      for _, prompt in ipairs(ui.prompts) do
+        assert.is_nil(prompt:find("codeview: text of", 1, true), prompt)
+      end
+      assert.are.equal("2371558991", assert(store:get(line.id)).review_id)
+      assert.are.equal("2371558991", assert(store:get(note.id)).review_id)
+    end)
+
+    it("posts a review of the notes alone", function()
+      local session = open_session()
+      local store = store_of(session)
+      local note = add(store, {
+        file = require("codeview.message").pr_path(12),
+        start_line = 1,
+        end_line = 1,
+        body = "looks good overall",
+      })
+
+      local result = assert(run({ session = session, event = "comment" }))
+      assert.are.equal(1, result.posted)
+      local sent = vim.json.decode(api_calls()[1].opts.stdin)
+      assert.is_nil(sent.comments)
+      assert.are.equal(note.body, sent.body)
+    end)
+  end)
+
+  describe("send", function()
+    it("posts one line comment to the review comments", function()
+      local session = open_session()
+      local store = store_of(session)
+      local comment = add(store)
+
+      local result = assert(send({ session = session, id = comment.id }))
+      assert.are.equal(1, result.posted)
+      assert.is_false(result.cancelled)
+      assert.is_truthy(result.url:find("discussion_r1000000001", 1, true), result.url)
+
+      local calls = api_calls()
+      assert.are.equal(1, #calls)
+      assert.are.same({
+        "gh",
+        "api",
+        "repos/ada/demo/pulls/12/comments",
+        "--method",
+        "POST",
+        "--input",
+        "-",
+      }, calls[1].cmd)
+
+      local sent = vim.json.decode(calls[1].opts.stdin)
+      assert.are.equal(comment.body, sent.body)
+      assert.are.equal("a.txt", sent.path)
+      assert.are.equal(2, sent.line)
+      assert.are.equal("RIGHT", sent.side)
+      assert.are.equal(fixture.ids.pr_two, sent.commit_id)
+      assert.is_nil(sent.start_line)
+
+      assert.is_true(store_mod.is_synced(assert(store:get(comment.id))))
+      assert.are.equal("2371558991", assert(store:get(comment.id)).review_id)
+
+      local reloaded = assert(store_mod.load({ repo = fixture.root, range = "pr-12-" .. fixture.ids.pr_two }))
+      assert.are.equal(0, #reloaded:unsynced())
+      assert.is_truthy(said():find("the comment went to PR #12", 1, true), said())
+    end)
+
+    it("posts a comment over more than one line with its start", function()
+      local session = open_session()
+      local comment = add(store_of(session), { file = "feature.txt", start_line = 1, end_line = 2, body = "two lines" })
+
+      assert(send({ session = session, id = comment.id }))
+      local sent = vim.json.decode(api_calls()[1].opts.stdin)
+      assert.are.equal(1, sent.start_line)
+      assert.are.equal("RIGHT", sent.start_side)
+    end)
+
+    it("posts a comment on the pull request document to the conversation", function()
+      local session = open_session()
+      local store = store_of(session)
+      local comment = add(store, {
+        file = require("codeview.message").pr_path(12),
+        start_line = 1,
+        end_line = 1,
+        body = "looks good overall",
+      })
+
+      local result = assert(send({ session = session, id = comment.id }))
+      local calls = api_calls()
+      assert.are.equal(1, #calls)
+      assert.are.equal("repos/ada/demo/issues/12/comments", calls[1].cmd[3])
+      assert.are.same({ body = "looks good overall" }, vim.json.decode(calls[1].opts.stdin))
+
+      assert.is_true(store_mod.is_synced(assert(store:get(comment.id))))
+      assert.are.equal("", assert(store:get(comment.id)).review_id)
+      assert.is_truthy(result.url:find("issuecomment", 1, true), result.url)
+    end)
+
+    it("keeps a comment on a commit message local", function()
+      local session = open_session()
+      local store = store_of(session)
+      local comment = add(store, { file = require("codeview.message").path_of(fixture.ids.pr_two) })
+
+      local result, err = send({ session = session, id = comment.id })
+      assert.is_nil(result)
+      assert.is_truthy(tostring(err):find("commit message", 1, true), tostring(err))
+      assert.are.equal(0, #api_calls())
+      assert.is_false(store_mod.is_synced(assert(store:get(comment.id))))
+    end)
+
+    it("reports a line that the diff does not hold", function()
+      local session = open_session()
+      local store = store_of(session)
+      local comment = add(store, { file = "main.txt", body = "another file" })
+
+      local result, err = send({ session = session, id = comment.id })
+      assert.is_nil(result)
+      assert.is_truthy(tostring(err):find("does not change this file", 1, true), tostring(err))
+      assert.are.equal(0, #api_calls())
+      assert.is_false(store_mod.is_synced(assert(store:get(comment.id))))
+    end)
+
+    it("sends a synced comment no second time", function()
+      local session = open_session()
+      local comment = add(store_of(session))
+      assert(send({ session = session, id = comment.id }))
+      assert.are.equal(1, #api_calls())
+
+      messages = {}
+      local result = assert(send({ session = session, id = comment.id }))
+      assert.are.equal(0, result.posted)
+      assert.is_true(result.cancelled)
+      assert.are.equal(1, #api_calls())
+      assert.is_truthy(said():find("already", 1, true), said())
+    end)
+
+    it("marks nothing after an error of the API", function()
+      local session = open_session()
+      local store = store_of(session)
+      local comment = add(store)
+      answer = function(cmd)
+        if cmd[2] == "pr" then
+          return { stdout = pr_view() }
+        end
+        return { code = 1, stderr = "HTTP 422: Validation Failed" }
+      end
+
+      local result, err = send({ session = session, id = comment.id })
+      assert.is_nil(result)
+      assert.are.equal(errors.codes.COMMAND_FAILED, err.code)
+      assert.is_false(store_mod.is_synced(assert(store:get(comment.id))))
+
+      local reloaded = assert(store_mod.load({ repo = fixture.root, range = "pr-12-" .. fixture.ids.pr_two }))
+      for _, held in ipairs(reloaded.comments) do
+        assert.is_false(store_mod.is_synced(held))
+      end
+    end)
+
+    it("needs a pull request session", function()
+      local opened = assert(session_mod.open(fixture.ids.base .. ".." .. fixture.ids.pr_two, { dir = fixture.dir }))
+      local comment = add(assert(comments_mod.store(opened)))
+
+      local result, err = send({ session = opened, id = comment.id })
+      assert.is_nil(result)
+      assert.is_truthy(tostring(err):find("pull request", 1, true), tostring(err))
+      assert.are.equal(0, #api_calls())
+      opened:close()
+    end)
+
+    it("builds the two payloads", function()
+      local info = { repo = "ada/demo", number = 12, head_sha = "abc" }
+      local comment = { body = "a note" }
+
+      local path, payload = submit.send_payload(info, comment, nil)
+      assert.are.equal("repos/ada/demo/issues/12/comments", path)
+      assert.are.same({ body = "a note" }, payload)
+
+      local position = { path = "a.txt", side = "LEFT", line = 4, start_line = 2, start_side = "LEFT" }
+      local line_path, line_payload = submit.send_payload(info, comment, position)
+      assert.are.equal("repos/ada/demo/pulls/12/comments", line_path)
+      assert.are.same({
+        body = "a note",
+        commit_id = "abc",
+        path = "a.txt",
+        line = 4,
+        side = "LEFT",
+        start_line = 2,
+        start_side = "LEFT",
+      }, line_payload)
+    end)
+  end)
+
+  describe("the editor", function()
+    ---Open the diff of a file and put the cursor on one line of the new side.
+    ---@param opened codeview.Session
+    ---@param path string
+    ---@param line integer
+    ---@return codeview.view.State
+    local function cursor_on(opened, path, line)
+      local view = require("codeview.view")
+      local state = assert(view.open(opened, assert(opened:index_of(path))))
+      vim.api.nvim_set_current_win(state.win)
+      vim.api.nvim_win_set_cursor(state.win, { assert(state.map:buf_row(line, "new")), 0 })
+      return state
+    end
+
+    it("posts the comment of the editor with the send key", function()
+      local editor = require("codeview.editor")
+      local view = require("codeview.view")
+      local session = open_session()
+      local state = cursor_on(session, "a.txt", 2)
+
+      assert.is_true(comments_mod.add({ view = state }))
+      vim.api.nvim_buf_set_lines(assert(editor.current()).buf, 0, -1, false, { "from the editor" })
+      assert.is_true(editor.send())
+
+      local store = store_of(session)
+      wait_for(function()
+        return store:count() == 1 and #store:unsynced() == 0
+      end, "the comment did not go to the pull request")
+
+      assert.are.equal(1, #api_calls())
+      assert.are.equal("from the editor", vim.json.decode(api_calls()[1].opts.stdin).body)
+
+      editor.cancel()
+      view.close()
+    end)
+
+    it("gives the editor of a local review no send handler", function()
+      local editor = require("codeview.editor")
+      local view = require("codeview.view")
+      local opened = assert(session_mod.open(fixture.ids.base .. ".." .. fixture.ids.pr_two, { dir = fixture.dir }))
+      local state = cursor_on(opened, "a.txt", 2)
+
+      assert.is_true(comments_mod.add({ view = state }))
+      assert.is_nil(assert(editor.current()).on_send)
+
+      editor.cancel()
+      view.close()
+      opened:close()
     end)
   end)
 

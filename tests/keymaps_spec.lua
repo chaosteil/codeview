@@ -70,6 +70,7 @@ describe("codeview keymaps", function()
     export = { { surface = "overview", mode = "n" } },
     copy_comments = { { surface = "overview", mode = "n" } },
     editor_save = { { surface = "editor", mode = "n" } },
+    editor_send = { { surface = "editor", mode = "n" } },
     editor_cancel = { { surface = "editor", mode = "n" } },
     close = {
       { surface = "sidebar", mode = "n" },

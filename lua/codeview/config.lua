@@ -198,6 +198,8 @@ M.defaults = {
     export = "<leader>cx",
     copy_comments = "<leader>cy",
     editor_save = "ZZ",
+    -- The send key saves the comment and posts it to the pull request at once.
+    editor_send = "<leader>cs",
     editor_cancel = { "q", "<Esc><Esc>" },
     close = "q",
   },

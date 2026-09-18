@@ -320,6 +320,15 @@ function M.submit(opts, cb)
   return require("codeview.submit").run(opts, cb)
 end
 
+---Send one comment to the pull request.
+---
+--- The send key of the comment editor calls this function.
+---@param opts codeview.submit.SendOpts
+---@param cb? fun(result: codeview.submit.Result?, err: codeview.Error?) Handler of the answer.
+function M.send(opts, cb)
+  return require("codeview.submit").send(opts, cb)
+end
+
 ---Read the review again from the repository.
 ---
 --- The call resolves the range of the session again, so the review follows a

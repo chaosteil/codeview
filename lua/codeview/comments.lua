@@ -639,6 +639,26 @@ local function anchor_of(target)
   return { win = target.win, buf = api.nvim_win_get_buf(target.win), row = target.row }
 end
 
+---Handler of the send key of the editor.
+---
+--- A local review has no pull request, so its editor gets no handler and the
+--- key reports that. In a pull request session the handler saves the
+--- comment with `save` and posts it with |codeview.submit.send()|.
+---@param session codeview.Session
+---@param save fun(body: string): codeview.store.Comment? Writes the comment and gives it back.
+---@return fun(body: string)? handler
+local function send_handler(session, save)
+  if not require("codeview.pr").current(session) then
+    return nil
+  end
+  return function(body)
+    local comment = save(body)
+    if comment then
+      require("codeview.submit").send({ session = session, id = comment.id })
+    end
+  end
+end
+
 ---Open the editor for a new comment.
 ---
 --- In normal mode the comment covers the line under the cursor. In visual mode
@@ -664,32 +684,39 @@ function M.add(opts)
     return false
   end
 
+  ---Write the new comment into the store.
+  ---@param body string
+  ---@return codeview.store.Comment? comment Nil after an error.
+  local function save(body)
+    -- The store comes again from the session, because a session that closes
+    -- while the editor is open drops its store.
+    local live, live_err = M.store(view.session)
+    if not live then
+      notify(tostring(live_err), vim.log.levels.ERROR)
+      return nil
+    end
+    local comment, add_err = live:add({
+      file = target.file,
+      start_line = target.start_line,
+      end_line = target.end_line,
+      side = target.side,
+      commit = target.commit,
+      body = body,
+    })
+    if not comment then
+      notify(tostring(add_err), vim.log.levels.ERROR)
+      return nil
+    end
+    persist(live)
+    announce("comment_added", view.session, comment)
+    return comment
+  end
+
   require("codeview.editor").open({
     title = title_of(target, "Comment on"),
     anchor = anchor_of(target),
-    on_save = function(body)
-      -- The store comes again from the session, because a session that closes
-      -- while the editor is open drops its store.
-      local live, live_err = M.store(view.session)
-      if not live then
-        notify(tostring(live_err), vim.log.levels.ERROR)
-        return
-      end
-      local comment, add_err = live:add({
-        file = target.file,
-        start_line = target.start_line,
-        end_line = target.end_line,
-        side = target.side,
-        commit = target.commit,
-        body = body,
-      })
-      if not comment then
-        notify(tostring(add_err), vim.log.levels.ERROR)
-        return
-      end
-      persist(live)
-      announce("comment_added", view.session, comment)
-    end,
+    on_save = save,
+    on_send = send_handler(view.session, save),
   })
   return true
 end
@@ -781,6 +808,28 @@ function M.edit(opts)
     end
   end
 
+  ---Write the new body of the comment into the store.
+  ---@param body string
+  ---@return codeview.store.Comment? comment Nil after an error.
+  local function save(body)
+    release()
+    -- The store comes again from the session, because a session that closes
+    -- while the editor is open drops its store.
+    local live, live_err = M.store(session)
+    if not live then
+      notify(tostring(live_err), vim.log.levels.ERROR)
+      return nil
+    end
+    local changed, err = live:update(comment.id, { body = body })
+    if not changed then
+      notify(tostring(err), vim.log.levels.ERROR)
+      return nil
+    end
+    persist(live)
+    announce("comment_changed", session, changed)
+    return changed
+  end
+
   require("codeview.editor").open({
     title = string.format(
       "Edit %s:%s (%s)",
@@ -790,23 +839,8 @@ function M.edit(opts)
     ),
     text = comment.body,
     anchor = anchor,
-    on_save = function(body)
-      release()
-      -- The store comes again from the session, because a session that closes
-      -- while the editor is open drops its store.
-      local live, live_err = M.store(session)
-      if not live then
-        notify(tostring(live_err), vim.log.levels.ERROR)
-        return
-      end
-      local changed, err = live:update(comment.id, { body = body })
-      if not changed then
-        notify(tostring(err), vim.log.levels.ERROR)
-        return
-      end
-      persist(live)
-      announce("comment_changed", session, changed)
-    end,
+    on_save = save,
+    on_send = send_handler(session, save),
     on_cancel = release,
   })
 

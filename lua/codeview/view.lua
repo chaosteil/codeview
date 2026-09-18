@@ -827,8 +827,8 @@ function M.open(session, index, opts, cb)
       old_rev = old_rev,
       new_rev = new_rev,
       diff = result,
-      -- The commit message holds one side only, so the side-by-side style has
-      -- nothing to put in the other window.
+      -- A document holds one side only, so the side-by-side style has nothing
+      -- to put in the other window.
       style = file.virtual and "inline" or config.get().diff.style,
       map = linemap.new(),
       old_map = nil,
@@ -862,18 +862,18 @@ function M.open(session, index, opts, cb)
   local diff_opts = opts.force and { max_lines = 0 } or nil
 
   if file.virtual then
-    -- A commit document reads the files of its commit from the backend, so it
-    -- takes the same sync and async form as a diff.
+    -- A document reads from the session or the backend, so it takes the same
+    -- sync and async form as a diff.
     local message = require("codeview.message")
     if not cb then
-      local document, err = message.for_commit(session, file)
+      local document, err = message.for_file(session, file)
       if not document then
         return nil, err
       end
       return show(document), nil
     end
     pending = { session = session, index = index, ticket = ticket }
-    message.for_commit(session, file, function(document, err)
+    message.for_file(session, file, function(document, err)
       if not fresh(ticket) then
         return
       end
@@ -1173,9 +1173,9 @@ function M.set_style(style)
     return style
   end
   if view.diff and view.diff.message then
-    -- The commit message has one side. The option keeps the new value for the
-    -- next file, but this view stays inline.
-    notify("the commit message has no side-by-side style")
+    -- A document has one side. The option keeps the new value for the next
+    -- file, but this view stays inline.
+    notify("the document has no side-by-side style")
     return view.style
   end
 
@@ -1263,7 +1263,7 @@ function M.edit(opts)
     return false
   end
   if require("codeview.message").is(path) then
-    notify("a commit message is not a file of the working copy")
+    notify("a document of the review is not a file of the working copy")
     return false
   end
 
@@ -1406,7 +1406,7 @@ end
 ---@class codeview.view.Open
 ---@field path string Path of the file that the view showed.
 ---@field index integer Position of the file before the refresh.
----@field virtual boolean True for a commit message document.
+---@field virtual boolean True for a document: a commit message or the pull request.
 ---@field line integer Line of the new side under the cursor.
 ---@field win integer Window of the view.
 

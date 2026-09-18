@@ -48,6 +48,14 @@ describe("codeview.tree", function()
       }, outline(root))
     end)
 
+    it("reads a virtual node with a lower order first", function()
+      local root = tree.build({
+        { path = "v://b", virtual = true, label = "b", group = "Zeta", group_path = "v://zeta", order = 1 },
+        { path = "v://a", virtual = true, label = "a", group = "Alpha", group_path = "v://alpha", order = 2 },
+      })
+      assert.are.equal("Zeta", root.children[1].name)
+    end)
+
     it("collapses a chain of directories with one child", function()
       local root = tree.build({ { path = "lua/codeview/vcs/git.lua", status = "added" } })
       assert.are.equal(1, #root.children)

@@ -330,9 +330,12 @@ describe("codeview.pr", function()
       assert.are.equal(fixture.ids.pr_two, opened.range.to)
       assert.are.equal(opened, session.current())
 
-      local paths = vim.tbl_map(function(file)
-        return file.path
-      end, opened:changed_files())
+      local paths = {}
+      for _, file in ipairs(opened:changed_files()) do
+        if not file.virtual then
+          paths[#paths + 1] = file.path
+        end
+      end
       table.sort(paths)
       assert.are.same({ "a.txt", "feature.txt" }, paths)
     end)
@@ -407,6 +410,90 @@ describe("codeview.pr", function()
 
       assert.is_nil(out.session)
       assert.are.equal(errors.codes.NOT_A_REPO, out.err.code)
+    end)
+  end)
+
+  describe("the pull request document", function()
+    it("lists the pull request before the commits", function()
+      assert(require("codeview.config").setup({ commit_message = true }))
+      local message = require("codeview.message")
+      local opened = assert(open(12))
+
+      assert.is_true(opened.files[1].virtual)
+      assert.is_true(message.is_pr(opened.files[1].path))
+      assert.are.equal("#12 Add the feature", opened.files[1].label)
+      assert.are.equal(1, opened.files[1].order)
+
+      assert.is_true(message.is(opened.files[2].path))
+      assert.is_false(message.is_pr(opened.files[2].path))
+      assert.are.equal(2, opened.files[2].order)
+
+      assert.are.equal(2, opened:changed_count())
+    end)
+
+    it("keeps the document when the commit messages are off", function()
+      assert(require("codeview.config").setup({ commit_message = false }))
+      local message = require("codeview.message")
+      local opened = assert(open(12))
+
+      assert.is_true(message.is_pr(opened.files[1].path))
+      assert.is_not_true(opened.files[2].virtual)
+    end)
+
+    it("shows the summary, the link, and the description", function()
+      local message = require("codeview.message")
+      local view = require("codeview.view")
+      local opened = assert(open(12))
+      local state = assert(view.open(opened, 1))
+      local lines = vim.api.nvim_buf_get_lines(state.buf, 0, -1, false)
+      view.close()
+
+      local text = table.concat(lines, "\n")
+      assert.is_truthy(text:find("Pull request #12: Add the feature", 1, true), text)
+      assert.is_truthy(text:find("wants to merge", 1, true), text)
+      assert.is_truthy(vim.tbl_contains(lines, "State: open"), text)
+      assert.is_truthy(text:find("https://github.com/ada/demo/pull/12", 1, true), text)
+      assert.is_truthy(text:find("    the body of the pull request", 1, true), text)
+
+      local head
+      for index, line in ipairs(lines) do
+        if line == "2 commits:" then
+          head = index
+        end
+      end
+      assert.is_truthy(head, text)
+      local commits = opened.commits
+      assert.are.equal("    " .. message.label(commits[#commits]), lines[head + 2])
+      assert.are.equal("    " .. message.label(commits[1]), lines[head + 3])
+    end)
+
+    it("puts the pull request group first in the sidebar", function()
+      assert(require("codeview.config").setup({ commit_message = true }))
+      local sidebar = require("codeview.sidebar")
+      local opened = assert(open(12))
+      sidebar.open({ session = opened })
+      local lines = assert(sidebar.get()).panel:lines()
+      sidebar.close()
+
+      local pr_row, commits_row
+      for index, line in ipairs(lines) do
+        if not pr_row and line:find("Pull request", 1, true) then
+          pr_row = index
+        end
+        if not commits_row and line:find("Commits", 1, true) then
+          commits_row = index
+        end
+      end
+      assert.is_truthy(pr_row, table.concat(lines, "\n"))
+      assert.is_truthy(commits_row, table.concat(lines, "\n"))
+      assert.is_true(pr_row < commits_row)
+    end)
+
+    it("names the document in the display", function()
+      local message = require("codeview.message")
+      local opened = assert(open(12))
+      assert.are.equal(pr.label(opened.pr), message.display(message.pr_path(12), opened))
+      assert.are.equal("PR 12", message.display(message.pr_path(12), nil))
     end)
   end)
 

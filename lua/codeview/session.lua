@@ -111,19 +111,25 @@ local function label_of(range, input, label)
   return short(range.to)
 end
 
----File list of a session, with one entry per commit at the head.
+---File list of a session, with the documents at the head.
 ---
---- The commits read before the code, the way a reviewer reads the message of
---- a change first. The `commit_message` option removes them, and a range
---- without a commit gets none.
+--- The documents read before the code, the way a reviewer reads the pull
+--- request and the message of a change first. The `commit_message` option
+--- removes the commits, and a range without a commit gets none. The pull
+--- request document does not depend on that option.
 ---@param files codeview.vcs.FileChange[]
 ---@param commits codeview.vcs.Commit[]
+---@param pr codeview.pr.Info? Pull request that the session reviews.
 ---@return codeview.vcs.FileChange[]
-local function with_message(files, commits)
-  if not config.get().commit_message or #(commits or {}) == 0 then
-    return files
+local function with_message(files, commits, pr)
+  local message = require("codeview.message")
+  local out = {}
+  if type(pr) == "table" and type(pr.number) == "number" then
+    out[1] = message.pr_entry(pr)
   end
-  local out = require("codeview.message").entries(commits)
+  if config.get().commit_message and #(commits or {}) > 0 then
+    vim.list_extend(out, message.entries(commits))
+  end
   vim.list_extend(out, files)
   return out
 end
@@ -208,7 +214,7 @@ function M.open(spec, opts, cb)
       range = state.range,
       input = spec,
       spec = label_of(state.range, spec, opts.label),
-      files = with_message(state.files, state.commits),
+      files = with_message(state.files, state.commits, opts.pr),
       commits = state.commits,
       store_key = opts.store_key,
       pr = opts.pr,
@@ -388,7 +394,7 @@ local function reread(session, range, cb)
       return nil, errors.new(errors.codes.INVALID_ARG, "the session is closed")
     end
     session.range = range
-    session.files = with_message(state.files, state.commits)
+    session.files = with_message(state.files, state.commits, session.pr)
     session.commits = state.commits
     announce("CodeViewSessionRefreshed", session)
     return session, nil
