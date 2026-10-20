@@ -243,6 +243,7 @@ M.defaults = {
     comment_visual = { "I", "A", "c" },
     edit_comment = "<leader>ce",
     delete_comment = "<leader>cd",
+    clear_comments = "<leader>cD",
     resolve_comment = "<leader>cr",
     show_comment = "K",
     -- With `lsp.enabled`, the hover key takes `K`. The show-comment action
