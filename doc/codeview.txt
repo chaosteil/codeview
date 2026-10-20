@@ -311,6 +311,11 @@ The sidebar buffer holds these maps. |codeview-config| names the keys: >
     <leader>cR  read the review again from the repository
     q           close the review session
 <
+Opening a file with <CR> moves focus to its diff. In the split style, focus
+goes to the new side. Set `sidebar.focus_on_open = false` to keep focus in the
+sidebar. This option also applies to a double click and custom `open_file`
+keys.
+
 The next-file key and the previous-file key follow the order of the tree.
 They step over the directory nodes, and they also reach a file in a directory
 that hides its children.
@@ -1563,6 +1568,7 @@ Defaults: >lua
         position = "left",           -- "left" | "right"
         width = 20,
         auto_open = true,
+        focus_on_open = true,        -- move focus to the diff after opening a file
         icons = {
           expanded = "▾",            -- directory that shows its children
           collapsed = "▸",           -- directory that hides its children

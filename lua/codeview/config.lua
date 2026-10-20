@@ -43,6 +43,7 @@ local M = {}
 ---@field position "left"|"right" Side of the tab page for the sidebar.
 ---@field width integer Width of the sidebar in columns.
 ---@field auto_open boolean Open the sidebar when a session starts.
+---@field focus_on_open boolean Move focus to the diff when opening a file from the sidebar.
 ---@field icons codeview.Config.Sidebar.Icons Text icons of the file tree.
 
 ---@class codeview.Config.Sidebar.Icons
@@ -108,6 +109,7 @@ M.defaults = {
     position = "left",
     width = 20,
     auto_open = true,
+    focus_on_open = true,
     icons = {
       expanded = "▾",
       collapsed = "▸",
@@ -298,6 +300,7 @@ function M.validate(opts)
     vim.validate("sidebar.position", opts.sidebar.position, one_of({ "left", "right" }))
     vim.validate("sidebar.width", opts.sidebar.width, positive_integer, "positive integer")
     vim.validate("sidebar.auto_open", opts.sidebar.auto_open, "boolean")
+    vim.validate("sidebar.focus_on_open", opts.sidebar.focus_on_open, "boolean")
     vim.validate("sidebar.icons", opts.sidebar.icons, "table")
     for name, icon in pairs(opts.sidebar.icons) do
       vim.validate("sidebar.icons." .. tostring(name), icon, "string")

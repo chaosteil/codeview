@@ -143,6 +143,12 @@ describe("codeview.config", function()
     assert.is_truthy(err:find("sidebar.width", 1, true), err)
   end)
 
+  it("rejects a non-boolean focus_on_open option", function()
+    local cfg, err = config.setup({ sidebar = { focus_on_open = "yes" } })
+    assert.is_nil(cfg)
+    assert.is_truthy(err:find("sidebar.focus_on_open", 1, true), err)
+  end)
+
   it("names the three tool binaries", function()
     assert.are.equal("git", config.defaults.git.binary)
     assert.are.equal("jj", config.defaults.jj.binary)

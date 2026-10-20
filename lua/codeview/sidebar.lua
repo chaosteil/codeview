@@ -306,6 +306,7 @@ end
 ---
 --- A review of the working-copy commit reads its data again first, so the
 --- diff holds the writes of your editor. See |codeview.session.auto_reload()|.
+--- After the file opens, `sidebar.focus_on_open` moves focus to the diff.
 ---@param index integer Position in the file list.
 ---@param cb? fun(view: codeview.view.State?, err: codeview.Error?)
 function Sidebar:open_file(index, cb)
@@ -326,7 +327,12 @@ function Sidebar:open_file(index, cb)
     index = at
   end
 
-  view.open(self.session, index, answer)
+  view.open(self.session, index, function(state, err)
+    if state and config.get().sidebar.focus_on_open and api.nvim_win_is_valid(state.win) then
+      api.nvim_set_current_win(state.win)
+    end
+    answer(state, err)
+  end)
 end
 
 ---Act on the line under the cursor.
