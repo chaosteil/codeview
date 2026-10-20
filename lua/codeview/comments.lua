@@ -910,6 +910,48 @@ function M.remove(opts)
   return true
 end
 
+---Clear all saved local comments of the review, after one question.
+---
+--- Resolved and synced local comments are included. Comments on GitHub stay
+--- on GitHub. A write failure keeps the local comments.
+---@param opts? { confirm?: boolean, session?: codeview.Session } `confirm = false` skips the question.
+---@return boolean cleared False after cancellation, an empty review, or an error.
+function M.clear(opts)
+  opts = opts or {}
+  local ctx, ctx_err = context(opts)
+  if not ctx then
+    notify(tostring(ctx_err), vim.log.levels.WARN)
+    return false
+  end
+  local count = ctx.store:count()
+  if count == 0 then
+    notify("no local comments to clear")
+    return false
+  end
+
+  if opts.confirm ~= false then
+    local answer = vim.fn.confirm(
+      string.format("Clear all %d local %s in this review?", count, count == 1 and "comment" or "comments"),
+      "&Yes\n&No",
+      2,
+      "Question"
+    )
+    if answer ~= 1 then
+      return false
+    end
+  end
+
+  local removed, err = ctx.store:clear()
+  if not removed then
+    notify(tostring(err), vim.log.levels.ERROR)
+    return false
+  end
+  for _, comment in ipairs(removed) do
+    announce("comment_deleted", ctx.session, comment)
+  end
+  return true
+end
+
 ---Set the state of the comment under the cursor.
 ---
 --- The state lives in the `state` field of the comment, so it survives a
@@ -1090,6 +1132,9 @@ function M.set_keymaps(session, buf)
   add("n", keys.delete_comment, function()
     M.remove({ view = view_of() })
   end, "delete the comment")
+  add("n", keys.clear_comments, function()
+    M.clear({ session = session })
+  end, "clear all local comments in the review")
   add("n", keys.resolve_comment, function()
     M.set_state({ view = view_of() })
   end, "resolve the comment")

@@ -308,6 +308,7 @@ The sidebar buffer holds these maps. |codeview-config| names the keys: >
     [f          open the previous file
     <leader>ct  switch the diff style
     <leader>co  open or close the comment overview
+    <leader>cD  clear all local comments in the review, after a question
     <leader>cR  read the review again from the repository
     q           close the review session
 <
@@ -520,6 +521,7 @@ The diff buffer holds these maps. |codeview-config| names the keys: >
     <leader>cc  comment on the line or on the selection
     <leader>ce  edit the comment under the cursor
     <leader>cd  delete the comment under the cursor
+    <leader>cD  clear all local comments in the review, after a question
     <leader>cr  resolve the comment, or open it again
     <leader>co  open or close the comment overview
     <leader>cR  read the review again from the repository
@@ -669,6 +671,7 @@ diff buffer maps them to the comment editor: >
     <leader>cc  edit or write the comment of the line, or of the selection
     <leader>ce  edit the comment under the cursor
     <leader>cd  delete the comment under the cursor, after a question
+    <leader>cD  clear all local comments in the review, after a question
     <leader>cr  resolve the comment under the cursor, or open it again
     <leader>co  open or close the comment overview
     K           show the comment under the cursor in a float
@@ -698,6 +701,15 @@ it, or give a list of keys for one action: >lua
       },
     })
 <
+                                                     *codeview-comments-clear*
+`<leader>cD` clears all saved local comments in the current review, including
+resolved comments and local copies of comments sent to GitHub. It works in
+the diff view, the changed-files sidebar, and the comment overview. The
+question shows the number of comments and defaults to No. Confirming saves
+the empty comment store and updates the panels and diff decorations. A write
+failure keeps the comments. Other reviews and comments on GitHub stay intact.
+Set `keymaps.clear_comments` to another key, or to false to disable the map.
+
                                                    *codeview-comments-editor*
 The editor is a floating window with its own markdown buffer. This buffer is
 the only modifiable buffer of the comment flow. You never type into the diff
@@ -899,6 +911,7 @@ The overview buffer holds these maps. |codeview-config| names the keys: >
     zM          hide the children of every node
     <leader>ce  edit the comment under the cursor
     <leader>cd  delete the comment under the cursor, after a question
+    <leader>cD  clear all local comments in the review, after a question
     <leader>cr  resolve the comment under the cursor, or open it again
     <leader>cx  show the markdown of the comments in a scratch buffer
     <leader>cy  write the markdown of the comments into the register
@@ -939,6 +952,7 @@ also runs a |User| autocmd: >
     CodeViewCommentDeleted    a comment left the store
     CodeViewReviewSubmitted   a submit or a send posted comments to GitHub
 <
+Clearing comments sends CodeViewCommentDeleted once per local comment removed.
 The payload holds the id of the comment, the file, the id of the session, and
 the state: >lua
 
@@ -1430,6 +1444,14 @@ codeview.delete_comment({opts})
     Delete the comment under the cursor, after a question. `opts.confirm =
     false` skips the question. `opts.id` names another comment.
 
+                                                   *codeview.clear_comments()*
+codeview.clear_comments({opts})
+    Clear all saved local comments in the current review, including resolved
+    and synced comments, after one question that defaults to No.
+    `opts.confirm = false` skips the question. Return false after cancellation,
+    an empty review, or an error. A write failure keeps the local comments.
+    Comments on GitHub stay intact. See |codeview-comments-clear|.
+
                                                   *codeview.resolve_comment()*
 codeview.resolve_comment({opts})
     Set the state of the comment under the cursor. `opts.state` is "open" or
@@ -1459,6 +1481,7 @@ codeview.store()
         store:add(fields)             -- add a comment
         store:update(id, fields)      -- change a comment
         store:remove(id)              -- delete a comment
+        store:clear()                 -- clear all comments and save the file
         store:unsynced()              -- comments that no submit sent yet
         store:mark_synced(id, opts)   -- mark a comment as sent
         store:save()                  -- write the file
@@ -1623,6 +1646,7 @@ Defaults: >lua
         comment_visual = { "I", "A", "c" },
         edit_comment = "<leader>ce",
         delete_comment = "<leader>cd",
+        clear_comments = "<leader>cD",
         resolve_comment = "<leader>cr",
         show_comment = "K",
         toggle_overview = "<leader>co",
@@ -1721,6 +1745,7 @@ The table names the surface of each action: >
     comment_visual    I A c              D  comment on the selected lines
     edit_comment      <leader>ce       O D  edit the comment
     delete_comment    <leader>cd       O D  delete the comment
+    clear_comments    <leader>cD     S O D  clear all local comments in the review
     resolve_comment   <leader>cr       O D  resolve the comment, or reopen it
     show_comment      K                  D  show the comment in a float
     toggle_overview   <leader>co     S O D  open or close the overview

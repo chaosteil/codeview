@@ -6,6 +6,7 @@ local api = vim.api
 describe("codeview.comments", function()
   local fixture = fixtures.git_comments()
   local comments, config, editor, session_mod, store_mod, view
+  local original_confirm
   ---@type string
   local dir
   ---@type codeview.Session?
@@ -143,6 +144,7 @@ describe("codeview.comments", function()
   end
 
   before_each(function()
+    original_confirm = vim.fn.confirm
     helpers.unload()
     config = require("codeview.config")
     dir = fixtures.tempdir("codeview-comments")
@@ -155,6 +157,7 @@ describe("codeview.comments", function()
   end)
 
   after_each(function()
+    vim.fn.confirm = original_confirm
     editor.cancel()
     view.close()
     if opened then
@@ -800,6 +803,147 @@ describe("codeview.comments", function()
       -- The repository holds the commit of the fixture and no new file.
       local status = vim.system({ "git", "status", "--porcelain" }, { cwd = fixture.dir, text = true }):wait()
       assert.are.equal("", vim.trim(status.stdout or ""))
+    end)
+  end)
+
+  describe("clear", function()
+    for _, surface in ipairs({ "diff", "sidebar", "overview" }) do
+      it("clears all local comments from the " .. surface, function()
+        assert(config.setup({ commit_message = false, comments = { dir = dir }, diff = { style = "split" } }))
+        local state = open_diff()
+        local store = assert(comments.store())
+        local first = assert(store:add({ file = "call.lua", start_line = 2, side = "old", body = "sent note" }))
+        local second = assert(store:add({
+          file = "call.lua",
+          start_line = 2,
+          side = "new",
+          state = "resolved",
+          body = "resolved note",
+        }))
+        local third = assert(store:add({ file = "tail.txt", start_line = 40, body = "another file" }))
+        assert(store:mark_synced(first.id))
+        assert(store:save())
+        comments.refresh()
+
+        local remote = require("codeview.remote")
+        local posted = remote.parse({ { id = 900, path = "call.lua", line = 3, body = "remote note" } })
+        remote.attach(assert(opened), posted)
+        local remote_marks = remote.marks(state.buf)
+        assert.is_true(#remote_marks > 0)
+        assert.is_true(#marks_of(state.buf) > 0)
+        assert.is_true(#marks_of(state.old_buf) > 0)
+
+        local sidebar = assert(require("codeview.sidebar").open())
+        local overview = assert(require("codeview.overview").open())
+        assert.is_truthy(table.concat(sidebar.panel:lines(), "\n"):find("Comments 3", 1, true))
+        local windows = {
+          diff = state.old_win,
+          sidebar = sidebar.panel:window(),
+          overview = overview.panel:window(),
+        }
+        api.nvim_set_current_win(windows[surface])
+        api.nvim_win_set_cursor(windows[surface], { 1, 0 })
+        local deleted = {}
+        require("codeview.events").on("comment_deleted", function(data)
+          deleted[#deleted + 1] = data.id
+        end)
+        local prompts = {}
+        vim.fn.confirm = function(message, choices, default)
+          prompts[#prompts + 1] = { message, choices, default }
+          return 1
+        end
+
+        press("<leader>cD")
+
+        assert.are.same({ { "Clear all 3 local comments in this review?", "&Yes\n&No", 2 } }, prompts)
+        assert.are.same({ first.id, second.id, third.id }, deleted)
+        assert.are.equal(0, store:count())
+        assert.are.equal(0, assert(store_mod.load({ repo = fixture.root, range = store.range })):count())
+        assert.are.same({}, marks_of(state.buf))
+        assert.are.same({}, marks_of(state.old_buf))
+        assert.are.same({}, overview:comments())
+        assert.is_nil(table.concat(sidebar.panel:lines(), "\n"):match("Comments %d"))
+        assert.are.same(posted, remote.list())
+        assert.are.same(remote_marks, remote.marks(state.buf))
+        assert.is_true(assert(opened):is_active())
+      end)
+    end
+
+    for _, answer in ipairs({ 0, 2 }) do
+      it("keeps the comments when confirmation returns " .. answer, function()
+        local state = open_diff()
+        local comment = comment_on(4, "keep this note")
+        local store = assert(comments.store())
+        local saved = vim.fn.readfile(store.path)
+        local marks = marks_of(state.buf)
+        vim.fn.confirm = function()
+          return answer
+        end
+
+        assert.is_false(require("codeview").clear_comments())
+
+        assert.are.same({ comment }, comments.list())
+        assert.are.same(saved, vim.fn.readfile(store.path))
+        assert.are.same(marks, marks_of(state.buf))
+      end)
+    end
+
+    it("clears without a diff and leaves another review intact", function()
+      opened = assert(session_mod.open(spec(), { dir = fixture.dir }))
+      local store = assert(comments.store())
+      assert(store:add({ file = "call.lua", body = "this review" }))
+      assert(store:save())
+      local other = assert(store_mod.load({ repo = fixture.root, range = "another-range" }))
+      local kept = assert(other:add({ file = "call.lua", body = "another review" }))
+      assert(other:save())
+      vim.fn.confirm = function()
+        error("confirm = false must skip the question")
+      end
+
+      assert.is_nil(view.current())
+      assert.is_true(require("codeview").clear_comments({ confirm = false }))
+
+      assert.are.equal(0, assert(store_mod.load({ repo = fixture.root, range = store.range })):count())
+      local reloaded = assert(store_mod.load({ repo = fixture.root, range = other.range }))
+      assert.are.equal(1, reloaded:count())
+      assert.are.equal(kept.body, assert(reloaded:get(kept.id)).body)
+    end)
+
+    it("keeps the comments when the empty store cannot be written", function()
+      local state = open_diff()
+      local comment = comment_on(4, "keep this note")
+      local store = assert(comments.store())
+      local saved = vim.fn.readfile(store.path)
+      local marks = marks_of(state.buf)
+      local updated_at = store.updated_at
+      vim.fn.mkdir(string.format("%s.%d.tmp", store.path, vim.uv.os_getpid()), "p")
+      local deleted = 0
+      require("codeview.events").on("comment_deleted", function()
+        deleted = deleted + 1
+      end)
+
+      assert.is_false(require("codeview").clear_comments({ confirm = false }))
+
+      assert.are.same({ comment }, comments.list())
+      assert.are.equal(updated_at, store.updated_at)
+      assert.are.same(saved, vim.fn.readfile(store.path))
+      assert.are.same(marks, marks_of(state.buf))
+      assert.are.equal(0, deleted)
+    end)
+
+    it("does not prompt or create a file for an empty review", function()
+      opened = assert(session_mod.open(spec(), { dir = fixture.dir }))
+      local store = assert(comments.store())
+      vim.fn.confirm = function()
+        error("an empty review needs no question")
+      end
+
+      assert.is_false(require("codeview").clear_comments())
+      assert.are.equal(0, vim.fn.filereadable(store.path))
+    end)
+
+    it("needs an active review", function()
+      assert.is_false(require("codeview").clear_comments({ confirm = false }))
     end)
   end)
 
