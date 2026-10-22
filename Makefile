@@ -6,7 +6,7 @@ SHELLCHECK ?= shellcheck
 ROOT := $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
 TESTS_DIR := $(ROOT)/.tests
 LUA_FILES := lua plugin tests
-SHELL_FILES := skills/rex-codeview/scripts/codeview-review
+SHELL_FILES := $(wildcard skills/*/scripts/*)
 
 # Keep the test run out of the real Neovim directories.
 export XDG_CONFIG_HOME := $(TESTS_DIR)/xdg/config

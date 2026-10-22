@@ -64,3 +64,10 @@ jobs:
         uses: lunarmodules/luacheck@v1
         with:
           args: lua plugin tests
+
+      # The runner image holds shellcheck. Keep the glob the same as
+      # SHELL_FILES in the Makefile.
+      - name: Lint the skill scripts with shellcheck
+        run: |
+          shellcheck --version
+          shellcheck skills/*/scripts/*
