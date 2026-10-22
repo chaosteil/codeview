@@ -1245,10 +1245,42 @@ codeview.open({spec}, {opts}, {cb})
           repo = nil,     -- repository handle, to skip the detection
           dir = nil,      -- directory for the detection, cwd by default
           backend = nil,  -- "auto" | "git" | "jj", the config value by default
+          export_file = nil, -- path of a file for the export of the session
         }
 <
     Without {cb} the call blocks and returns `session, err`. With {cb} the
     call returns at once and calls `cb(session, err)`.
+
+    With `export_file`, the session keeps its export in that file. See
+    |codeview.review()|.
+
+                                                           *codeview.review()*
+codeview.review({spec}, {opts})
+    Open a review the way |:Codeview| {rev} does. The call opens the session,
+    the sidebar, the overview, and the hints, and it shows the summary of the
+    session. It returns at once. If the open fails, you get the error as a
+    message, the same as from |:Codeview|.
+
+    {opts} accepts these fields: >lua
+
+        {
+          dir = nil,         -- directory for the detection, cwd by default
+          export_file = nil, -- path of a file for the export of the session
+        }
+<
+    With `export_file`, the session writes its export to that file. The
+    first write comes right after the open, also without comments. The
+    session writes the file again after each change of a comment, and after
+    each refresh. As a result, the file holds the last state of the review
+    after every exit: `:qa`, `:qa!`, |:Codeview-close|, or a closed terminal.
+    The file has the format of |codeview-export|. If a write fails, you get
+    a warning, and the review continues.
+
+    A tool outside Neovim starts a review with an export file: >sh
+
+        nvim -c "lua require('codeview').review('main..@',
+          { export_file = '/tmp/review.md' })"
+<
 
                                                           *codeview.open_pr()*
 codeview.open_pr({number}, {opts}, {cb})

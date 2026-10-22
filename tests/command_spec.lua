@@ -214,6 +214,23 @@ describe("codeview.command", function()
     end)
   end)
 
+  describe("codeview.review", function()
+    it("opens the sidebar like :Codeview", function()
+      local sidebar = require("codeview.sidebar")
+      require("codeview").review(fixture.ids.edit, { dir = fixture.dir })
+      wait_for(function()
+        return session.current() ~= nil
+      end)
+      wait_for(function()
+        return sidebar.is_open()
+      end)
+
+      local opened = assert(session.current())
+      assert.are.equal(fixture.ids.edit, opened.range.to)
+      assert.are.equal(opened, assert(sidebar.get()).session)
+    end)
+  end)
+
   describe("close", function()
     it("closes the session that runs", function()
       local opened = assert(session.open(fixture.ids.edit, { dir = fixture.dir }))

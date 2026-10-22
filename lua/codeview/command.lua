@@ -55,9 +55,13 @@ local function report(err)
 end
 
 ---Handle the answer of an open call.
+---
+--- The call reports an error. For a session, it opens the sidebar, the
+--- overview, and the hints, and it shows the summary of the session.
+--- |:Codeview| and |codeview.review()| both use it.
 ---@param review codeview.Session?
 ---@param err codeview.Error?
-local function opened(review, err)
+function M.opened(review, err)
   if err then
     report(err)
     return
@@ -83,6 +87,18 @@ local function opened(review, err)
   end
   require("codeview.hints").open({ session = review })
   api.nvim_echo({ { "codeview: " .. review:summary() } }, false, {})
+end
+
+---Open a review the way `:Codeview {rev}` does.
+---
+--- The call opens the session in the async form, and returns at once. The
+--- answer goes to |codeview.command.opened()|, or to `on_open`.
+---@param spec string Revision argument.
+---@param opts? { dir?: string, export_file?: string }
+---@param on_open? fun(session: codeview.Session?, err: codeview.Error?) Handler of the answer.
+function M.review(spec, opts, on_open)
+  opts = opts or {}
+  session.open(spec, { dir = opts.dir, export_file = opts.export_file }, on_open or M.opened)
 end
 
 ---Read the arguments of `:Codeview`.
@@ -159,17 +175,17 @@ function M.run(opts)
   end
 
   if parsed.action == "pick" then
-    picker.pick({ mode = parsed.mode, dir = opts.dir }, opts.on_open or opened)
+    picker.pick({ mode = parsed.mode, dir = opts.dir }, opts.on_open or M.opened)
     return
   end
 
   if parsed.action == "pr" then
-    require("codeview.pr").open(parsed.number, { dir = opts.dir }, opts.on_open or opened)
+    require("codeview.pr").open(parsed.number, { dir = opts.dir }, opts.on_open or M.opened)
     return
   end
   -- The text goes to the backend, not the parsed form. A jj revset must reach
   -- jj without a split on the dots.
-  session.open(parsed.text --[[@as string]], { dir = opts.dir }, opts.on_open or opened)
+  M.review(parsed.text --[[@as string]], { dir = opts.dir }, opts.on_open)
 end
 
 ---Run `:Codeview close`.

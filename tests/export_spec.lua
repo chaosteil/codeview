@@ -488,6 +488,100 @@ describe("codeview.export", function()
     end)
   end)
 
+  describe("the export file of a session", function()
+    ---Text of a file, or nil when the file does not exist.
+    ---@param path string
+    ---@return string?
+    local function read(path)
+      if vim.fn.filereadable(path) == 0 then
+        return nil
+      end
+      return table.concat(vim.fn.readfile(path, "b"), "\n")
+    end
+
+    ---Open the fixture range with an export file.
+    ---@param path string
+    ---@return codeview.Session
+    local function open_with_file(path)
+      local review, err = session_mod.open(spec(), { dir = fixture.dir, export_file = path })
+      assert.is_nil(err)
+      opened = assert(review)
+      return opened
+    end
+
+    it("writes the file at the open, also without comments", function()
+      local path = vim.fs.joinpath(dir, "review.md")
+      open_with_file(path)
+      local text = assert(read(path))
+      assert.is_truthy(text:find("- comments: 0", 1, true), text)
+    end)
+
+    it("writes the file again after each change of a comment", function()
+      local path = vim.fs.joinpath(dir, "review.md")
+      local review = open_with_file(path)
+
+      local comment = add_comment({ file = "call.lua", start_line = 1, end_line = 1, body = "the kept note" })
+      events.emit("comment_added", { session = review.id, id = comment.id, file = comment.file })
+      local text = assert(read(path))
+      assert.is_truthy(text:find("the kept note", 1, true), text)
+      assert.is_truthy(text:find("- comments: 1 on 1 file", 1, true), text)
+
+      local store = assert(comments.store(review))
+      assert.is_truthy(store:remove(comment.id))
+      assert.is_true(store:save())
+      events.emit("comment_deleted", { session = review.id, id = comment.id, file = comment.file })
+      text = assert(read(path))
+      assert.is_truthy(text:find("- comments: 0", 1, true), text)
+      assert.is_falsy(text:find("the kept note", 1, true), text)
+    end)
+
+    it("stops the writes after the close", function()
+      local path = vim.fs.joinpath(dir, "review.md")
+      local review = open_with_file(path)
+      local id = review.id
+      review:close()
+      opened = nil
+      vim.fn.delete(path)
+
+      events.emit("comment_added", { session = id, id = "0001", file = "call.lua" })
+      assert.is_nil(read(path))
+    end)
+
+    it("holds the comments after a quit of Neovim", function()
+      local path = vim.fs.joinpath(dir, "out", "review.md")
+      local script = string.format(
+        [[
+          require('codeview').setup({ comments = { dir = %q } })
+          require('codeview').review(%q, { dir = %q, export_file = %q })
+          local session = require('codeview.session')
+          if not vim.wait(20000, function() return session.current() ~= nil end, 10) then
+            print('NO SESSION')
+            vim.cmd('qa!')
+          end
+          local review = session.current()
+          local store = require('codeview.comments').store(review)
+          local comment = store:add({
+            file = 'call.lua', start_line = 2, end_line = 2, side = 'new', commit = %q, body = 'the end to end note',
+          })
+          store:save()
+          require('codeview.events').emit('comment_added', { session = review.id, id = comment.id, file = comment.file })
+          vim.cmd('qa!')
+        ]],
+        dir,
+        spec(),
+        fixture.dir,
+        path,
+        fixture.ids.change
+      )
+      local res = helpers.clean_nvim(script)
+
+      assert.are.equal(0, res.code, res.output)
+      local text = assert(read(path), "the export file exists: " .. res.output)
+      assert.is_truthy(text:find("the end to end note", 1, true), text)
+      assert.is_truthy(text:find("- comments: 1 on 1 file", 1, true), text)
+    end)
+  end)
+
   describe(":Codeview export", function()
     it("reports a run without a session", function()
       local messages = {}

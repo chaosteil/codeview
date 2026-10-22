@@ -162,11 +162,67 @@ end
 ---@field label string? Text that names the session. The revision argument by default.
 ---@field store_key string? Key text of the comment store. The resolved range by default.
 ---@field pr codeview.pr.Info? Pull request that the session reviews.
+---@field export_file string? Path of a file that holds the export of the session. The session keeps it up to date.
+
+---Write the export of a session to a file.
+---
+--- A failed write gives a warning. The session continues.
+---@param session codeview.Session
+---@param path string
+local function write_export(session, path)
+  if session.closed then
+    return
+  end
+  local _, err = require("codeview.export").run({
+    session = session,
+    file = path,
+    register = false,
+    buffer = false,
+    notify = false,
+  })
+  if err then
+    vim.notify("codeview: cannot write the export file: " .. tostring(err), vim.log.levels.WARN)
+  end
+end
+
+---Keep the export file of a session up to date.
+---
+--- The call writes the file at once, also without comments, so the file shows
+--- that the review opened. It writes the file again after each change of a
+--- comment of the session, and after each refresh of the session. The close
+--- of the session stops the writes. The file stays on the disk.
+---@param session codeview.Session
+---@param path string
+local function keep_export(session, path)
+  local events = require("codeview.events")
+  local subscription = events.on(events.comment, function(data)
+    if data.session == session.id then
+      write_export(session, path)
+    end
+  end)
+  local autocmd = api.nvim_create_autocmd("User", {
+    group = session:augroup(),
+    pattern = "CodeViewSessionRefreshed",
+    callback = function(event)
+      if type(event.data) == "table" and event.data.id == session.id then
+        write_export(session, path)
+      end
+    end,
+  })
+  session:on_close(function()
+    events.off(subscription)
+    pcall(api.nvim_del_autocmd, autocmd)
+  end)
+  write_export(session, path)
+end
 
 ---Open a review session.
 ---
 --- The argument is user text (`a`, `a..b`, `a...b`), a parsed spec from
 --- |codeview.vcs.parse_range()|, or a range table with resolved revisions.
+---
+--- With `opts.export_file`, the session writes its export to that file after
+--- the open, and again after each change of a comment.
 ---@param spec string|codeview.vcs.Range|codeview.vcs.RangeSpec Revision argument.
 ---@param opts? codeview.session.OpenOpts
 ---@param cb? fun(session: codeview.Session?, err: codeview.Error?) Callback for the async form.
@@ -234,6 +290,9 @@ function M.open(spec, opts, cb)
     -- The review follows the repository from here on. See |codeview.watch|.
     require("codeview.watch").start(session)
     announce("CodeViewSessionOpened", session)
+    if opts.export_file then
+      keep_export(session, opts.export_file)
+    end
     return session
   end
 

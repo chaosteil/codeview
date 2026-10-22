@@ -51,6 +51,18 @@ function M.open(spec, opts, cb)
   return require("codeview.session").open(spec, opts, cb)
 end
 
+---Open a review the way `:Codeview {rev}` does.
+---
+--- The call opens the session, the sidebar, the overview, and the hints, and
+--- shows the summary of the session. It returns at once. An error goes to the
+--- user as a message. With `opts.export_file`, the session keeps its export
+--- in that file. See |codeview.open()|.
+---@param spec string Revision argument, for example "main..@".
+---@param opts? { dir?: string, export_file?: string }
+function M.review(spec, opts)
+  require("codeview.command").review(spec, opts)
+end
+
 ---Open the commit picker.
 ---@param opts? codeview.picker.Opts `mode = "range"` asks for two picks.
 ---@param cb? fun(session: codeview.Session?, err: codeview.Error?) Nil session and nil error mean cancel.
