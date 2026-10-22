@@ -5,9 +5,10 @@
 --- goes to the comment store, never into a diff buffer and never into a file
 --- of the repository.
 ---
---- `:w` saves the comment. The `editor_cancel` keys discard it, and a close of
---- the window discards it too. An empty body counts as a discard, so a save of
---- an empty buffer writes nothing.
+--- A write of the buffer saves the comment: `:w`, `:wq`, `:x`, `ZZ`, and every
+--- other command that writes. The `editor_cancel` keys discard it, and a close
+--- of the window without a write discards it too. An empty body counts as a
+--- discard, so a save of an empty buffer writes nothing.
 ---
 --- One editor is open at a time. A second |codeview.editor.open()| discards
 --- the editor that is open.
@@ -62,6 +63,10 @@ local state = nil
 ---@type integer
 local counter = 0
 
+---Editor after a write, with a window that closes on the next tick.
+---@type codeview.editor.State?
+local closing = nil
+
 ---Read the editor that is open.
 ---@return codeview.editor.State? state Nil when no editor is open.
 function M.current()
@@ -87,14 +92,13 @@ function M.body()
   return vim.trim(table.concat(api.nvim_buf_get_lines(editor.buf, 0, -1, false), "\n"))
 end
 
----Close the window and the buffer of an editor.
+---Stop an editor, but keep its window.
 ---
 --- The autocmd group goes first. A save runs from the `BufWriteCmd` autocmd of
---- the group. Autocmds do not nest, so the window close of this call sends no
---- `WinClosed` event. Without this order, the group stays behind after every
---- `:w`.
+--- the group. Without the group, a later close of the window sends no
+--- `WinClosed` event to the editor, so the close discards nothing.
 ---@param editor codeview.editor.State
-local function unmount(editor)
+local function detach(editor)
   if state == editor then
     state = nil
   end
@@ -103,6 +107,14 @@ local function unmount(editor)
     editor.group = nil
   end
   M.clear_spacer(editor)
+  if api.nvim_buf_is_valid(editor.buf) then
+    vim.bo[editor.buf].modified = false
+  end
+end
+
+---Close the window and the buffer of an editor.
+---@param editor codeview.editor.State
+local function close_window(editor)
   if api.nvim_win_is_valid(editor.win) then
     pcall(api.nvim_win_close, editor.win, true)
   end
@@ -112,9 +124,29 @@ local function unmount(editor)
   end
 end
 
+---Close the window of the last write now, if it is still open.
+---
+--- A new editor and a discard call this first. Then a window of an earlier
+--- write never stays on the screen next to a new editor.
+local function close_written()
+  local editor = closing
+  closing = nil
+  if editor then
+    close_window(editor)
+  end
+end
+
+---Stop an editor, and close its window and its buffer.
+---@param editor codeview.editor.State
+local function unmount(editor)
+  detach(editor)
+  close_window(editor)
+end
+
 ---Discard the comment and close the editor.
 ---@return boolean closed False when no editor is open.
 function M.cancel()
+  close_written()
   local editor = M.current()
   if not editor then
     return false
@@ -148,6 +180,39 @@ function M.submit()
   unmount(editor)
   on_save(body)
   return true
+end
+
+---Save the comment of a write.
+---
+--- Any write of the buffer comes here: `:w`, `:wq`, `:x`, `ZZ`, `:wqa`, and
+--- `:xa`. The call saves the comment at once, but it does not close the
+--- window. A quit command closes the window itself after the write. A close
+--- in this call would make that quit close the next window, which is a window
+--- of the review. After a plain `:w`, the window closes on the next tick.
+---
+--- An empty body discards the comment, the same as in `M.submit()`.
+---@param editor codeview.editor.State
+local function write(editor)
+  if editor.done then
+    return
+  end
+  editor.done = true
+  local body = vim.trim(table.concat(api.nvim_buf_get_lines(editor.buf, 0, -1, false), "\n"))
+  detach(editor)
+  close_written()
+  closing = editor
+  vim.schedule(function()
+    if closing == editor then
+      close_written()
+    end
+  end)
+  if body == "" then
+    if editor.on_cancel then
+      editor.on_cancel()
+    end
+    return
+  end
+  editor.on_save(body)
 end
 
 ---Save the comment and send it to the pull request.
@@ -390,7 +455,7 @@ function M.open(opts)
     buffer = buf,
     desc = "Save the codeview comment of the editor",
     callback = function()
-      M.submit()
+      write(editor)
       return true
     end,
   })

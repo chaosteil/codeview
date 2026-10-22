@@ -197,7 +197,10 @@ M.defaults = {
     -- the markdown into the register of the `export.register` option.
     export = "<leader>cx",
     copy_comments = "<leader>cy",
-    editor_save = "ZZ",
+    -- A write of the editor saves the comment, so `:w`, `:wq`, `:x`, and the
+    -- `ZZ` of Neovim save it without a map. This key is for a save key of
+    -- your own.
+    editor_save = false,
     -- The send key saves the comment and posts it to the pull request at once.
     editor_send = "<leader>cs",
     editor_cancel = { "q", "<Esc><Esc>" },

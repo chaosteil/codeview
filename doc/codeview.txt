@@ -706,14 +706,24 @@ buffer, and the plugin never writes to a file of the repository.
 In the editor: >
 
     :w          save the comment
-    ZZ          save the comment
+    :wq :x ZZ   save the comment
     q           discard the comment
     <Esc><Esc>  discard the comment
     <leader>cs  send the comment to the pull request
 <
-An empty body counts as a discard. A close of the window discards the comment
-too. The `editor_save` option and the `editor_cancel` option name the two keys.
-The `:w` write runs from an autocmd, so it saves with any key of your own.
+An empty body counts as a discard. A close of the window without a write
+discards the comment too.
+
+Each write of the editor buffer saves the comment. The save runs from the
+|BufWriteCmd| autocmd, so every command and key that writes the buffer saves
+it: `:w`, `:wq`, `:x`, `ZZ`, `:wqa`, `:xa`, and a key of your own that writes.
+The quit part of `:wq`, `:x`, and `ZZ` closes the editor and no other window.
+`ZZ` and `:x` write only a changed buffer. An unchanged comment closes without
+a save, and stays as it was.
+
+The `editor_cancel` option names the discard keys. The `editor_save` option
+is off by default. Set it to map a save key of your own, for example
+`<C-s>`.
 
 In a pull request review, the send key saves the comment and posts it to
 GitHub at once, without a summary. The `editor_send` option names the key. See
@@ -1672,7 +1682,7 @@ Defaults: >lua
         refresh = "<leader>cR",
         export = "<leader>cx",
         copy_comments = "<leader>cy",
-        editor_save = "ZZ",
+        editor_save = false,
         editor_send = "<leader>cs",
         editor_cancel = { "q", "<Esc><Esc>" },
         close = "q",
@@ -1770,7 +1780,7 @@ The table names the surface of each action: >
     refresh           <leader>cR     S O D  read the review again
     export            <leader>cx       O    show the export in a buffer
     copy_comments     <leader>cy       O    write the export into the register
-    editor_save       ZZ                   E  save the comment
+    editor_save       (off)                E  save the comment
     editor_send       <leader>cs           E  send the comment to the pull request
     editor_cancel     q  <Esc><Esc>       E  discard the comment
     close             q              S O D  close the session or the panel

@@ -454,6 +454,93 @@ describe("codeview.comments", function()
       assert.are.equal("written with :w", store.comments[1].body)
     end)
 
+    -- A quit command after a write closes the window that has the focus. The
+    -- write must not close the editor, or the quit closes a window of the
+    -- review.
+    for _, case in ipairs({
+      {
+        name = ":wq",
+        run = function()
+          vim.cmd.wq()
+        end,
+      },
+      {
+        name = ":x",
+        run = function()
+          vim.cmd.x()
+        end,
+      },
+      {
+        name = "ZZ",
+        run = function()
+          press("ZZ")
+        end,
+      },
+    }) do
+      it("saves the comment on " .. case.name .. " and closes only the editor", function()
+        local state = open_diff()
+        api.nvim_win_set_cursor(state.win, { 2, 0 })
+        local before = api.nvim_tabpage_list_wins(0)
+        comments.add()
+        local ed = assert(editor.current())
+        api.nvim_buf_set_lines(ed.buf, 0, -1, false, { "written with " .. case.name })
+        case.run()
+
+        assert.is_false(editor.is_open())
+        assert.is_false(api.nvim_win_is_valid(ed.win))
+        assert.are.same(before, api.nvim_tabpage_list_wins(0))
+        local store = assert(comments.store())
+        assert.are.equal(1, store:count())
+        assert.are.equal("written with " .. case.name, store.comments[1].body)
+      end)
+    end
+
+    it("closes the editor on the next tick after :w", function()
+      local state = open_diff()
+      api.nvim_win_set_cursor(state.win, { 2, 0 })
+      local before = api.nvim_tabpage_list_wins(0)
+      comments.add()
+      local ed = assert(editor.current())
+      api.nvim_buf_set_lines(ed.buf, 0, -1, false, { "written with :w" })
+      vim.cmd.write()
+
+      assert.is_true(vim.wait(1000, function()
+        return not api.nvim_win_is_valid(ed.win)
+      end))
+      assert.are.same(before, api.nvim_tabpage_list_wins(0))
+      assert.is_false(api.nvim_buf_is_valid(ed.buf))
+    end)
+
+    it("discards an empty body on :wq and closes only the editor", function()
+      local state = open_diff()
+      api.nvim_win_set_cursor(state.win, { 2, 0 })
+      local before = api.nvim_tabpage_list_wins(0)
+      comments.add()
+      vim.cmd.wq()
+
+      assert.is_false(editor.is_open())
+      assert.are.same(before, api.nvim_tabpage_list_wins(0))
+      assert.are.equal(0, assert(comments.store()):count())
+    end)
+
+    it("keeps an unchanged comment on ZZ", function()
+      local state = open_diff()
+      local comment = comment_on(2, "first text")
+      api.nvim_set_current_win(state.win)
+      api.nvim_win_set_cursor(state.win, { 2, 0 })
+      local before = api.nvim_tabpage_list_wins(0)
+      assert.is_true(comments.edit_or_add({ view = state }))
+      assert.is_true(editor.is_open())
+      press("ZZ")
+
+      assert.is_false(editor.is_open())
+      assert.are.same(before, api.nvim_tabpage_list_wins(0))
+      local store = assert(comments.store())
+      assert.are.equal(1, store:count())
+      assert.are.equal("first text", store.comments[1].body)
+      assert.are.equal(comment.id, store.comments[1].id)
+    end)
+
     it("discards the comment on q", function()
       local state = open_diff()
       api.nvim_win_set_cursor(state.win, { 2, 0 })
@@ -519,7 +606,10 @@ describe("codeview.comments", function()
         assert.are.equal(0, autocmds())
       end
       assert.are.equal(3, assert(comments.store()):count())
-      assert.are.equal(1, #api.nvim_tabpage_list_wins(0))
+      -- The window of the last :w closes on the next tick.
+      assert.is_true(vim.wait(1000, function()
+        return #api.nvim_tabpage_list_wins(0) == 1
+      end))
     end)
 
     it("closes the editor when the session closes", function()
