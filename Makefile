@@ -1,10 +1,12 @@
 NVIM ?= nvim
 STYLUA ?= stylua
 LUACHECK ?= luacheck
+SHELLCHECK ?= shellcheck
 
 ROOT := $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
 TESTS_DIR := $(ROOT)/.tests
 LUA_FILES := lua plugin tests
+SHELL_FILES := skills/rex-codeview/scripts/codeview-review
 
 # Keep the test run out of the real Neovim directories.
 export XDG_CONFIG_HOME := $(TESTS_DIR)/xdg/config
@@ -22,12 +24,17 @@ test:
 	$(NVIM) --headless -u tests/minimal_init.lua \
 		-c "PlenaryBustedDirectory tests { init = 'tests/minimal_init.lua', sequential = true }"
 
-## lint: run luacheck, when it is installed
+## lint: run luacheck and shellcheck, when they are installed
 lint:
 	@if command -v $(LUACHECK) >/dev/null 2>&1; then \
 		$(LUACHECK) $(LUA_FILES); \
 	else \
 		echo "luacheck not found, skipping"; \
+	fi
+	@if command -v $(SHELLCHECK) >/dev/null 2>&1; then \
+		$(SHELLCHECK) $(SHELL_FILES); \
+	else \
+		echo "shellcheck not found, skipping"; \
 	fi
 
 ## fmt: format the Lua files with stylua

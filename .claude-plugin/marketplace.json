@@ -1,0 +1,12 @@
+{
+  "name": "codeview",
+  "description": "Agent skills for the codeview Neovim plugin",
+  "owner": { "name": "Dominykas Djacenko" },
+  "plugins": [
+    {
+      "name": "codeview",
+      "source": ".",
+      "description": "Hand finished work to codeview in a Rex pane, and read the review comments back"
+    }
+  ]
+}

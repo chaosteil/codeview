@@ -960,6 +960,10 @@ The comment overview holds the same two actions on keys. `<leader>cx` shows
 the export in a scratch buffer, and `<leader>cy` writes it into the register
 only. See |codeview-overview-export|.
 
+The `rex-codeview` agent skill of this repository hands a review from an
+agent to codeview in a Rex pane, and reads the export back. See
+|codeview.review()|.
+
 The default template is plain markdown: >markdown
 
     # codeview review: main..@

@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+# Hand a review to codeview in a Rex pane beside the agent, and read it back.
+#
+# Usage:
+#   codeview-review open [-C DIR] REVISION   # prints a handle (a directory)
+#   codeview-review wait HANDLE [DURATION]   # prints the review markdown
+#
+# "open" splits the Rex block of $REX_BLOCK and starts Neovim with codeview
+# on REVISION in the new pane. codeview keeps the export of the review in
+# HANDLE/review.md. "open" returns at once.
+#
+# "wait" blocks until the pane ends, or until DURATION (for example 9m) ends.
+# Exit status:
+#   0  the review is done, the markdown is on stdout, the handle is removed
+#   1  the review did not open (no export file)
+#   2  the review is still open, run "wait" again
+set -euo pipefail
+
+usage() {
+  sed -n '2,17s/^# \{0,1\}//p' "$0" >&2
+  exit 1
+}
+
+die() {
+  echo "codeview-review: $*" >&2
+  exit 1
+}
+
+need() {
+  command -v "$1" >/dev/null 2>&1 || die "$1 is not on PATH"
+}
+
+cmd_open() {
+  local dir=$PWD
+  if [ "${1:-}" = "-C" ]; then
+    [ $# -ge 2 ] || usage
+    dir=$2
+    shift 2
+  fi
+  [ $# -eq 1 ] || usage
+  local rev=$1
+
+  [ -n "${REX_BLOCK:-}" ] || die "REX_BLOCK is not set, so this shell is not in a Rex pane"
+  need rex
+  need nvim
+
+  local handle label
+  handle=$(mktemp -d "${TMPDIR:-/tmp}/codeview-review.XXXXXX")
+  # Neovim reads the revision from this file, so the revision needs no quoting.
+  printf '%s\n' "$rev" >"$handle/rev"
+  # The random part of the handle makes the label unique.
+  label="codeview-${handle##*.}"
+  printf '%s\n' "$label" >"$handle/label"
+
+  rex split -b "$REX_BLOCK" ${REX_SESSION:+-s "$REX_SESSION"} --split=right \
+    -c "$dir" --label "$label" -- \
+    nvim -c "lua require('codeview').review(vim.fn.readfile('$handle/rev')[1], { export_file = '$handle/review.md' })" \
+    >/dev/null
+
+  echo "$handle"
+}
+
+cmd_wait() {
+  [ $# -ge 1 ] && [ $# -le 2 ] || usage
+  local handle=$1 duration=${2:-}
+  [ -f "$handle/label" ] || die "$handle is not a review handle"
+  need rex
+
+  local label
+  label=$(cat "$handle/label")
+
+  # The exit status is the exit status of Neovim. The checks below decide.
+  rex wait "$label" ${REX_SESSION:+-s "$REX_SESSION"} ${duration:+--for "$duration"} >/dev/null 2>&1 || true
+
+  if rex block inspect "$label" ${REX_SESSION:+-s "$REX_SESSION"} >/dev/null 2>&1; then
+    echo "codeview-review: the review is still open" >&2
+    exit 2
+  fi
+  if [ -f "$handle/review.md" ]; then
+    cat "$handle/review.md"
+    rm -rf "$handle"
+    exit 0
+  fi
+  echo "codeview-review: the review did not open (no export file)" >&2
+  exit 1
+}
+
+main() {
+  [ $# -ge 1 ] || usage
+  local cmd=$1
+  shift
+  case "$cmd" in
+  open) cmd_open "$@" ;;
+  wait) cmd_wait "$@" ;;
+  *) usage ;;
+  esac
+}
+
+main "$@"

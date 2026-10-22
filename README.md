@@ -102,6 +102,30 @@ On a jj repository the argument is a revset, for example
 :Codeview submit [event]   " send the comments to the pull request
 ```
 
+## Agent hand-off
+
+The `rex-codeview` agent skill hands the work of a coding agent to you for
+review. The agent opens codeview in a Rex pane beside itself, and you review
+the change and quit Neovim. The agent then reads your comments as markdown and
+works on them, without a paste.
+
+Install it for Claude Code:
+
+```text
+/plugin marketplace add chaosteil/codeview
+/plugin install codeview@codeview
+```
+
+Install it for other agents:
+
+```sh
+gh skill install chaosteil/codeview rex-codeview --scope user
+```
+
+Or make a symlink of `skills/rex-codeview` in `~/.agents/skills/`.
+
+The skill uses `codeview.review()`. See `:help codeview.review()`.
+
 ## Documentation
 
 Run `:help codeview` for the full documentation: the diff view, the comment
