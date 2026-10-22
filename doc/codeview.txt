@@ -1474,10 +1474,17 @@ codeview.export({opts})
           buffer = true,   -- false skips the scratch buffer
           focus = true,    -- false keeps the cursor outside the buffer
           notify = true,   -- false silences the report of the call
+          file = nil,      -- path of a file for the text, nil writes no file
         }
 <
     The call returns `result, err`. The result holds the text, the number of
-    comments, the register, the buffer, and the window. See |codeview-export|.
+    comments, the register, the buffer, the window, and the file. See
+    |codeview-export|.
+
+    With `file`, the call writes the text to that file. The write is atomic:
+    a reader sees the old file or the new file, never a part of a file. The
+    call makes the missing directories. If the write fails, the call returns
+    nil and the error.
 
                                                            *codeview.submit()*
 codeview.submit({opts}, {cb})

@@ -54,6 +54,7 @@
 local comments_mod = require("codeview.comments")
 local config = require("codeview.config")
 local errors = require("codeview.error")
+local fsutil = require("codeview.fsutil")
 local panel = require("codeview.panel")
 local session_mod = require("codeview.session")
 local tree = require("codeview.tree")
@@ -90,6 +91,7 @@ local M = {}
 ---@field buffer boolean? False skips the scratch buffer.
 ---@field focus boolean? False keeps the cursor outside the scratch buffer.
 ---@field notify boolean? False silences the report of the call.
+---@field file string? Path of a file for the text. Nil writes no file.
 
 ---@class codeview.export.Result
 ---@field text string Markdown of the comments.
@@ -97,6 +99,7 @@ local M = {}
 ---@field register string? Register that holds the text. Nil without a register.
 ---@field buf integer? Scratch buffer with the text.
 ---@field win integer? Window of the scratch buffer.
+---@field file string? File that holds the text. Nil without a file.
 
 ---Report a message of the export.
 ---@param message string
@@ -444,6 +447,10 @@ end
 --- The call renders the markdown, writes it into the register of the
 --- `export.register` option, and shows it in a scratch buffer. A text that is
 --- not a register name writes no register and gives a warning.
+---
+--- With `opts.file`, the call also writes the text to that file. The write is
+--- atomic, and it makes the missing directories. A failed write gives an
+--- error.
 ---@param opts? codeview.export.Opts
 ---@return codeview.export.Result? result Nil after an error.
 ---@return codeview.Error? err
@@ -457,6 +464,14 @@ function M.run(opts)
 
   ---@type codeview.export.Result
   local result = { text = text, count = data.count }
+
+  if opts.file then
+    local ok, write_err = fsutil.write_atomic(opts.file, text)
+    if not ok then
+      return nil, write_err
+    end
+    result.file = opts.file
+  end
 
   local register = opts.register
   if register == nil then

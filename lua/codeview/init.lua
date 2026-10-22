@@ -291,7 +291,8 @@ end
 ---Export the comments of the session that runs.
 ---
 --- The call renders the markdown, writes it into the register of the
---- `export.register` option, and shows it in a scratch buffer. The command
+--- `export.register` option, and shows it in a scratch buffer. With
+--- `opts.file`, it also writes the text to that file. The command
 --- `:Codeview export` calls this function.
 ---@param opts? codeview.export.Opts
 ---@return codeview.export.Result? result

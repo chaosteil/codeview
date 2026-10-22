@@ -441,6 +441,43 @@ describe("codeview.export", function()
       assert.are.equal(before, #api.nvim_tabpage_list_wins(0))
     end)
 
+    it("writes the same text as the register to a file", function()
+      add_comment({ file = "call.lua", start_line = 1, end_line = 1, body = "the file note" })
+      local path = vim.fs.joinpath(dir, "review.md")
+      local result = assert(export.run({ buffer = false, notify = false, file = path }))
+
+      assert.are.equal(path, result.file)
+      assert.are.equal(1, vim.fn.filereadable(path))
+      local text = table.concat(vim.fn.readfile(path, "b"), "\n")
+      assert.are.equal(vim.fn.getreg("z"), text)
+      assert.are.equal(result.text, text)
+    end)
+
+    it("writes a file in a new directory", function()
+      add_comment({ file = "call.lua", start_line = 1, end_line = 1 })
+      local path = vim.fs.joinpath(dir, "new", "dir", "review.md")
+      local result = assert(export.run({ buffer = false, notify = false, file = path }))
+
+      assert.are.equal(path, result.file)
+      assert.are.equal(result.text, table.concat(vim.fn.readfile(path, "b"), "\n"))
+    end)
+
+    it("reports a file that it cannot write", function()
+      add_comment({ file = "call.lua", start_line = 1, end_line = 1 })
+      local blocker = vim.fs.joinpath(dir, "blocker")
+      vim.fn.writefile({ "a file, not a directory" }, blocker)
+      local result, err = export.run({ buffer = false, notify = false, file = vim.fs.joinpath(blocker, "review.md") })
+
+      assert.is_nil(result)
+      assert.are.equal("command_failed", err.code)
+    end)
+
+    it("writes no file without the option", function()
+      add_comment({ file = "call.lua", start_line = 1, end_line = 1 })
+      local result = assert(export.run({ buffer = false, notify = false }))
+      assert.is_nil(result.file)
+    end)
+
     it("closes the export window with the close key", function()
       add_comment({ file = "call.lua", start_line = 1, end_line = 1 })
       local result = assert(export.run({ notify = false }))
