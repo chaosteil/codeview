@@ -228,7 +228,9 @@ function M.open(opts)
   session:add_window(win)
   session:add_buffer(buf)
 
-  api.nvim_create_autocmd({ "WinEnter", "BufEnter", "CursorMoved" }, {
+  -- The surface depends on the window and its buffer, not on the cursor, so
+  -- a cursor move needs no new row.
+  api.nvim_create_autocmd({ "WinEnter", "BufEnter" }, {
     group = group,
     desc = "Draw the codeview key hints of the window",
     callback = function()
