@@ -11,7 +11,8 @@
 --- discard, so a save of an empty buffer writes nothing.
 ---
 --- One editor is open at a time. A second |codeview.editor.open()| discards
---- the editor that is open.
+--- the editor that is open. When that editor holds a change, the call asks
+--- first, and "No" keeps it.
 
 local config = require("codeview.config")
 
@@ -245,6 +246,18 @@ function M.send()
   return true
 end
 
+---Ask the reviewer before a discard of a changed comment.
+---
+--- An editor without a change can close without a question.
+---@param editor codeview.editor.State
+---@return boolean discard True when the editor can close.
+local function may_discard(editor)
+  if not api.nvim_buf_is_valid(editor.buf) or not vim.bo[editor.buf].modified then
+    return true
+  end
+  return vim.fn.confirm("Discard the comment?", "&Yes\n&No", 2, "Question") == 1
+end
+
 ---Remove the space that the inline editor holds in the diff buffer.
 ---
 --- The spacer is an extmark with virtual lines. It adds no line to the buffer,
@@ -356,11 +369,12 @@ end
 
 ---Open the comment editor.
 ---
---- The call replaces an editor that is open. It returns the handles of the
---- new buffer and window, so a test can write into the buffer.
+--- The call replaces an editor that is open. It asks first when that editor
+--- holds a change. It returns the handles of the new buffer and window, so a
+--- test can write into the buffer.
 ---@param opts codeview.editor.Opts
----@return integer buf Buffer of the editor.
----@return integer win Window of the editor.
+---@return integer? buf Buffer of the editor. Nil when the reviewer keeps the open editor.
+---@return integer? win Window of the editor. Nil when the reviewer keeps the open editor.
 function M.open(opts)
   vim.validate("opts", opts, "table")
   vim.validate("opts.on_save", opts.on_save, "callable")
@@ -371,6 +385,10 @@ function M.open(opts)
   vim.validate("opts.anchor", opts.anchor, "table", true)
   vim.validate("opts.id", opts.id, "string", true)
 
+  local open = M.current()
+  if open and not may_discard(open) then
+    return nil, nil
+  end
   M.cancel()
   counter = counter + 1
 

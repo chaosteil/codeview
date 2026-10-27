@@ -665,7 +665,7 @@ end
 --- it covers the selected lines. The diff buffer stays read-only: the editor
 --- holds the only modifiable buffer.
 ---@param opts? { visual?: boolean, first?: integer, last?: integer, view?: codeview.view.State }
----@return boolean opened False when the cursor is not on a line of the file.
+---@return boolean opened False when the cursor is not on a line of the file, or when the reviewer keeps the open editor.
 function M.add(opts)
   opts = opts or {}
   local view = opts.view or require("codeview.view").current()
@@ -712,13 +712,13 @@ function M.add(opts)
     return comment
   end
 
-  require("codeview.editor").open({
+  local buf = require("codeview.editor").open({
     title = title_of(target, "Comment on"),
     anchor = anchor_of(target),
     on_save = save,
     on_send = send_handler(view.session, save),
   })
-  return true
+  return buf ~= nil
 end
 
 ---Comment of one action.
@@ -783,7 +783,7 @@ end
 
 ---Open the editor for the comment under the cursor.
 ---@param opts? { id?: string, view?: codeview.view.State, session?: codeview.Session }
----@return boolean opened False when no comment covers the cursor.
+---@return boolean opened False when no comment covers the cursor, or when the reviewer keeps the open editor.
 function M.edit(opts)
   opts = opts or {}
   local ctx, ctx_err = context(opts)
@@ -834,7 +834,7 @@ function M.edit(opts)
     return changed
   end
 
-  require("codeview.editor").open({
+  local buf = require("codeview.editor").open({
     title = string.format(
       "Edit %s:%s (%s)",
       comment.file,
@@ -848,6 +848,9 @@ function M.edit(opts)
     on_send = send_handler(session, save),
     on_cancel = release,
   })
+  if not buf then
+    return false
+  end
 
   -- The editor sits under the row of the comment, where the virtual lines of
   -- the body are. Drop them while the editor holds the same text.

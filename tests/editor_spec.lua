@@ -108,6 +108,79 @@ describe("codeview.editor", function()
     assert.is_nil(footer_text(plain):find("sends", 1, true))
   end)
 
+  describe("a second open", function()
+    ---Replace `vim.fn.confirm` with a fixed answer.
+    ---@param answer integer
+    ---@return table calls Number of questions in `calls.count`.
+    local function answer_with(answer)
+      local calls = { count = 0 }
+      local confirm = vim.fn.confirm
+      vim.fn.confirm = function()
+        calls.count = calls.count + 1
+        return answer
+      end
+      calls.restore = function()
+        vim.fn.confirm = confirm
+      end
+      return calls
+    end
+
+    it("keeps a changed comment on no", function()
+      local cancelled = false
+      local first = editor.open({
+        on_save = function() end,
+        on_cancel = function()
+          cancelled = true
+        end,
+      })
+      api.nvim_buf_set_lines(first, 0, -1, false, { "typed text" })
+
+      local calls = answer_with(2)
+      local buf, win = editor.open({ on_save = function() end })
+      calls.restore()
+
+      assert.are.equal(1, calls.count)
+      assert.is_nil(buf)
+      assert.is_nil(win)
+      assert.are.equal(first, assert(editor.current()).buf)
+      assert.are.equal("typed text", editor.body())
+      assert.is_false(cancelled)
+    end)
+
+    it("discards a changed comment on yes", function()
+      local cancelled = false
+      local first = editor.open({
+        on_save = function() end,
+        on_cancel = function()
+          cancelled = true
+        end,
+      })
+      api.nvim_buf_set_lines(first, 0, -1, false, { "typed text" })
+
+      local calls = answer_with(1)
+      local buf = editor.open({ on_save = function() end })
+      calls.restore()
+
+      assert.are.equal(1, calls.count)
+      assert.are.equal(buf, assert(editor.current()).buf)
+      assert.is_false(api.nvim_buf_is_valid(first))
+      assert.are.equal("", editor.body())
+      assert.is_true(cancelled)
+    end)
+
+    it("asks nothing for an unchanged comment", function()
+      local first = editor.open({ on_save = function() end, text = "a note" })
+
+      local calls = answer_with(2)
+      local buf = editor.open({ on_save = function() end })
+      calls.restore()
+
+      assert.are.equal(0, calls.count)
+      assert.are.equal(buf, assert(editor.current()).buf)
+      assert.is_false(api.nvim_buf_is_valid(first))
+    end)
+  end)
+
   describe("the spacer", function()
     local ns = api.nvim_create_namespace("codeview.editor")
 
