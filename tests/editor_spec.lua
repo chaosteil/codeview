@@ -108,6 +108,79 @@ describe("codeview.editor", function()
     assert.is_nil(footer_text(plain):find("sends", 1, true))
   end)
 
+  describe("the spacer", function()
+    local ns = api.nvim_create_namespace("codeview.editor")
+
+    ---Show a buffer of three lines in the current window, and open an inline
+    ---editor under its second row.
+    ---@return integer diff Buffer under the editor.
+    ---@return integer win Window of the editor.
+    local function open_inline()
+      local diff = api.nvim_create_buf(false, true)
+      api.nvim_buf_set_lines(diff, 0, -1, false, { "one", "two", "three" })
+      local host = api.nvim_get_current_win()
+      api.nvim_win_set_buf(host, diff)
+      local _, win = editor.open({
+        on_save = function() end,
+        anchor = { win = host, buf = diff, row = 2 },
+      })
+      assert.are.equal("inline", assert(editor.current()).style)
+      assert.are.equal(1, #api.nvim_buf_get_extmarks(diff, ns, 0, -1, {}))
+      return diff, win
+    end
+
+    ---Press keys in the window that has the focus.
+    ---@param lhs string
+    local function press(lhs)
+      api.nvim_feedkeys(api.nvim_replace_termcodes(lhs, true, false, true), "x", false)
+    end
+
+    for _, case in ipairs({
+      {
+        name = ":q",
+        run = function()
+          vim.cmd.quit()
+        end,
+      },
+      {
+        name = ":q!",
+        run = function(win)
+          api.nvim_buf_set_lines(api.nvim_win_get_buf(win), 0, -1, false, { "never saved" })
+          vim.cmd("quit!")
+        end,
+      },
+      {
+        name = "<C-w>c",
+        run = function()
+          press("<C-w>c")
+        end,
+      },
+      {
+        name = "ZZ without a change",
+        run = function()
+          press("ZZ")
+        end,
+      },
+      {
+        -- A mouse close and the close of another plugin take this path.
+        name = "a close from outside the editor",
+        run = function(win)
+          api.nvim_win_close(win, false)
+        end,
+      },
+    }) do
+      it("goes away after " .. case.name, function()
+        local diff, win = open_inline()
+        case.run(win)
+
+        assert.is_false(api.nvim_win_is_valid(win))
+        assert.is_false(editor.is_open())
+        assert.are.equal(0, #api.nvim_buf_get_extmarks(diff, ns, 0, -1, {}))
+        api.nvim_buf_delete(diff, { force = true })
+      end)
+    end
+  end)
+
   it("maps the send key in the editor", function()
     local buf = editor.open({ on_save = function() end })
 

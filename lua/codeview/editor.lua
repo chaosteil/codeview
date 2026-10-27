@@ -464,6 +464,8 @@ function M.open(opts)
     pattern = tostring(win),
     desc = "Discard the codeview comment when the editor window closes",
     callback = function()
+      -- Every close of the window comes here, so the spacer goes here too.
+      M.clear_spacer(editor)
       if not editor.done then
         editor.done = true
         if state == editor then
