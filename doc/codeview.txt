@@ -660,7 +660,8 @@ git directory with `refs/heads` on git. Every operation writes there.
 
 After such a write, codeview resolves the range of the review again. New
 commit ids mean that the range moved, so the plugin reads the files and the
-commits again. The sidebar, the comment overview, and the open diff show the
+commits again. In a colocated jj repository the check first imports the git
+refs with `jj git import`, so a `git commit` reaches the review too. The sidebar, the comment overview, and the open diff show the
 new state. Equal ids mean that the review is current, and nothing happens.
 
 So a `jj new`, a `jj describe`, a `git commit`, an amend, or a rebase in
@@ -1017,7 +1018,8 @@ only. See |codeview-overview-export|.
 
 The `rex-codeview` agent skill of this repository hands a review from an
 agent to codeview in a Rex pane, and reads the export back. See
-|codeview.review()|.
+|codeview.review()|. The script of the skill rejects a revision that starts
+with `-`, because Neovim and git read such an argument as an option.
 
 The default template is plain markdown: >markdown
 
@@ -1813,6 +1815,43 @@ the target of the link.
 A revset that names no commit gives an error that says so, for example
 `trunk()..@` on a workspace with no new commit. The virtual root commit of jj
 holds no files, so the backend rejects it as a revision.
+
+`--ignore-working-copy` also skips the import of the git refs, which jj does
+at the start of a normal command. In a colocated repository a `git commit`
+therefore stays invisible to the backend until the next import. The watcher
+runs `jj git import` before each check, so the commit reaches the review. See
+|codeview-auto-refresh|. `jj git import` does not import the git `HEAD`.
+
+The git backend puts `--end-of-options` before every revision argument, so git
+never reads a revision as an option. A revision that starts with `-` is not a
+valid revision, and the backend reports a `bad_revision` error.
+
+                                                  *codeview-backend-contract*
+Both backends give the same answer for the same input. A plugin that calls
+the backend of a session can rely on these rules:
+
+- Text input goes to the revision language of the backend. git reads `a..b`
+  as two revisions. jj reads it as a revset. The rules below apply to the
+  table forms of a range.
+- `kind = "single"` is one commit against its first parent.
+- `kind = "range"` (`a..b`) is a diff of two trees. `from` is the base, and it
+  is exclusive. The commits of the range are the ancestors of `to` that are
+  not ancestors of `from`.
+- `kind = "triple"` (`a...b`) takes the merge base of `from` and `to` as the
+  base. Two sides with more than one merge base get one of them.
+- A nil `from` is the state before the first commit. A commit without a
+  parent gives a nil `from`. The jj backend never returns the id of its root
+  commit, and a list of parents never holds it.
+- Two histories without a common commit have no merge base. git then reports
+  a `bad_revision` error. jj gives a nil `from`, because its root commit is
+  common to all histories.
+- The `revs` field of the log options names commits. The log lists them and
+  all their ancestors, like `git log <rev>`.
+- The `subject` of a commit is the first line of its message. The `body` is
+  the rest, without the blank lines at its start and the white space at its
+  end.
+
+`lua/codeview/vcs/init.lua` holds the full interface of a backend.
 
                                                         *codeview-binaries*
 Three options name the executables of the external tools: `git.binary` for
