@@ -36,10 +36,82 @@ local function write_spaced(dir)
   handle:close()
 end
 
+---Build a jj repository with a history of the suite.
+---
+--- `jj new` with the parents of a commit starts it. `jj describe` then
+--- snapshots the files and sets the message.
+---@param history tests.ShapeCommit[]
+---@return tests.Fixture
+local function shapes(history)
+  local dir = fixtures.tempdir("codeview-jj-shapes")
+  local home = fixtures.tempdir("codeview-jj-shapes-home")
+  local env = {
+    HOME = home,
+    JJ_CONFIG = vim.fs.joinpath(home, "no-such-config.toml"),
+    JJ_USER = "Ada Lovelace",
+    JJ_EMAIL = "ada@example.com",
+  }
+
+  ---@param cmd string[]
+  ---@param date? string Commit date.
+  ---@return string stdout
+  local function run(cmd, date)
+    local call_env = date and vim.tbl_extend("force", env, { JJ_TIMESTAMP = date }) or env
+    local res = vim.system(cmd, { cwd = dir, env = call_env, text = true }):wait(30000)
+    assert(res.code == 0, table.concat(cmd, " ") .. " failed: " .. (res.stderr or ""))
+    return res.stdout or ""
+  end
+
+  run({ "jj", "--no-pager", "git", "init", "--no-colocate", "." })
+
+  local ids = {}
+  for index, commit in ipairs(history) do
+    local date = string.format("2024-07-0%dT10:00:00+00:00", index)
+    -- The first commit takes the working-copy commit that `jj git init` made.
+    if #commit.parents > 0 then
+      local cmd = { "jj", "--no-pager", "new" }
+      for _, parent in ipairs(commit.parents) do
+        cmd[#cmd + 1] = ids[parent]
+      end
+      run(cmd, date)
+    end
+    for path, content in pairs(commit.write) do
+      local file = vim.fs.joinpath(dir, path)
+      vim.fn.mkdir(vim.fs.dirname(file), "p")
+      local handle = assert(io.open(file, "wb"))
+      handle:write(content)
+      handle:close()
+    end
+    for path, target in pairs(commit.links) do
+      assert(vim.uv.fs_symlink(target, vim.fs.joinpath(dir, path)))
+    end
+    run({ "jj", "--no-pager", "describe", "-m", commit.message }, date)
+    ids[commit.name] =
+      vim.trim(run({ "jj", "--no-pager", "--ignore-working-copy", "log", "--no-graph", "-r", "@", "-T", "commit_id" }))
+  end
+
+  local root = vim.trim(run({ "jj", "--no-pager", "--ignore-working-copy", "root" }))
+  return {
+    root = vim.fs.normalize(root),
+    dir = dir,
+    ids = ids,
+    names = vim.tbl_map(function(commit)
+      return commit.name
+    end, history),
+    branch = "main",
+    env = env,
+    cleanup = function()
+      vim.fn.delete(dir, "rf")
+      vim.fn.delete(home, "rf")
+    end,
+  }
+end
+
 suite({
   name = "jj",
   backend = require("codeview.vcs.jj"),
   fixture = fixtures.jj,
+  shapes = shapes,
   -- `@` is the working-copy commit. The builder leaves the newest commit there.
   head_rev = "@",
   detects_renames = true,

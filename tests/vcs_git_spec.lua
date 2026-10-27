@@ -1,10 +1,83 @@
 local fixtures = require("tests.fixtures")
 local suite = require("tests.vcs_backend_suite")
 
+---Build a git repository with a history of the suite.
+---
+--- A commit with two parents is a merge without a fast-forward. The first
+--- parent is the commit that the merge starts from.
+---@param history tests.ShapeCommit[]
+---@return tests.Fixture
+local function shapes(history)
+  local dir = fixtures.tempdir("codeview-git-shapes")
+  local env = {
+    GIT_CONFIG_GLOBAL = "/dev/null",
+    GIT_CONFIG_SYSTEM = "/dev/null",
+    GIT_AUTHOR_NAME = "Ada Lovelace",
+    GIT_AUTHOR_EMAIL = "ada@example.com",
+    GIT_COMMITTER_NAME = "Ada Lovelace",
+    GIT_COMMITTER_EMAIL = "ada@example.com",
+    HOME = dir,
+  }
+
+  ---@param cmd string[]
+  ---@param date? string Commit date.
+  ---@return string stdout
+  local function run(cmd, date)
+    local call_env = date and vim.tbl_extend("force", env, { GIT_AUTHOR_DATE = date, GIT_COMMITTER_DATE = date }) or env
+    local res = vim.system(cmd, { cwd = dir, env = call_env, text = true }):wait(30000)
+    assert(res.code == 0, table.concat(cmd, " ") .. " failed: " .. (res.stderr or ""))
+    return res.stdout or ""
+  end
+
+  run({ "git", "init", "--quiet", "--initial-branch=main", "." })
+  run({ "git", "config", "commit.gpgsign", "false" })
+
+  local ids = {}
+  for index, commit in ipairs(history) do
+    local date = string.format("2024-07-0%dT10:00:00+00:00", index)
+    local parents = commit.parents
+    if #parents > 0 then
+      run({ "git", "checkout", "--quiet", "--detach", ids[parents[1]] })
+    end
+    if #parents > 1 then
+      run({ "git", "merge", "--quiet", "--no-ff", "--no-commit", ids[parents[2]] }, date)
+    end
+    for path, content in pairs(commit.write) do
+      local file = vim.fs.joinpath(dir, path)
+      vim.fn.mkdir(vim.fs.dirname(file), "p")
+      local handle = assert(io.open(file, "wb"))
+      handle:write(content)
+      handle:close()
+    end
+    for path, target in pairs(commit.links) do
+      assert(vim.uv.fs_symlink(target, vim.fs.joinpath(dir, path)))
+    end
+    run({ "git", "add", "-A" })
+    run({ "git", "commit", "--quiet", "--allow-empty", "-m", commit.message }, date)
+    ids[commit.name] = vim.trim(run({ "git", "rev-parse", "HEAD" }))
+  end
+
+  local root = vim.trim(run({ "git", "rev-parse", "--show-toplevel" }))
+  return {
+    root = vim.fs.normalize(root),
+    dir = dir,
+    ids = ids,
+    names = vim.tbl_map(function(commit)
+      return commit.name
+    end, history),
+    branch = "main",
+    env = env,
+    cleanup = function()
+      vim.fn.delete(dir, "rf")
+    end,
+  }
+end
+
 suite({
   name = "git",
   backend = require("codeview.vcs.git"),
   fixture = fixtures.git,
+  shapes = shapes,
   head_rev = "HEAD",
   detects_renames = true,
 })

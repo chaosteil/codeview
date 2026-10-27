@@ -6,10 +6,59 @@
 
 local fixtures = require("tests.fixtures")
 
+---@class tests.ShapeCommit
+---@field name string Key of the commit in `fixture.ids`.
+---@field parents string[] Names of the parent commits, first parent first. The first commit has none.
+---@field message string Commit message.
+---@field write table<string, string> Files to write, path to content.
+---@field links table<string, string> Symbolic links to make, path to target.
+
+---History of the shapes fixture, oldest commit first.
+---
+--- The history is:
+---
+---     base -> left  -> merge (parents: left, right)
+---     base -> right -> cross (parents: right, left)
+---
+--- `merge` and `cross` make a criss-cross history: the two commits have two
+--- merge bases, `left` and `right`. `base` holds a symbolic link, a path with
+--- a space, a binary file, and a message with a body.
+---@type tests.ShapeCommit[]
+local SHAPES = {
+  {
+    name = "base",
+    parents = {},
+    message = "base: add the odd files\nsecond line of the first paragraph\n\nbody one\nbody two\n",
+    write = {
+      ["a.txt"] = "one\ntwo\n",
+      ["space dir/with space.txt"] = "spaced\n",
+      ["bin.dat"] = "\0\1\2 binary \3\0\255",
+    },
+    links = { ["link.txt"] = "a.txt" },
+  },
+  {
+    name = "left",
+    parents = { "base" },
+    message = "left: add left.txt",
+    write = { ["left.txt"] = "left\n" },
+    links = {},
+  },
+  {
+    name = "right",
+    parents = { "base" },
+    message = "right: add right.txt",
+    write = { ["right.txt"] = "right\n" },
+    links = {},
+  },
+  { name = "merge", parents = { "left", "right" }, message = "merge: right into left", write = {}, links = {} },
+  { name = "cross", parents = { "right", "left" }, message = "cross: left into right", write = {}, links = {} },
+}
+
 ---@class tests.SuiteOpts
 ---@field name string Name of the backend under test.
 ---@field backend codeview.vcs.Backend Backend module.
 ---@field fixture fun(): tests.Fixture Builder of the fixture repository.
+---@field shapes fun(history: tests.ShapeCommit[]): tests.Fixture Builder of a repository with the given history.
 ---@field head_rev string Revision name of the newest commit, for example "HEAD".
 ---@field detects_renames boolean? False when the backend reports a rename as an add and a delete.
 
@@ -413,11 +462,293 @@ return function(opts)
       end)
     end)
 
+    describe("errors in the async form", function()
+      it("reports a directory outside a repository", function()
+        local found, err = await(function(cb)
+          backend.detect(outside, cb)
+        end)
+        assert.is_nil(found)
+        assert.are.equal("not_a_repo", err.code)
+      end)
+
+      it("reports a directory that does not exist", function()
+        local found, err = await(function(cb)
+          backend.detect(vim.fs.joinpath(outside, "missing"), cb)
+        end)
+        assert.is_nil(found)
+        assert.are.equal("not_found", err.code)
+      end)
+
+      it("reports an unknown revision in resolve_rev", function()
+        local id, err = await(function(cb)
+          repo:resolve_rev("no-such-revision", cb)
+        end)
+        assert.is_nil(id)
+        assert.are.equal("bad_revision", err.code)
+      end)
+
+      it("reports an empty revision in resolve_rev", function()
+        local id, err = await(function(cb)
+          repo:resolve_rev("", cb)
+        end)
+        assert.is_nil(id)
+        assert.are.equal("invalid_arg", err.code)
+      end)
+
+      it("reports an unknown revision in resolve_range", function()
+        local range, err = await(function(cb)
+          repo:resolve_range("no-such-revision", cb)
+        end)
+        assert.is_nil(range)
+        assert.are.equal("bad_revision", err.code)
+      end)
+
+      it("reports an unknown side of a table form", function()
+        for _, kind in ipairs({ "single", "range", "triple" }) do
+          local range, err = await(function(cb)
+            repo:resolve_range({ kind = kind, from = "no-such-revision", to = "no-such-revision", spec = "x" }, cb)
+          end)
+          assert.is_nil(range, kind)
+          assert.are.equal("bad_revision", err.code, kind)
+        end
+      end)
+
+      it("reports a table without a head revision", function()
+        local range, err = await(function(cb)
+          repo:resolve_range({}, cb)
+        end)
+        assert.is_nil(range)
+        assert.are.equal("invalid_arg", err.code)
+      end)
+
+      it("reports an unknown revision in the log", function()
+        local commits, err = await(function(cb)
+          repo:log({ revs = { "no-such-revision" } }, cb)
+        end)
+        assert.is_nil(commits)
+        assert.are.equal("bad_revision", err.code)
+      end)
+
+      it("reports an unknown revision in changed_files", function()
+        local files, err = await(function(cb)
+          repo:changed_files({ from = "no-such-revision", to = fixture.ids.shuffle }, cb)
+        end)
+        assert.is_nil(files)
+        assert.are.equal("bad_revision", err.code)
+      end)
+
+      it("reports a range without a head revision in changed_files", function()
+        local files, err = await(function(cb)
+          repo:changed_files({}, cb)
+        end)
+        assert.is_nil(files)
+        assert.are.equal("invalid_arg", err.code)
+      end)
+
+      it("reports an unknown revision in file_content", function()
+        local content, err = await(function(cb)
+          repo:file_content("no-such-revision", "a.txt", cb)
+        end)
+        assert.is_nil(content)
+        assert.are.equal("bad_revision", err.code)
+      end)
+
+      it("reports an empty path in file_content", function()
+        local content, err = await(function(cb)
+          repo:file_content(opts.head_rev, "", cb)
+        end)
+        assert.is_nil(content)
+        assert.are.equal("invalid_arg", err.code)
+      end)
+    end)
+
     describe("cleanup", function()
       it("removes the fixture", function()
         fixture.cleanup()
         vim.fn.delete(outside, "rf")
         assert.are.equal(0, vim.fn.isdirectory(fixture.dir))
+      end)
+    end)
+  end)
+
+  describe("codeview.vcs backend: " .. opts.name .. " on merges and odd files", function()
+    local shapes = opts.shapes(SHAPES)
+    local ids = shapes.ids
+    local repo = assert(backend.detect(shapes.root))
+
+    ---Ids of a list of commits.
+    ---@param commits codeview.vcs.Commit[]
+    ---@return string[]
+    local function ids_of(commits)
+      return vim.tbl_map(function(commit)
+        return commit.id
+      end, commits)
+    end
+
+    describe("a merge", function()
+      it("lists both parents, the first parent first", function()
+        local commit = assert(repo:log({ revs = { ids.merge }, limit = 1 }))[1]
+        assert.are.equal(ids.merge, commit.id)
+        assert.are.same({ ids.left, ids.right }, commit.parents)
+      end)
+
+      it("uses the first parent as the base, in the text form and in the table form", function()
+        for _, spec in ipairs({ ids.merge, { kind = "single", to = ids.merge, spec = "merge" } }) do
+          local range, err = repo:resolve_range(spec)
+          assert.is_nil(err)
+          assert.are.equal(ids.left, range.from)
+          assert.are.equal(ids.merge, range.to)
+        end
+      end)
+
+      it("lists the changes against the first parent", function()
+        local range = assert(repo:resolve_range({ kind = "single", to = ids.merge, spec = "merge" }))
+        local files = assert(repo:changed_files(range))
+        assert.are.equal(1, #files)
+        assert.are.equal("right.txt", files[1].path)
+        assert.are.equal("added", files[1].status)
+      end)
+
+      it("lists the revisions of the log with all their ancestors", function()
+        local commits = assert(repo:log({ revs = { ids.merge } }))
+        local listed = ids_of(commits)
+        assert.are.equal(4, #listed)
+        assert.are.equal(ids.merge, listed[1])
+        assert.are.equal(ids.base, listed[4])
+        assert.is_true(vim.tbl_contains(listed, ids.left))
+        assert.is_true(vim.tbl_contains(listed, ids.right))
+      end)
+
+      it("lists the commits of a range into a merge", function()
+        local commits = assert(repo:log({ range = { from = ids.left, to = ids.merge } }))
+        assert.are.same({ ids.merge, ids.right }, ids_of(commits))
+      end)
+    end)
+
+    describe("the table forms", function()
+      it("gives no base for a single commit without a parent", function()
+        local range, err = repo:resolve_range({ kind = "single", to = ids.base, spec = "base" })
+        assert.is_nil(err)
+        assert.is_nil(range.from)
+        assert.are.equal(ids.base, range.to)
+      end)
+
+      it("reads range as a diff of two trees", function()
+        for _, spec in ipairs({
+          { kind = "range", from = ids.left, to = ids.right, spec = "left..right" },
+          { from = ids.left, to = ids.right },
+        }) do
+          local range, err = repo:resolve_range(spec)
+          assert.is_nil(err)
+          assert.are.equal(ids.left, range.from)
+          assert.are.equal(ids.right, range.to)
+          local map = by_path(assert(repo:changed_files(range)))
+          assert.are.equal("deleted", map["left.txt"].status)
+          assert.are.equal("added", map["right.txt"].status)
+        end
+      end)
+
+      it("reads a table without a base as the whole tree", function()
+        for _, spec in ipairs({ { to = ids.left }, { kind = "explicit", to = ids.left, spec = "left" } }) do
+          local range, err = repo:resolve_range(spec)
+          assert.is_nil(err)
+          assert.is_nil(range.from)
+          assert.are.equal(ids.left, range.to)
+          local map = by_path(assert(repo:changed_files(range)))
+          assert.are.equal("added", map["left.txt"].status)
+          assert.are.equal("added", map["a.txt"].status)
+        end
+      end)
+
+      it("reads triple through the merge base", function()
+        local range, err = repo:resolve_range({ kind = "triple", from = ids.left, to = ids.right, spec = "x" })
+        assert.is_nil(err)
+        assert.are.equal(ids.base, range.from)
+        assert.are.equal(ids.right, range.to)
+      end)
+
+      it("reads the parsed form of `a...b`", function()
+        local parsed = assert(require("codeview.vcs").parse_range(ids.left .. "..." .. ids.right))
+        local range, err = repo:resolve_range(parsed)
+        assert.is_nil(err)
+        assert.are.equal(ids.base, range.from)
+        assert.are.equal(ids.right, range.to)
+        assert.are.equal(ids.left .. "..." .. ids.right, range.spec)
+      end)
+
+      it("takes one merge base of a criss-cross history", function()
+        local range, err = repo:resolve_range({ kind = "triple", from = ids.merge, to = ids.cross, spec = "x" })
+        assert.is_nil(err)
+        assert.are.equal(ids.cross, range.to)
+        assert.is_true(range.from == ids.left or range.from == ids.right, tostring(range.from))
+      end)
+
+      it("takes one merge base asynchronously", function()
+        local range, err = await(function(cb)
+          repo:resolve_range({ kind = "triple", from = ids.merge, to = ids.cross, spec = "x" }, cb)
+        end)
+        assert.is_nil(err)
+        assert.is_true(range.from == ids.left or range.from == ids.right, tostring(range.from))
+      end)
+
+      it("rejects a range form without a base", function()
+        for _, kind in ipairs({ "range", "triple" }) do
+          local range, err = repo:resolve_range({ kind = kind, to = ids.left, spec = "x" })
+          assert.is_nil(range, kind)
+          assert.are.equal("invalid_arg", err.code, kind)
+        end
+      end)
+    end)
+
+    describe("commit messages", function()
+      it("splits the subject at the first line", function()
+        local commit = assert(repo:log({ revs = { ids.base }, limit = 1 }))[1]
+        assert.are.equal("base: add the odd files", commit.subject)
+        assert.are.equal("second line of the first paragraph\n\nbody one\nbody two", commit.body)
+      end)
+
+      it("gives an empty body for a message of one line", function()
+        local commit = assert(repo:log({ revs = { ids.left }, limit = 1 }))[1]
+        assert.are.equal("left: add left.txt", commit.subject)
+        assert.are.equal("", commit.body)
+      end)
+    end)
+
+    describe("odd files", function()
+      it("lists a symbolic link, a path with a space, and a binary file", function()
+        local map = by_path(assert(repo:changed_files({ to = ids.base })))
+        assert.are.equal("added", map["link.txt"].status)
+        assert.are.equal("added", map["space dir/with space.txt"].status)
+        assert.are.equal("added", map["bin.dat"].status)
+      end)
+
+      it("reads a symbolic link as its target", function()
+        assert.are.equal("a.txt", assert(repo:file_content(ids.base, "link.txt")))
+      end)
+
+      it("reads a path with a space", function()
+        assert.are.equal("spaced\n", assert(repo:file_content(ids.base, "space dir/with space.txt")))
+      end)
+
+      it("reads the bytes of a binary file", function()
+        assert.are.equal(SHAPES[1].write["bin.dat"], assert(repo:file_content(ids.base, "bin.dat")))
+      end)
+
+      it("reads them asynchronously", function()
+        for path, want in pairs({ ["link.txt"] = "a.txt", ["space dir/with space.txt"] = "spaced\n" }) do
+          local content, err = await(function(cb)
+            repo:file_content(ids.base, path, cb)
+          end)
+          assert.is_nil(err)
+          assert.are.equal(want, content)
+        end
+      end)
+    end)
+
+    describe("cleanup", function()
+      it("removes the fixture", function()
+        shapes.cleanup()
+        assert.are.equal(0, vim.fn.isdirectory(shapes.dir))
       end)
     end)
   end)
