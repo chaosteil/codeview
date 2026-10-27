@@ -15,13 +15,10 @@ The test harness clones plenary.nvim into `.tests/site` on the first run. The
 `.tests/` directory also holds isolated XDG directories, so a test run does not
 touch your Neovim configuration. Git ignores the whole directory.
 
-Read `MILESTONES.md` for the plan, and `tasks/` for the task breakdown of each
-milestone.
-
 ## CONVENTIONS
 
-These rules apply to all code in this repository. Later milestones build on
-them. Do not change a rule without a change to this file.
+These rules apply to all code in this repository. Do not change a rule without
+a change to this file.
 
 ### Language and dependencies
 
@@ -73,9 +70,9 @@ them. Do not change a rule without a change to this file.
 the lines of the two file versions. It is the central data structure of the
 plugin. The diff renderer builds it, and every later feature reads it:
 
-- M5 builds one map per side of the side-by-side view.
-- M7 anchors a comment to a file, a side, a first line, and a last line.
-- M11 maps such an anchor to a position of the GitHub diff.
+- The side-by-side view builds one map per side.
+- A comment anchors to a file, a side, a first line, and a last line.
+- The submit maps such an anchor to a position of the GitHub diff.
 
 A map holds one record per buffer row, from row 1:
 
@@ -97,6 +94,12 @@ These rules apply to every renderer that builds a map:
   from the first row to the last row.
 - A row of a hunk holds the position of the hunk. The rows of the context of
   the hunk hold it too. A row between two hunks holds no hunk.
+- When two hunks touch, the leading context of the second hunk holds the
+  previous hunk, and not its own hunk.
+- A row of a commit message is a context row that holds the new number only.
+  The side-by-side view has such rows on both sides.
+- A "No newline at end of file" row is a message row. It holds the hunk, and
+  the gap inside an expanded section, but no file line.
 
 The map answers in both directions:
 
@@ -174,9 +177,17 @@ Write the commit messages in the conventional commit style, for example
 Do these steps for a new version:
 
 1. Set `M.version` in `lua/codeview/init.lua`.
-2. Update the version in `doc/codeview.txt`.
+2. Set the version in `doc/codeview.txt`. Move the changes under
+   `## Unreleased` in `CHANGELOG.md` to a new section for the version.
 3. Run `make`. `tests/docs_spec.lua` checks that the changelog holds the
    version.
-4. Run `nvim --headless -c 'helptags doc' -c quit` to write `doc/tags`.
-5. Set the tag and push it:
-6. Open a GitHub release for the tag.
+4. Create the tag `v<version>` and push it, for example:
+
+   ```sh
+   git tag v0.2.0
+   git push origin v0.2.0
+   ```
+
+5. Open a GitHub release for the tag.
+
+Do not commit `doc/tags`. Git ignores the file, and plugin managers make it.
