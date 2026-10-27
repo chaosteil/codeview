@@ -33,6 +33,20 @@ M.ns = api.nvim_create_namespace("codeview.syntax")
 ---@type integer
 M.max_lines = 20000
 
+---Highest number of bytes that one side can hold for a parse.
+---
+--- A line count says little about a file with very long lines. One line of a
+--- generated file can hold megabytes, and its parse blocks the editor.
+---@type integer
+M.max_bytes = 1000000
+
+---Highest number of bytes of one line that gets highlights.
+---
+--- The parse still reads the line, so the lines after it keep their colors.
+--- The line itself shows the colors of the diff only.
+---@type integer
+M.max_line_bytes = 10000
+
 ---Language of a path.
 ---@param path string Path of the file in the repository.
 ---@return string? lang Nil when no parser answers for the path.
@@ -45,8 +59,10 @@ function M.language(path)
     return nil
   end
   local lang = ts.language.get_lang(filetype) or filetype
-  local ok = pcall(ts.language.add, lang)
-  if not ok then
+  -- Neovim 0.11 returns nil and a message for a missing parser. It throws
+  -- only for an invalid name.
+  local ok, added = pcall(ts.language.add, lang)
+  if not ok or not added then
     return nil
   end
   return lang
@@ -57,6 +73,9 @@ end
 --- The call parses the text as one file and returns the ranges of the
 --- highlights query, from 0. A range that covers more than one line becomes
 --- one range per line, because the diff buffer holds the lines apart.
+---
+--- A query of a user can be invalid, and a parser can fail. The call then
+--- returns no capture, so the diff renders without syntax colors.
 ---@param text string Whole text of one side.
 ---@param lang string Language of the parser.
 ---@return table<integer, { col: integer, end_col: integer, hl: string, priority: integer }[]> by_line
@@ -68,12 +87,12 @@ local function captures_of(text, lang)
   if not ok or not parser then
     return by_line
   end
-  local trees = parser:parse()
-  if not trees or not trees[1] then
+  local parsed, trees = pcall(parser.parse, parser)
+  if not parsed or not trees or not trees[1] then
     return by_line
   end
-  local query = ts.query.get(lang, "highlights")
-  if not query then
+  local found, query = pcall(ts.query.get, lang, "highlights")
+  if not found or not query then
     return by_line
   end
 
@@ -85,7 +104,7 @@ local function captures_of(text, lang)
   ---@param name string Name of the capture.
   ---@param priority integer
   local function keep(line, col, end_col, name, priority)
-    if end_col <= col then
+    if end_col <= col or #(lines[line + 1] or "") > M.max_line_bytes then
       return
     end
     by_line[line] = by_line[line] or {}
@@ -93,33 +112,45 @@ local function captures_of(text, lang)
     list[#list + 1] = { col = col, end_col = end_col, hl = "@" .. name, priority = priority }
   end
 
-  for id, node, metadata in query:iter_captures(trees[1]:root(), text) do
-    local name = query.captures[id]
-    -- A capture of the spell checker carries no color.
-    if name ~= "spell" and name ~= "nospell" then
-      local priority = tonumber(metadata.priority or (metadata[id] and metadata[id].priority)) or 100
-      local srow, scol, erow, ecol = node:range()
-      if srow == erow then
-        keep(srow, scol, ecol, name, priority)
-      else
-        for row = srow, math.min(erow, #lines - 1) do
-          local first = row == srow and scol or 0
-          local last = row == erow and ecol or #(lines[row + 1] or "")
-          keep(row, first, last, name, priority)
+  local walked = pcall(function()
+    for id, node, metadata in query:iter_captures(trees[1]:root(), text) do
+      local name = query.captures[id]
+      -- A capture of the spell checker carries no color.
+      if name ~= "spell" and name ~= "nospell" then
+        local priority = tonumber(metadata.priority or (metadata[id] and metadata[id].priority)) or 100
+        local srow, scol, erow, ecol = node:range()
+        if srow == erow then
+          keep(srow, scol, ecol, name, priority)
+        else
+          for row = srow, math.min(erow, #lines - 1) do
+            local first = row == srow and scol or 0
+            local last = row == erow and ecol or #(lines[row + 1] or "")
+            keep(row, first, last, name, priority)
+          end
         end
       end
     end
+  end)
+  if not walked then
+    return {}
   end
-
   return by_line
 end
 
 ---Text of one side of a diff.
 ---@param lines string[]
----@return string? text Nil when the side is empty or too long.
+---@return string? text Nil when the side is empty, too long, or too large.
 local function side_text(lines)
   if #lines == 0 or #lines > M.max_lines then
     return nil
+  end
+  -- Each line adds its line break.
+  local bytes = 0
+  for _, line in ipairs(lines) do
+    bytes = bytes + #line + 1
+    if bytes > M.max_bytes then
+      return nil
+    end
   end
   return table.concat(lines, "\n")
 end

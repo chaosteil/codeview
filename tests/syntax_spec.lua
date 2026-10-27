@@ -70,6 +70,102 @@ describe("codeview.syntax", function()
       assert.is_nil(syntax.language("notes.unknown-extension"))
       assert.is_nil(syntax.language(""))
     end)
+
+    it("answers nothing for a filetype without an installed parser", function()
+      -- Neovim knows the filetype, but ships no parser for it.
+      assert.are.equal("cobol", vim.filetype.match({ filename = "report.cob" }))
+      assert.is_nil(syntax.language("report.cob"))
+    end)
+  end)
+
+  describe("the guards", function()
+    ---Text of a Lua file, one assignment per line.
+    ---@param count integer Number of lines.
+    ---@return string
+    local function lua_text(count)
+      local lines = {}
+      for index = 1, count do
+        lines[index] = string.format("local value_%d = %d", index, index)
+      end
+      return table.concat(lines, "\n") .. "\n"
+    end
+
+    ---Render a Lua diff into a scratch buffer.
+    ---@param old_text string
+    ---@param new_text string
+    ---@return integer buf
+    ---@return codeview.inline.Build build
+    local function render_lua(old_text, new_text)
+      local file = require("codeview.diff").compute(old_text, new_text)
+      file.path, file.old_path = "code.lua", "code.lua"
+      local buf = api.nvim_create_buf(false, true)
+      return buf, inline.render(buf, file)
+    end
+
+    ---@type table<string, any>
+    local saved = {}
+
+    before_each(function()
+      saved = { get = vim.treesitter.query.get }
+    end)
+
+    after_each(function()
+      vim.treesitter.query.get = saved.get
+    end)
+
+    it("renders the diff when the highlights query fails", function()
+      vim.treesitter.query.get = function()
+        error("invalid query")
+      end
+      local buf, build = render_lua(lua_text(3), lua_text(4))
+      assert.is_true(#build.lines > 0)
+      assert.are.equal(0, #marks_of(buf))
+      api.nvim_buf_delete(buf, { force = true })
+    end)
+
+    it("renders the diff when the captures fail", function()
+      vim.treesitter.query.get = function()
+        return {
+          captures = {},
+          iter_captures = function()
+            error("invalid capture")
+          end,
+        }
+      end
+      local buf, build = render_lua(lua_text(3), lua_text(4))
+      assert.is_true(#build.lines > 0)
+      assert.are.equal(0, #marks_of(buf))
+      api.nvim_buf_delete(buf, { force = true })
+    end)
+
+    it("skips a side above the byte limit", function()
+      local buf = render_lua(lua_text(3), lua_text(4))
+      assert.is_true(#marks_of(buf) > 0, "a small side gets highlights")
+      api.nvim_buf_delete(buf, { force = true })
+
+      syntax.max_bytes = 20
+      buf = render_lua(lua_text(3), lua_text(4))
+      assert.are.equal(0, #marks_of(buf))
+      api.nvim_buf_delete(buf, { force = true })
+    end)
+
+    it("skips a line above the line limit", function()
+      syntax.max_line_bytes = 40
+      local long = "local long = " .. string.rep("1", 60)
+      local buf, build = render_lua("local a = 1\n", "local a = 1\n" .. long .. "\nlocal b = 2\n")
+      local rows = {}
+      for _, mark in ipairs(marks_of(buf)) do
+        rows[mark[2] + 1] = true
+      end
+      for lnum, text in ipairs(build.lines) do
+        if #text > 40 then
+          assert.is_nil(rows[lnum], "a mark on the long line " .. lnum)
+        elseif text:find("local b", 1, true) then
+          assert.is_true(rows[lnum], "no mark on the line after the long line")
+        end
+      end
+      api.nvim_buf_delete(buf, { force = true })
+    end)
   end)
 
   describe("the highlights", function()
