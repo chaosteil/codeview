@@ -802,10 +802,13 @@ function M.edit(opts)
   local anchor = comment_anchor(ctx.view, comment)
 
   ---Show the body of the comment in the diff again.
+  ---
+  --- A refresh during the edit replaces the view, so the call draws the view
+  --- that is open now.
   local function release()
     if M.editing == comment.id then
       M.editing = nil
-      M.decorate(ctx.view)
+      M.decorate()
     end
   end
 

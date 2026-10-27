@@ -797,6 +797,25 @@ describe("codeview.comments", function()
       assert.is_nil(comments.editing)
     end)
 
+    it("shows the body again after a refresh and a discard", function()
+      local state = open_diff()
+      comment_on(2, "the first note")
+      api.nvim_set_current_win(state.win)
+      api.nvim_win_set_cursor(state.win, { 2, 0 })
+      assert.is_true(comments.edit_or_add({ view = state }))
+      assert.is_true(editor.is_open())
+
+      -- The refresh replaces the view, while the editor stays open.
+      api.nvim_set_current_win(state.win)
+      assert.is_true(view.refresh())
+      local fresh = assert(view.current())
+      assert.are_not.equal(state, fresh)
+
+      editor.cancel()
+      assert.is_nil(comments.editing)
+      assert.are.same({ "▌ comment L1 (new)", "▌ the first note" }, virt_lines(fresh.buf))
+    end)
+
     it("takes the keys from the configuration", function()
       config.setup({
         commit_message = false,
