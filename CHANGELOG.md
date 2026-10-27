@@ -79,6 +79,10 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `:Codeview reopen` and the stable call `codeview.reopen()` open the last
+  closed session again, on the same file, line, and diff style.
+- The `close.confirm` option makes the close key ask before it closes the
+  review.
 - The `diff.max_bytes` option.
 - The session calls `session:counts()`, `session:position_of()`, and
   `session:off_close()`, and the `range` option of `session:refresh()`.
