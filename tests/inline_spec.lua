@@ -379,6 +379,23 @@ describe("codeview.inline", function()
       assert.are.same({}, inline.gaps(buf))
     end)
 
+    it("watches a buffer once, also after a failed render", function()
+      local file = diff.compute("one\n", "two\n")
+      local buf = render(file)
+      local syntax = require("codeview.syntax")
+      local apply = syntax.apply
+      syntax.apply = function()
+        error("render failed")
+      end
+      assert.is_false(pcall(inline.render, buf, file))
+      assert.is_false(pcall(inline.render, buf, file))
+      syntax.apply = apply
+      inline.render(buf, file)
+      assert.are.equal(1, #api.nvim_get_autocmds({ group = "codeview.inline", buffer = buf, event = "BufWipeout" }))
+      assert.are.equal(file, assert(inline.get(buf)).diff)
+      api.nvim_buf_delete(buf, { force = true })
+    end)
+
     it("renders the same buffer again", function()
       local file = diff.compute(numbered(40), numbered(40, { [3] = " changed", [30] = " changed" }))
       local buf = render(file)

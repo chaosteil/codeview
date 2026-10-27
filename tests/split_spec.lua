@@ -227,6 +227,20 @@ describe("codeview.split", function()
       assert.are.same({ "The file is empty." }, empty.new.lines)
     end)
 
+    it("shows the lines of a commit document as rows of the new side", function()
+      local document = diff.compute("", "")
+      document.new_lines = { "subject", "", "body" }
+      document.message = true
+      local build = split.build(document)
+      assert.are.same({ "subject", "", "body" }, build.new.lines)
+      assert.are.same({ "subject", "", "body" }, build.old.lines)
+      for lnum = 1, 3 do
+        assert.are.same({ kind = "context", new = lnum }, build.new.map:row(lnum))
+        assert.are.same({ kind = "context", new = lnum }, build.old.map:row(lnum))
+      end
+      assert.are.equal(0, build.new.map:hunk_count())
+    end)
+
     it("marks the changed part of a line on both sides", function()
       local file = diff.compute("local value = 1\n", "local value = 2\n")
       local build = split.build(file, { word_diff = true })
@@ -337,6 +351,32 @@ describe("codeview.split", function()
         end
         assert.is_true(rows > 0)
         assert.is_true(words > 0)
+      end
+      drop(old_buf, new_buf)
+    end)
+
+    it("covers the screen with the virtual text of a filler row", function()
+      local old_buf, new_buf = render(diff.compute("one\n", "one\ntwo\n"))
+      local marks = api.nvim_buf_get_extmarks(old_buf, split.ns, 0, -1, { details = true })
+      local text
+      for _, mark in ipairs(marks) do
+        if mark[4].virt_text then
+          text = mark[4].virt_text[1][1]
+        end
+      end
+      local width = math.min(vim.o.columns, split.filler_width)
+      assert.is_string(text)
+      assert.are.equal(width, vim.fn.strchars(text))
+      drop(old_buf, new_buf)
+    end)
+
+    it("watches a buffer once over many renders", function()
+      local file = diff.compute("one\n", "two\n")
+      local old_buf, new_buf = render(file)
+      split.render(old_buf, new_buf, file)
+      split.render(old_buf, new_buf, file)
+      for _, buf in ipairs({ old_buf, new_buf }) do
+        assert.are.equal(1, #api.nvim_get_autocmds({ group = "codeview.split", buffer = buf, event = "BufWipeout" }))
       end
       drop(old_buf, new_buf)
     end)

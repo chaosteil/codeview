@@ -34,6 +34,7 @@
 local config = require("codeview.config")
 local layout = require("codeview.layout")
 local linemap = require("codeview.linemap")
+local render = require("codeview.render")
 
 local api = vim.api
 
@@ -72,7 +73,7 @@ M.line_hl = {
 ---Priority of a row highlight. One below the default of an extmark, so
 --- the word marks and the marks of other plugins paint over a row.
 ---@type integer
-M.row_priority = 4095
+M.row_priority = render.row_priority
 
 ---Window options of a diff window. They apply to the buffer of the window.
 ---@type table<string, any>
@@ -92,12 +93,12 @@ M.window_options = layout.window_options
 
 ---@class codeview.inline.State
 ---@field diff codeview.diff.File Diff that the buffer shows.
+---@field map codeview.LineMap Map of the buffer.
 ---@field build codeview.inline.Build Result of the last render.
 ---@field opts codeview.inline.Opts Options of the last render.
 
 ---Render state of each diff buffer.
----@type table<integer, codeview.inline.State>
-local states = {}
+local states = render.registry("codeview.inline")
 
 --- Build -----------------------------------------------------------------------
 
@@ -144,19 +145,11 @@ function M.build(diff, opts)
     end
     return build
   end
-  if diff.binary then
-    emit("The file is binary. It has no text diff.", { kind = "message" })
-    return build
-  end
-  if diff.limited then
-    for _, text in ipairs(layout.limit_lines(diff)) do
+  local notes = render.notes_of(diff)
+  if notes then
+    for _, text in ipairs(notes) do
       emit(text, { kind = "message" })
     end
-    return build
-  end
-  if #diff.hunks == 0 then
-    local empty = #diff.old_lines == 0 and #diff.new_lines == 0
-    emit(empty and "The file is empty." or "The file has no changes.", { kind = "message" })
     return build
   end
 
@@ -169,17 +162,10 @@ function M.build(diff, opts)
   ---@param old_row integer
   ---@param new_row integer
   local function mark_words(old_text, new_text, old_row, new_row)
-    -- The marker takes one byte in front of the text of the line.
-    local prefix, old_to, new_to = layout.word_range(old_text, new_text)
-    if not prefix then
-      return
-    end
-    if old_to > prefix then
-      marks[#marks + 1] = { row = old_row, col = prefix + 1, end_col = old_to + 1, hl = "CodeViewDiffTextDelete" }
-    end
-    if new_to > prefix then
-      marks[#marks + 1] = { row = new_row, col = prefix + 1, end_col = new_to + 1, hl = "CodeViewDiffTextAdd" }
-    end
+    -- The marker takes its bytes in front of the text of the line.
+    local old_mark, new_mark = render.word_marks(old_text, new_text, old_row, new_row, #M.markers.context)
+    marks[#marks + 1] = old_mark
+    marks[#marks + 1] = new_mark
   end
 
   ---@param block table
@@ -234,10 +220,7 @@ function M.build(diff, opts)
           hunk = hunk.index,
         })
       end
-      -- The diff aligns similar lines inside a hunk, so a hunk that replaces
-      -- as many lines as it adds pairs its lines by position. A hunk with
-      -- other counts holds lines that are too different to pair.
-      if word_diff and hunk.old_count == hunk.new_count then
+      if word_diff and render.pairs(hunk) then
         for step = 1, hunk.old_count do
           mark_words(
             diff.old_lines[hunk.old_first + step - 1] or "",
@@ -255,50 +238,6 @@ end
 
 --- Render ----------------------------------------------------------------------
 
----Forget the state of a buffer that goes away.
----@param buf integer
-local function watch(buf)
-  api.nvim_create_autocmd("BufWipeout", {
-    group = api.nvim_create_augroup("codeview.inline", { clear = false }),
-    buffer = buf,
-    once = true,
-    desc = "Forget the codeview diff of a buffer",
-    callback = function()
-      states[buf] = nil
-    end,
-  })
-end
-
----Write the highlights of one render.
----@param buf integer
----@param build codeview.inline.Build
-local function apply_marks(buf, build)
-  api.nvim_buf_clear_namespace(buf, M.ns, 0, -1)
-  -- A line highlight covers every range mark of the line, so the rows are range
-  -- marks and the word marks paint over them.
-  for lnum, row in ipairs(build.map.rows) do
-    local group = M.line_hl[row.kind]
-    if group then
-      api.nvim_buf_set_extmark(buf, M.ns, lnum - 1, 0, {
-        end_row = lnum, -- the next row (0-based), so the range covers the line break
-        end_col = 0,
-        hl_eol = true, -- paint to the end of the screen line, like a line highlight
-        hl_group = group,
-        priority = M.row_priority,
-        strict = false, -- the last row has no next row
-      })
-    end
-  end
-  for _, mark in ipairs(build.marks) do
-    local width = #build.lines[mark.row]
-    local col = math.min(mark.col, width)
-    local end_col = math.min(mark.end_col, width)
-    if end_col > col then
-      api.nvim_buf_set_extmark(buf, M.ns, mark.row - 1, col, { end_col = end_col, hl_group = mark.hl })
-    end
-  end
-end
-
 ---Render a diff into a buffer.
 ---
 --- The call replaces the content of the buffer, writes the highlights, and
@@ -311,19 +250,13 @@ function M.render(buf, diff, opts)
   opts = opts or {}
   local build = M.build(diff, opts)
 
-  local modifiable = vim.bo[buf].modifiable
-  vim.bo[buf].modifiable = true
-  api.nvim_buf_set_lines(buf, 0, -1, false, build.lines)
-  vim.bo[buf].modifiable = modifiable
-  vim.bo[buf].modified = false
-
-  apply_marks(buf, build)
+  render.write_lines(buf, build.lines)
+  render.paint(buf, M.ns, build.lines, build.map, build.marks, function(row)
+    return M.line_hl[row.kind]
+  end)
+  states:set(buf, { diff = diff, map = build.map, build = build, opts = opts })
   -- The marker column shifts every capture of the parse by its width.
   require("codeview.syntax").apply(buf, diff, build.map, { offset = #M.markers.context })
-  if not states[buf] then
-    watch(buf)
-  end
-  states[buf] = { diff = diff, build = build, opts = opts }
   return build
 end
 
@@ -337,15 +270,14 @@ end
 ---@param buf integer Buffer handle.
 ---@return codeview.inline.State? state Nil when the buffer holds no diff.
 function M.get(buf)
-  return states[buf]
+  return states:get(buf) --[[@as codeview.inline.State?]]
 end
 
 ---Read the line map of a buffer.
 ---@param buf integer Buffer handle.
 ---@return codeview.LineMap? map Nil when the buffer holds no diff.
 function M.map(buf)
-  local state = states[buf]
-  return state and state.build.map or nil
+  return states:map(buf)
 end
 
 ---Collapsed section of one buffer row.
@@ -353,23 +285,14 @@ end
 ---@param lnum integer Buffer row, from 1.
 ---@return codeview.layout.Gap? gap Nil when the row belongs to no section.
 function M.gap_at(buf, lnum)
-  local state = states[buf]
-  if not state then
-    return nil
-  end
-  local row = state.build.map:row(lnum)
-  if not row or not row.gap then
-    return nil
-  end
-  return state.build.gaps[row.gap]
+  return states:gap_at(buf, lnum)
 end
 
 ---Sections that the buffer can show or hide.
 ---@param buf integer Buffer handle.
 ---@return codeview.layout.Gap[] gaps
 function M.gaps(buf)
-  local state = states[buf]
-  return state and state.build.gaps or {}
+  return states:gaps(buf)
 end
 
 ---Line numbers of one buffer row, as the status column shows them.
@@ -377,15 +300,11 @@ end
 ---@param lnum integer Buffer row, from 1.
 ---@return string text Empty text when the buffer holds no diff.
 function M.number_column(buf, lnum)
-  local state = states[buf]
+  local state = M.get(buf)
   if not state then
     return ""
   end
-  local map = state.build.map
-  local width = state.build.width
-  local old = map:file_line(lnum, "old")
-  local new = map:file_line(lnum, "new")
-  return string.format("%s %s ", layout.pad(old, width.old), layout.pad(new, width.new))
+  return render.number_column(state.map, state.build.width, lnum, { "old", "new" })
 end
 
 ---Value of the 'statuscolumn' option of a diff window.
