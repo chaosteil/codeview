@@ -331,4 +331,63 @@ describe("codeview.watch", function()
       assert.is_truthy(review:index_of("fresh.txt"), vim.inspect(review.files))
     end)
   end)
+  describe("the user interface", function()
+    it("runs no backend command in the sync form for a watcher event and a sidebar <CR>", function()
+      local review = open_session()
+      local view = require("codeview.view")
+      local bar = assert(require("codeview.sidebar").open({ session = review }))
+      assert(view.open(review, 1))
+      local seen, stop = count_refreshed(review)
+      commit("fresh.txt")
+
+      -- A sync call blocks the editor. The stub fails each one and keeps the
+      -- command, and the async form runs as before.
+      local exec = require("codeview.exec")
+      local errors = require("codeview.error")
+      local capture = exec.capture
+      ---@type string[]
+      local blocked = {}
+      ---@diagnostic disable-next-line: duplicate-set-field
+      exec.capture = function(cmd, opts, cb)
+        if not cb then
+          blocked[#blocked + 1] = table.concat(cmd, " ")
+          return nil, errors.new(errors.codes.COMMAND_FAILED, "a sync call of the user interface")
+        end
+        return capture(cmd, opts, cb)
+      end
+
+      -- The watcher checks the repository on FocusGained. Without a watcher of
+      -- the file system, the check runs in the form that the watcher uses.
+      if watch.is_active() then
+        vim.api.nvim_exec_autocmds("FocusGained", {})
+      else
+        watch.check(review, function() end)
+      end
+      local refreshed = vim.wait(20000, function()
+        return seen() > 0 and review:index_of("fresh.txt") ~= nil
+      end, 10)
+      stop()
+
+      local lnum = bar.panel:find(function(node)
+        return node.kind == "file" and node.path == "fresh.txt"
+      end)
+      local opened_file = false
+      if lnum then
+        local win = assert(bar.panel:window())
+        vim.api.nvim_set_current_win(win)
+        bar.panel:set_cursor(lnum)
+        vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<CR>", true, false, true), "x", false)
+        opened_file = vim.wait(20000, function()
+          local state = view.current()
+          return state ~= nil and state.path == "fresh.txt"
+        end, 10)
+      end
+      exec.capture = capture
+
+      assert.is_true(refreshed, "the watcher did not read the review again")
+      assert.is_truthy(lnum, "the sidebar shows no fresh.txt")
+      assert.is_true(opened_file, "the <CR> of the sidebar opened no file")
+      assert.are.same({}, blocked)
+    end)
+  end)
 end)
