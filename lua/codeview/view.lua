@@ -68,6 +68,7 @@ local M = {}
 
 ---@class codeview.view.OpenOpts
 ---@field force boolean? True renders a diff that is above the `diff.max_lines` limit.
+---@field win integer? Window that takes the diff. The window of the open file by default.
 
 ---File that the view shows now.
 ---@type codeview.view.State?
@@ -833,7 +834,13 @@ function load(session, index, opts, cb, dropped)
   ---@return codeview.view.State
   local function show(result)
     local previous = state
+    -- The window of the caller wins. A window that cannot hold the diff, for
+    -- example one that closed while the backend read the file, gives way to
+    -- the window of the open file.
     local keep = previous and previous.win or nil
+    if usable(opts.win) then
+      keep = opts.win
+    end
     highlight.setup()
 
     ---@type codeview.view.State
