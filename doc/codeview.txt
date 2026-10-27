@@ -417,8 +417,12 @@ The word groups take the background of the row with a quarter of the color of
 
 The layer needs a treesitter parser for the language of the file. A file
 without one keeps the plain diff colors, and so does a binary file or a diff
-above the line limit. Set `diff.syntax` to false to turn the layer off. The
-row colors then take their foreground again: >lua
+above a size limit. A side of more than 1 MB gets no parse, because the parse
+blocks the editor. A line of more than 10000 bytes keeps the plain diff
+colors, and the lines after it keep the colors of their language.
+
+Set `diff.syntax` to false to turn the layer off. The row colors then take
+their foreground again: >lua
 
     require("codeview").setup({ diff = { syntax = false } })
 <
@@ -431,6 +435,9 @@ longer unchanged section behind one filler row: >
 A section that hides fewer than two lines stays open, because the filler row
 costs as many screen rows as the lines that it hides.
 
+The view reads `diff.context` at every render. A setup() call with a new value
+therefore changes the next render, also of the file that is open.
+
 Put the cursor on the row and press `za` to show the hidden lines. A second
 press hides them again. `zR` shows every hidden line of the file, and `zM`
 hides them all again. The hunk header keeps the line numbers of the collapsed
@@ -440,23 +447,47 @@ A file without a text diff shows one note instead of a diff: >
 
     The file has no changes.    a rename or a copy without a content change
     The file is empty.          both sides hold no line
-    Binary file. It has no text diff.
+    The file is binary. It has no text diff.
+    The file changes only its line endings (CRLF and LF).
 <
+The last note stands for a change of CRLF to LF, or of LF to CRLF, and no
+other change. Such a change touches every line, so a diff of every line says
+less than the note.
+
+                                                            *codeview-diff-eol*
+A side that does not end with a line break gets one more row after its last
+line, like the diff of git: >
+
+    \ No newline at end of file
+<
+The row holds no line of the file, so a comment cannot anchor to it. A change
+that only adds or removes the last line break shows the last line as removed
+and added, with the row on the side without the break.
                                                           *codeview-diff-limit*
 The view reads the file of one row of the sidebar, and no other file. A range
 of 400 files therefore opens as fast as a range of four.
 
-A file can still be too large to compare. The `diff.max_lines` option holds the
-highest number of lines that the two sides can hold together. Above that number
-the view compares nothing and shows two rows: >
+A file can still be too large to compare. Two options limit the size:
+
+    `diff.max_lines`   highest number of lines of the two sides together
+    `diff.max_bytes`   highest number of bytes of the two sides together
+
+The byte limit stops a file with few but very long lines, for example a
+generated file. Above a limit the view compares nothing and shows two rows: >
 
     The diff holds 48210 lines. The limit diff.max_lines is 20000.
     Press <CR> to show it.
 <
-The `load_diff` key reads the file again, without the limit. The key maps on
-such a diff only, so `<CR>` keeps its own action in every other diff. The limit
-applies to one file at a time, and the next file opens as usual. Set
-`diff.max_lines` to 0 to remove the limit for every file.
+The note of the byte limit reads the same way: >
+
+    The diff holds 3145728 bytes. The limit diff.max_bytes is 2000000.
+    Press <CR> to show it.
+<
+The `load_diff` key reads the file again, without both limits. The key maps on
+such a diff only, so `<CR>` keeps its own action in every other diff. The
+limits apply to one file at a time, and the next file opens as usual. Set an
+option to 0 to remove its limit for every file. The defaults are 20000 lines
+and 2000000 bytes.
 
 |:Codeview-submit| never sees the limit. It maps the position of a comment on
 the full diff of the file, whether the view rendered that diff or not.
@@ -513,7 +544,7 @@ The diff buffer holds these maps. |codeview-config| names the keys: >
     zM          hide every section again
     ]f          open the next file
     [f          open the previous file
-    <CR>        render a diff above the `diff.max_lines` limit, on such a diff
+    <CR>        render a diff above a size limit, on such a diff
     <leader>ct  switch the diff style
     i a o O     comment on the line under the cursor
     I A c       comment on the selected lines, in the visual mode
@@ -1417,16 +1448,32 @@ codeview.view()
     window, and the line map of the old side: `old_buf`, `old_win`, and
     `old_map`.
 
+    The `diff` field holds the lines of both sides and the hunks. These
+    fields describe the size and the line ends: >
+
+        line_count      lines of the two sides together
+        byte_count      bytes of the two sides together
+        limited         true when a size limit stopped the diff
+        max_lines       line limit that stopped the diff, or 0
+        max_bytes       byte limit that stopped the diff, or 0
+        old_eol         false when the old side has no final line break
+        new_eol         false when the new side has no final line break
+        line_endings    true when only CRLF and LF differ
+<
+    The record holds no `context` field. The render reads the `diff.context`
+    option instead.
+
                                                         *codeview.open_file()*
 codeview.open_file({index}, {opts}, {cb})
     Open one changed file of the session in the diff view. {index} is the
     position of the file in the file list. {opts} accepts a `session` field and
     a `force` field. With `force = true` the call renders a diff above the
-    `diff.max_lines` limit. See |codeview-diff-limit|.
+    `diff.max_lines` limit and the `diff.max_bytes` limit. See
+    |codeview-diff-limit|.
 
                                                         *codeview.load_diff()*
 codeview.load_diff({cb})
-    Render the diff that the `diff.max_lines` limit stopped. The call reads the
+    Render the diff that a size limit stopped. The call reads the
     file of the view again, without the limit. It returns false when the view
     shows no limited diff.
 
@@ -1630,6 +1677,7 @@ Defaults: >lua
         style = "inline",            -- "inline" | "split"
         context = 3,                 -- unchanged lines around a hunk
         max_lines = 20000,           -- lines of both sides, 0 removes the limit
+        max_bytes = 2000000,         -- bytes of both sides, 0 removes the limit
         word_diff = true,            -- highlight changed words
         syntax = true,               -- colors of the language of the file
       },
@@ -1811,7 +1859,7 @@ The table names the surface of each action: >
     close             q              S O D  close the session or the panel
                                          X  close the export window
 <
-(*) The load key maps on a diff that the `diff.max_lines` limit stopped, and on
+(*) The load key maps on a diff that a size limit stopped, and on
 no other diff. `<CR>` keeps its own action in every diff that the view shows.
 See |codeview-diff-limit|.
 
