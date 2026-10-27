@@ -949,6 +949,9 @@ end
 --- Before the post the call looks for the review of an earlier try. When
 --- GitHub holds it, the call marks the comments as sent and posts nothing.
 --- After the review, the call changes the text of every edited comment.
+---
+--- The callback always runs on the main loop, after the call returns. That
+--- holds for an early exit too.
 ---@param opts? codeview.submit.Opts
 ---@param cb? fun(result: codeview.submit.Result?, err: codeview.Error?) Handler of the answer.
 function M.run(opts, cb)
@@ -968,7 +971,10 @@ function M.run(opts, cb)
       notify(M.error_text(err), vim.log.levels.ERROR)
     end
     if cb then
-      cb(result, err)
+      -- An early exit runs on the stack of the caller. `done` sends every
+      -- answer through the main loop, so the callback never runs before the
+      -- call returns.
+      done(cb, result, err)
     end
   end
 
@@ -1195,6 +1201,9 @@ end
 --- A comment that went out already stays as it is. A comment that went out
 --- and got a new text changes its text on GitHub. A failed post marks
 --- nothing.
+---
+--- The callback always runs on the main loop, after the call returns. That
+--- holds for an early exit too.
 ---@param opts codeview.submit.SendOpts
 ---@param cb? fun(result: codeview.submit.Result?, err: codeview.Error?) Handler of the answer.
 function M.send(opts, cb)
@@ -1214,7 +1223,10 @@ function M.send(opts, cb)
       notify(M.error_text(err), vim.log.levels.ERROR)
     end
     if cb then
-      cb(result, err)
+      -- An early exit runs on the stack of the caller. `done` sends every
+      -- answer through the main loop, so the callback never runs before the
+      -- call returns.
+      done(cb, result, err)
     end
   end
 

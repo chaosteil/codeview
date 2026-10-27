@@ -909,6 +909,41 @@ describe("codeview.submit", function()
       assert.are.equal(0, #api_calls())
     end)
 
+    it("answers every exit after the call returns", function()
+      local session = open_session()
+      local cases = {
+        { session = session, event = "comment", body = "hello" },
+        { session = session, event = "merge" },
+      }
+      for _, opts in ipairs(cases) do
+        local called = false
+        submit.run(opts, function()
+          called = true
+        end)
+        assert.is_false(called, vim.inspect(opts.event))
+        wait_for(function()
+          return called
+        end, "the submit did not answer")
+      end
+
+      -- A second run during the first one ends at once, but still answers
+      -- after the call returns.
+      add(store_of(session))
+      local first = false
+      submit.run({ session = session, event = "comment", body = "hello" }, function()
+        first = true
+      end)
+      local second = {}
+      submit.run({ session = session, event = "comment", body = "hello" }, function(result, err)
+        second.result, second.err, second.done = result, err, true
+      end)
+      assert.is_nil(second.done)
+      wait_for(function()
+        return first and second.done
+      end, "the two runs did not answer")
+      assert.is_truthy(tostring(second.err):find("runs already", 1, true), tostring(second.err))
+    end)
+
     it("sends the notes as the text of the review without a prompt", function()
       local session = open_session()
       local store = store_of(session)
@@ -1202,6 +1237,28 @@ describe("codeview.submit", function()
       local calls = api_calls()
       assert.are.equal(2, #calls)
       assert.are.equal("repos/ada/demo/issues/comments/" .. remote_id, calls[2].cmd[3])
+    end)
+
+    it("answers an early exit after the call returns", function()
+      local session = open_session()
+      local comment = add(store_of(session))
+      local cases = {
+        { session = session },
+        { session = session, id = "no-such-id" },
+      }
+      assert(send({ session = session, id = comment.id }))
+      cases[#cases + 1] = { session = session, id = comment.id }
+
+      for _, opts in ipairs(cases) do
+        local called = false
+        submit.send(opts, function()
+          called = true
+        end)
+        assert.is_false(called, vim.inspect(opts.id))
+        wait_for(function()
+          return called
+        end, "the send did not answer")
+      end
     end)
 
     it("refuses a second call while one runs", function()
