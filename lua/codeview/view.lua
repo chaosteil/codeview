@@ -902,8 +902,9 @@ function load(session, index, opts, cb, dropped)
   end
 
   local ticket = ticket_of()
-  -- A forced open removes the line limit, so the diff of a large file renders.
-  local diff_opts = opts.force and { max_lines = 0 } or nil
+  -- A forced open removes the line limit and the byte limit, so the diff of a
+  -- large file renders.
+  local diff_opts = opts.force and { max_lines = 0, max_bytes = 0 } or nil
 
   if file.virtual then
     -- A document reads from the session or the backend, so it takes the same
