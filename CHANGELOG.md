@@ -61,6 +61,9 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- The jj backend needs jj 0.45 or later. An older jj does not see a git
+  commit on the current branch of a colocated repository.
+  `:checkhealth codeview` warns about such a version.
 - Every message goes through one wrapper that reads the `log_level` option.
   The default INFO keeps every report of before. Set
   `log_level = vim.log.levels.WARN` to see warnings and errors only.

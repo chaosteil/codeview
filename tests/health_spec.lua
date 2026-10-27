@@ -89,6 +89,37 @@ describe("codeview.health", function()
     end
   end)
 
+  it("reads the version number of a version line", function()
+    local health = require("codeview.health")
+    ---@param line string
+    ---@return integer[]
+    local function parts(line)
+      local v = assert(health.version_of(line))
+      return { v.major, v.minor, v.patch }
+    end
+    assert.are.same({ 0, 44, 0 }, parts("jj 0.44.0-af45d57de7163cc5f17f3df178a31577e4951ea3"))
+    assert.are.same({ 2, 47, 1 }, parts("git version 2.47.1"))
+    assert.is_nil(health.version_of("jj"))
+    assert.is_nil(health.version_of(nil))
+  end)
+
+  it("warns about a jj that is older than the minimum", function()
+    -- A script in place of jj reports an old version. The report must warn,
+    -- and say what that version does not do.
+    local dir = vim.fn.tempname()
+    vim.fn.mkdir(dir, "p")
+    local script = vim.fs.joinpath(dir, "codeview-old-jj")
+    assert(vim.fn.writefile({ "#!/bin/sh", 'echo "jj 0.44.0-af45d57de7163cc5f17f3df178a31577e4951ea3"' }, script) == 0)
+    assert(vim.uv.fs_chmod(script, 493))
+    assert(require("codeview.config").setup({ jj = { binary = script } }))
+
+    local text = report()
+    vim.fn.delete(dir, "rf")
+    assert.is_truthy(text:find("0.44.0", 1, true), text)
+    assert.is_truthy(text:find("older than 0.45.0", 1, true), text)
+    assert.is_truthy(text:find("colocated repository", 1, true), text)
+  end)
+
   it("reports the account of the gh login", function()
     local text = report()
     assert.is_truthy(text:find("gh auth: logged in to github.com as ada", 1, true), text)

@@ -29,7 +29,7 @@ the comments as markdown, and you send them to a GitHub pull request.
 
 - Neovim 0.11 or later.
 - `git` for the git backend, and for every pull request review.
-- `jj` for the jj backend (optional).
+- `jj` 0.45 or later for the jj backend (optional).
 - `gh` for GitHub pull request review (optional).
 
 `:checkhealth codeview` reports the state of these tools.

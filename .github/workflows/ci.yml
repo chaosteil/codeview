@@ -32,7 +32,7 @@ jobs:
 
       - name: Install jj
         env:
-          JJ_VERSION: v0.44.0
+          JJ_VERSION: v0.46.0
         run: |
           set -euo pipefail
           case "$RUNNER_OS" in

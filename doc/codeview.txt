@@ -45,7 +45,7 @@ Then press <CR> on a file of the sidebar. |codeview-keymaps| holds every key.
 
 - Neovim 0.11 or later.
 - git, for the git backend.
-- jj, for the jj backend (optional).
+- jj 0.45 or later, for the jj backend (optional).
 - gh, for GitHub pull request review (optional).
 
 A tool that is not in $PATH needs an option with its path. See

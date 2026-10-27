@@ -18,6 +18,16 @@ local MIN_NVIM = { 0, 11, 0 }
 ---@field args string[] Arguments that print the version.
 ---@field required boolean The plugin does not work without a required tool.
 ---@field purpose string What the plugin does with the tool.
+---@field minimum integer[]? Lowest version that works. The check warns below it.
+---@field advice string? What an older version does not do. Part of the warning.
+
+---Lowest jj version of the jj backend.
+---
+--- With an older jj, `jj git import` under `--ignore-working-copy` does not
+--- move a bookmark when the checked-out branch of a colocated git repository
+--- moves. A `git commit` on that branch then stays invisible to the review.
+---@type integer[]
+M.jj_minimum = { 0, 45, 0 }
 
 ---List of the external tools of the plugin.
 ---
@@ -28,9 +38,27 @@ local MIN_NVIM = { 0, 11, 0 }
 local function tools()
   return {
     { name = git.binary(), args = { "--version" }, required = true, purpose = "the git backend" },
-    { name = jj.binary(), args = { "--version" }, required = false, purpose = "the jj backend" },
+    {
+      name = jj.binary(),
+      args = { "--version" },
+      required = false,
+      purpose = "the jj backend",
+      minimum = M.jj_minimum,
+      advice = "An older jj does not see a git commit on the current branch of a colocated repository.",
+    },
     { name = github.binary(), args = { "--version" }, required = false, purpose = "GitHub pull request review" },
   }
+end
+
+---Version number in the first output line of a version call.
+---@param line string? For example "jj 0.46.0-af45d57".
+---@return vim.Version? version Nil when the line holds no version.
+function M.version_of(line)
+  local text = line and line:match("(%d+%.%d+%.%d+)")
+  if not text then
+    return nil
+  end
+  return vim.version.parse(text)
 end
 
 ---Read the first output line of a command.
@@ -75,6 +103,15 @@ local function check_tool(tool)
   local line, err = first_line(cmd)
   if not line then
     health.warn(string.format("%s: found, but the version call failed (%s)", tool.name, err or "unknown error"))
+    return
+  end
+  local version = tool.minimum and M.version_of(line)
+  if version and vim.version.lt(version, tool.minimum) then
+    local wanted = table.concat(tool.minimum, ".")
+    health.warn(
+      string.format("%s: %s is older than %s", tool.name, line, wanted),
+      { tool.advice, "Update " .. tool.name .. " to " .. wanted .. " or later." }
+    )
     return
   end
   health.ok(string.format("%s: %s", tool.name, line))
