@@ -38,8 +38,7 @@ local LOG_FORMAT = table.concat({
   "%aI", -- author date, ISO 8601
   "%cI", -- committer date, ISO 8601
   "%P", -- parent ids
-  "%s", -- subject
-  "%b", -- body
+  "%B", -- raw message. `parse_commit()` splits it into the subject and the body.
 }, "%x1f") .. "%x1e"
 
 ---Status letter of `git diff --name-status`, mapped to the interface status.
@@ -418,10 +417,25 @@ function Repo:snapshot(cb)
   return self:working_rev(cb)
 end
 
+---Bring the repository up to date.
+---
+--- git reads its refs at the start of every command, so there is nothing to
+--- do. The call changes nothing.
+---@param _self codeview.vcs.GitRepo
+---@param cb? fun(ok: boolean?, err: codeview.Error?) Callback for the async form.
+---@return boolean? ok
+---@return codeview.Error? err
+function Repo.sync(_self, cb)
+  return done(cb, true, nil)
+end
+
 ---Directories to watch under one git directory.
+---
+--- The jj backend calls it too, for the git directory of a colocated
+--- repository.
 ---@param git_dir string Absolute path of the git directory.
 ---@return string[] dirs Directories that exist now.
-local function watch_dirs(git_dir)
+function M.watch_dirs(git_dir)
   local dirs = { git_dir }
   local heads = fs.joinpath(git_dir, "refs", "heads")
   if uv.fs_stat(heads) then
@@ -444,7 +458,7 @@ end
 ---@return codeview.Error? err
 function Repo:state_dirs(cb)
   if self.git_dir then
-    return done(cb, watch_dirs(self.git_dir), nil)
+    return done(cb, M.watch_dirs(self.git_dir), nil)
   end
 
   ---@param result codeview.ExecResult
@@ -457,7 +471,7 @@ function Repo:state_dirs(cb)
       return nil, failed(errors.codes.NOT_FOUND, "the repository has no git directory", result)
     end
     self.git_dir = fs.normalize(dir)
-    return watch_dirs(self.git_dir), nil
+    return M.watch_dirs(self.git_dir), nil
   end
 
   return call(self, { "rev-parse", "--absolute-git-dir" }, handle, nil, cb)
@@ -473,7 +487,7 @@ local function parse_commit(record)
     return nil
   end
   local fields = vim.split(text, FIELD, { plain = true })
-  if #fields < 9 then
+  if #fields < 8 then
     return nil
   end
   local parents = {}
@@ -482,6 +496,11 @@ local function parse_commit(record)
       parents[#parents + 1] = id
     end
   end
+  -- The subject is the first line, like on jj. `%s` of git joins the lines of
+  -- the first paragraph, so the backend splits the raw message itself.
+  local message = fields[8]
+  local subject = vim.split(message, "\n", { plain = true })[1]
+  local body = message:sub(#subject + 2):gsub("^%s*\n", "")
   return {
     id = fields[1],
     short_id = fields[2],
@@ -490,8 +509,8 @@ local function parse_commit(record)
     date = fields[5],
     committer_date = fields[6],
     parents = parents,
-    subject = fields[8],
-    body = (fields[9]:gsub("%s+$", "")),
+    subject = subject,
+    body = (body:gsub("%s+$", "")),
   }
 end
 

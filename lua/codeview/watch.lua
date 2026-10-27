@@ -10,10 +10,10 @@
 --- and runs one check after the last event. A file system that gives no event
 --- still gets a check on `FocusGained`.
 ---
---- The watcher never writes the repository. It resolves the range with a
---- read-only command, and it reads the review again without a snapshot of the
---- working copy. The refresh key of |codeview-keymaps| is the one that takes
---- the working copy with it.
+--- The watcher takes no snapshot of the working copy. It calls `repo:sync()`,
+--- resolves the range with a read-only command, and reads the review again.
+--- In a colocated jj repository the sync imports the git refs. The refresh key
+--- of |codeview-keymaps| is the one that takes the working copy with it.
 ---
 --- Set `auto_refresh` to false to switch the watcher off.
 
@@ -93,10 +93,11 @@ end
 
 ---Read the range of the session again and compare it with the review.
 ---
---- The call resolves the argument of the open call with a read-only command.
---- On jj that command runs with `--ignore-working-copy`, so the check writes
---- nothing. The same commit ids mean that the review is current, and the call
---- does nothing. Other ids read the review again with
+--- The call first brings the repository up to date with `repo:sync()`, when
+--- the backend has that method. It then resolves the argument of the open
+--- call with a read-only command. On jj that command runs with
+--- `--ignore-working-copy`. The same commit ids mean that the review is
+--- current, and the call does nothing. Other ids read the review again with
 --- |codeview.view.refresh()|, without a snapshot of the working copy.
 ---
 --- A failed check keeps the data of the review. The user gets one message,
@@ -175,11 +176,34 @@ function M.check(session, cb)
     return finish(true, nil)
   end
 
+  local repo = session.repo
   if not cb then
-    return handle(session.repo:resolve_range(session.input))
+    if repo.sync then
+      local _, sync_err = repo:sync()
+      if sync_err then
+        return handle(nil, sync_err)
+      end
+    end
+    return handle(repo:resolve_range(session.input))
   end
-  session.repo:resolve_range(session.input, function(range, err)
-    handle(range, err)
+
+  local function resolve()
+    repo:resolve_range(session.input, function(range, err)
+      handle(range, err)
+    end)
+  end
+  if not repo.sync then
+    resolve()
+    return nil, nil
+  end
+  -- A colocated jj repository imports the git refs first, so that a commit of
+  -- git is part of the answer.
+  repo:sync(function(_, sync_err)
+    if sync_err then
+      handle(nil, sync_err)
+      return
+    end
+    resolve()
   end)
   return nil, nil
 end

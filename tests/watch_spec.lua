@@ -250,6 +250,65 @@ describe("codeview.watch", function()
         assert.are.equal(3, #review.commits)
       end)
     end)
+
+    describe("on a colocated jj repository", function()
+      ---Open a session on a bookmark that git moves later.
+      ---@return codeview.Session
+      local function open_colocated()
+        fixture = fixtures.jj({ colocate = true })
+        run({ "jj", "--no-pager", "bookmark", "create", "side", "-r", "@-" })
+        local review, err = session_mod.open("side", { dir = fixture.dir })
+        assert.is_nil(err)
+        opened = assert(review)
+        return opened
+      end
+
+      ---Commit with git on the bookmark `side`.
+      local function git_commit()
+        local identity = { "-c", "user.name=Ada Lovelace", "-c", "user.email=ada@example.com" }
+        run(vim.list_extend({ "git" }, vim.list_extend(vim.deepcopy(identity), { "checkout", "--quiet", "side" })))
+        run(
+          vim.list_extend(
+            { "git" },
+            vim.list_extend(vim.deepcopy(identity), { "commit", "--quiet", "--allow-empty", "-m", "git: one more" })
+          )
+        )
+      end
+
+      it("reads the review again after a commit of git", function()
+        local review = open_colocated()
+        local head = review.range.to
+        local seen, stop = count_refreshed(review)
+
+        git_commit()
+        local changed, err = watch.check(review)
+        stop()
+
+        assert.is_nil(err)
+        assert.is_true(changed)
+        assert.are_not.equal(head, review.range.to)
+        assert.are.equal(1, seen())
+      end)
+
+      it("watches the git directory", function()
+        local review = open_colocated()
+        if not watch.is_active() then
+          print("no file system watcher, the case does not run")
+          return
+        end
+        local head = review.range.to
+        local seen, stop = count_refreshed(review)
+
+        git_commit()
+        local ok = vim.wait(10000, function()
+          return seen() > 0
+        end, 50)
+        stop()
+
+        assert.is_true(ok, "the watcher sent no event")
+        assert.are_not.equal(head, review.range.to)
+      end)
+    end)
   end
 
   describe("the events of the file system", function()

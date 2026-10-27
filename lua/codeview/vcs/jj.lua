@@ -8,9 +8,10 @@
 --- set of commits becomes a range. The head of the set is the new side, and
 --- the parent of the roots of the set is the base.
 ---
---- Every command runs with `--ignore-working-copy`. The backend reads the
---- repository only. It never snapshots the working copy, and it never writes
---- an operation.
+--- Every command runs with `--ignore-working-copy`. Most calls read the
+--- repository only. Two calls write one operation: `snapshot()` puts the
+--- working copy into `@`, and `sync()` imports the refs of a colocated git
+--- repository.
 
 local exec = require("codeview.exec")
 local errors = require("codeview.error")
@@ -92,7 +93,7 @@ local STATUS = {
 }
 
 ---@class codeview.vcs.JjRepo: codeview.vcs.Repo
----@field colocated boolean True when the repository also has a `.git` directory.
+---@field colocated boolean True when a `.git` directory is next to the `.jj` directory.
 local Repo = {}
 Repo.__index = Repo
 
@@ -264,12 +265,13 @@ function M.detect(dir, cb)
   local root = fs.dirname(marker)
   root = fs.normalize(uv.fs_realpath(root) or root)
 
+  local git = uv.fs_stat(fs.joinpath(root, ".git"))
   return done(
     cb,
     setmetatable({
       backend = M.name,
       root = root,
-      colocated = uv.fs_stat(fs.joinpath(root, ".git")) ~= nil,
+      colocated = git ~= nil and git.type == "directory",
     }, Repo),
     nil
   )
@@ -436,31 +438,100 @@ local function revset_range(repo, expr, text, cb)
   return nil, nil
 end
 
+---Resolve one commit and its first parent, for the `single` form.
+---
+--- The base is the first parent, like on git. A commit whose first parent is
+--- the virtual root commit has no base.
+---@param repo codeview.vcs.JjRepo
+---@param rev string Revision of the commit.
+---@param text string Text that the user wrote.
+---@param cb? fun(range: codeview.vcs.Range?, err: codeview.Error?)
+---@return codeview.vcs.Range? range
+---@return codeview.Error? err
+local function single_range(repo, rev, text, cb)
+  local args = { "log", "--no-graph", "-T", PARENT_TEMPLATE, "-r", group(rev) }
+
+  ---@param result codeview.ExecResult
+  local function handle(result)
+    if result.code ~= 0 then
+      return nil, failed(errors.codes.BAD_REVISION, "unknown revision: " .. rev, result)
+    end
+    local lines = exec.lines(result.stdout)
+    if #lines ~= 1 then
+      return nil, failed(errors.codes.BAD_REVISION, "the revision names no single commit: " .. rev, result)
+    end
+    local fields = vim.split(lines[1], FIELD, { plain = true })
+    if fields[1] == ROOT_ID then
+      return nil, failed(errors.codes.BAD_REVISION, "the root commit has no content: " .. rev, result)
+    end
+    local parent = vim.split(vim.trim(fields[2] or ""), " ", { plain = true })[1]
+    if parent == "" or parent == ROOT_ID then
+      parent = nil
+    end
+    return { from = parent, to = fields[1], spec = text }, nil
+  end
+
+  return call(repo, args, handle, nil, cb)
+end
+
+---Resolve the base of a range.
+---
+--- The virtual root commit gives a nil base, which is the state before the
+--- first commit. With `first` the revset can name more than one commit, for
+--- example the two merge bases of a criss-cross history. The call then takes
+--- the first one, like `git merge-base`.
+---@param repo codeview.vcs.JjRepo
+---@param expr string Revset of the base, already grouped.
+---@param message string Error message when the revset names no base.
+---@param first boolean True takes the first of more than one commit.
+---@param cb? fun(base: { id: string? }?, err: codeview.Error?)
+---@return { id: string? }? base A table, because a nil id is a valid answer.
+---@return codeview.Error? err
+local function resolve_base(repo, expr, message, first, cb)
+  ---@param result codeview.ExecResult
+  local function handle(result)
+    if result.code ~= 0 then
+      return nil, failed(errors.codes.BAD_REVISION, message, result)
+    end
+    local ids = exec.lines(result.stdout)
+    if #ids == 0 or (#ids > 1 and not first) then
+      return nil, failed(errors.codes.BAD_REVISION, message, result)
+    end
+    if ids[1] == ROOT_ID then
+      return { id = nil }, nil
+    end
+    return { id = ids[1] }, nil
+  end
+
+  return call(repo, { "log", "--no-graph", "-T", ID_TEMPLATE, "-r", expr }, handle, nil, cb)
+end
+
 ---Resolve two sides of a range, one after the other.
 ---@param repo codeview.vcs.JjRepo
 ---@param from_expr string Revset of the base, already grouped.
 ---@param from_message string Error message of the base.
+---@param first boolean True takes the first commit when the base revset names more than one.
 ---@param to_rev string Revision of the head side.
 ---@param text string Text that the user wrote.
 ---@param cb? fun(range: codeview.vcs.Range?, err: codeview.Error?)
 ---@return codeview.vcs.Range? range
 ---@return codeview.Error? err
-local function resolve_pair(repo, from_expr, from_message, to_rev, text, cb)
+local function resolve_pair(repo, from_expr, from_message, first, to_rev, text, cb)
   if not cb then
-    local from, from_err = resolve_one(repo, from_expr, from_message, nil)
-    if not from then
-      return nil, from_err
+    local base, base_err = resolve_base(repo, from_expr, from_message, first)
+    if not base then
+      return nil, base_err
     end
     local to, to_err = repo:resolve_rev(to_rev)
     if not to then
       return nil, to_err
     end
-    return { from = from, to = to, spec = text }, nil
+    return { from = base.id, to = to, spec = text }, nil
   end
 
-  resolve_one(repo, from_expr, from_message, nil, function(from, from_err)
-    if not from then
-      cb(nil, from_err)
+  resolve_base(repo, from_expr, from_message, first, function(base, base_err)
+    if not base then
+      cb(nil, base_err)
       return
     end
     repo:resolve_rev(to_rev, function(to, to_err)
@@ -468,7 +539,7 @@ local function resolve_pair(repo, from_expr, from_message, to_rev, text, cb)
         cb(nil, to_err)
         return
       end
-      cb({ from = from, to = to, spec = text }, nil)
+      cb({ from = base.id, to = to, spec = text }, nil)
     end)
   end)
   return nil, nil
@@ -477,9 +548,10 @@ end
 ---Resolve a revision argument to a range of commit ids.
 ---
 --- The argument is a revset, a parsed spec, or a range table. A revset becomes
---- the range that holds its commits. For one commit the base is its first
---- parent. For the first commit of the history the base is nil, which means
---- the state before the first commit.
+--- the range that holds its commits. The table forms follow the contract of
+--- |codeview.vcs|: `single` is one commit against its first parent, `range` is
+--- a diff of two trees, and `triple` starts at the merge base. A base at the
+--- virtual root commit is nil, which means the state before the first commit.
 ---@param spec string|codeview.vcs.Range|codeview.vcs.RangeSpec
 ---@param cb? fun(range: codeview.vcs.Range?, err: codeview.Error?) Callback for the async form.
 ---@return codeview.vcs.Range? range
@@ -491,8 +563,12 @@ function Repo:resolve_range(spec, cb)
   end
   local text = parsed.spec or (parsed.from and (parsed.from .. ".." .. parsed.to) or parsed.to)
 
-  if parsed.kind == "revset" or parsed.kind == "single" then
+  if parsed.kind == "revset" then
     return revset_range(self, group(parsed.to), text, cb)
+  end
+
+  if parsed.kind == "single" then
+    return single_range(self, parsed.to, text, cb)
   end
 
   if parsed.kind == "explicit" then
@@ -516,12 +592,12 @@ function Repo:resolve_range(spec, cb)
   local from_rev = parsed.from --[[@as string]]
 
   if parsed.kind == "range" then
-    return resolve_pair(self, group(from_rev), "unknown revision: " .. from_rev, parsed.to, text, cb)
+    return resolve_pair(self, group(from_rev), "unknown revision: " .. from_rev, false, parsed.to, text, cb)
   end
 
   -- Triple dot: the base is the closest common ancestor of the two sides.
   local base = "heads(::" .. group(from_rev) .. " & ::" .. group(parsed.to) .. ")"
-  return resolve_pair(self, base, "no merge base for " .. text, parsed.to, text, cb)
+  return resolve_pair(self, base, "no merge base for " .. text, true, parsed.to, text, cb)
 end
 
 --- Working copy --------------------------------------------------------------
@@ -611,6 +687,10 @@ end
 --- that writes the repository puts a new file there and removes the old one.
 --- A watcher of that directory therefore sees every commit, every describe,
 --- every rebase, and every `jj new`.
+---
+--- A git command in a colocated repository writes no operation. The call
+--- therefore adds the directories of the git directory, the same ones as the
+--- git backend.
 ---@param cb? fun(dirs: string[]?, err: codeview.Error?) Callback for the async form.
 ---@return string[]? dirs Directories that exist now.
 ---@return codeview.Error? err
@@ -620,7 +700,36 @@ function Repo:state_dirs(cb)
   if uv.fs_stat(heads) then
     dirs[#dirs + 1] = heads
   end
+  if self.colocated then
+    vim.list_extend(dirs, require("codeview.vcs.git").watch_dirs(fs.joinpath(self.root, ".git")))
+  end
   return done(cb, dirs, nil)
+end
+
+---Bring the repository up to date with a colocated git repository.
+---
+--- jj imports the refs of git at the start of a command. `--ignore-working-copy`
+--- skips that import, so a `git commit` stays invisible to the other calls. In
+--- a colocated repository this call runs `jj git import`, which writes one
+--- operation when a ref moved. In other repositories it does nothing. The call
+--- takes no snapshot of the working copy.
+---@param cb? fun(ok: boolean?, err: codeview.Error?) Callback for the async form.
+---@return boolean? ok
+---@return codeview.Error? err
+function Repo:sync(cb)
+  if not self.colocated then
+    return done(cb, true, nil)
+  end
+
+  ---@param result codeview.ExecResult
+  local function handle(result)
+    if result.code ~= 0 then
+      return nil, failed(errors.codes.COMMAND_FAILED, "cannot import the git refs", result)
+    end
+    return true, nil
+  end
+
+  return call(self, { "git", "import" }, handle, nil, cb)
 end
 
 --- Log -----------------------------------------------------------------------
@@ -646,7 +755,7 @@ local function parse_commit(record)
   -- The blank line between the subject and the body is not part of the body.
   local description = fields[9]
   local subject = vim.split(description, "\n", { plain = true })[1]
-  local body = description:sub(#subject + 2):gsub("^\n+", "")
+  local body = description:sub(#subject + 2):gsub("^%s*\n", "")
   return {
     id = fields[1],
     change_id = fields[2],
@@ -678,9 +787,11 @@ local function log_revset(opts)
     return group(expr) .. " ~ root()", nil
   end
 
+  -- The revisions name commits. Their ancestors belong to the log too, like
+  -- `git log <rev>`.
   if opts.revs and #opts.revs > 0 then
     local parts = vim.tbl_map(group, opts.revs)
-    return group(table.concat(parts, " | ")) .. " ~ root()", nil
+    return group("::" .. group(table.concat(parts, " | "))) .. " ~ root()", nil
   end
 
   -- `@` is the working-copy commit. Its ancestors are the history of the

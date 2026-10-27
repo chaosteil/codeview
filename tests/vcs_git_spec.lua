@@ -29,6 +29,12 @@ describe("codeview.vcs.git", function()
     assert.are.equal(fixture.ids.edit, id)
   end)
 
+  it("syncs nothing", function()
+    local ok, err = repo:sync()
+    assert.is_nil(err)
+    assert.is_true(ok)
+  end)
+
   it("resolves a three dot range through the merge base", function()
     local range = assert(repo:resolve_range(fixture.ids.init .. "..." .. fixture.ids.shuffle))
     assert.are.equal(fixture.ids.init, range.from)

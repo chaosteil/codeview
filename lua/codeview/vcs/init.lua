@@ -13,6 +13,9 @@
 --- - `repo:working_rev()` — the commit that the working copy sits on.
 --- - `repo:snapshot()` — write the working copy into that commit and read it.
 --- - `repo:state_dirs()` — the directories that every repository operation writes.
+--- - `repo:sync()` — optional. Bring the repository state up to date, without a
+---   snapshot of the working copy. jj imports the git refs of a colocated
+---   repository. git does nothing.
 ---
 --- Every method takes an optional callback as its last argument. Without a
 --- callback the method blocks and returns `value, err`. With a callback it
@@ -113,6 +116,7 @@ local M = {}
 ---@field working_rev fun(self: codeview.vcs.Repo, cb?: fun(id: string?, err: codeview.Error?)): string?, codeview.Error?
 ---@field snapshot fun(self: codeview.vcs.Repo, cb?: fun(id: string?, err: codeview.Error?)): string?, codeview.Error?
 ---@field state_dirs fun(self: codeview.vcs.Repo, cb?: fun(dirs: string[]?, err: codeview.Error?)): string[]?, codeview.Error?
+---@field sync? fun(self: codeview.vcs.Repo, cb?: fun(ok: boolean?, err: codeview.Error?)): boolean?, codeview.Error?
 
 ---@class codeview.vcs.Backend
 ---@field name string Name of the backend.

@@ -59,6 +59,28 @@ describe("codeview.vcs.jj", function()
     assert.are.equal(0, vim.fn.isdirectory(vim.fs.joinpath(fixture.root, ".git")))
   end)
 
+  it("syncs nothing in a repository that is not colocated", function()
+    local ok, err = repo:sync()
+    assert.is_nil(err)
+    assert.is_true(ok)
+    assert.are.equal(fixture.ids.shuffle, assert(repo:working_rev()))
+  end)
+
+  it("gives a nil base for a range from the root commit", function()
+    local range, err =
+      repo:resolve_range({ kind = "range", from = "root()", to = fixture.ids.edit, spec = "root()..edit" })
+    assert.is_nil(err)
+    assert.is_nil(range.from)
+    assert.are.equal(fixture.ids.edit, range.to)
+  end)
+
+  it("gives a nil base for a merge base at the root commit", function()
+    local range, err = repo:resolve_range({ kind = "triple", from = "root()", to = fixture.ids.edit, spec = "x" })
+    assert.is_nil(err)
+    assert.is_nil(range.from)
+    assert.are.equal(fixture.ids.edit, range.to)
+  end)
+
   it("resolves the working-copy commit and its parent", function()
     assert.are.equal(fixture.ids.shuffle, assert(repo:resolve_rev("@")))
     assert.are.equal(fixture.ids.edit, assert(repo:resolve_rev("@-")))
@@ -705,6 +727,57 @@ describe("codeview.vcs.jj in a colocated repository", function()
     assert.are.equal(fixture.ids.shuffle, out.session.range.to)
     assert.are.equal(fixture.ids.init, out.session.range.from)
     session.close()
+  end)
+
+  it("reports the git directory as a state directory", function()
+    local repo = assert(require("codeview.vcs.jj").detect(fixture.dir))
+    local dirs = assert(repo:state_dirs())
+    assert.is_true(vim.tbl_contains(dirs, vim.fs.joinpath(fixture.root, ".git")), vim.inspect(dirs))
+  end)
+
+  -- The cases below move the refs of git. They come last, because a later
+  -- snapshot would put `@` on top of the new git commit.
+  describe("after a commit of git", function()
+    local repo = assert(require("codeview.vcs.jj").detect(fixture.dir))
+
+    ---Run a git command in the fixture.
+    ---@param args string[] Arguments after `git`.
+    ---@return string stdout
+    local function git(args)
+      local cmd = vim.list_extend({ "git", "-c", "user.name=Ada Lovelace", "-c", "user.email=ada@example.com" }, args)
+      local res = vim.system(cmd, { cwd = fixture.dir, env = fixture.env, text = true }):wait(30000)
+      assert.are.equal(0, res.code, table.concat(cmd, " ") .. ": " .. (res.stderr or ""))
+      return res.stdout or ""
+    end
+
+    it("sees the commit after a sync", function()
+      git({ "checkout", "--quiet", "-b", "from-git" })
+      git({ "commit", "--quiet", "--allow-empty", "-m", "git: a commit of git" })
+      local head = vim.trim(git({ "rev-parse", "HEAD" }))
+
+      -- Every call runs with `--ignore-working-copy`, so jj does not import
+      -- the new branch on its own.
+      local before, before_err = repo:resolve_rev("from-git")
+      assert.is_nil(before)
+      assert.are.equal("bad_revision", before_err.code)
+
+      local ok, err = repo:sync()
+      assert.is_nil(err)
+      assert.is_true(ok)
+      assert.are.equal(head, assert(repo:resolve_rev("from-git")))
+    end)
+
+    it("syncs asynchronously", function()
+      git({ "commit", "--quiet", "--allow-empty", "-m", "git: one more commit of git" })
+      local head = vim.trim(git({ "rev-parse", "HEAD" }))
+
+      local ok, err = await(function(cb)
+        repo:sync(cb)
+      end)
+      assert.is_nil(err)
+      assert.is_true(ok)
+      assert.are.equal(head, assert(repo:resolve_rev("from-git")))
+    end)
   end)
 
   it("removes the fixture", function()
