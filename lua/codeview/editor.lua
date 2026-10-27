@@ -35,6 +35,7 @@ M.filetype = "markdown"
 ---@field on_send fun(body: string)? Handler of the send key. Without it the key reports that the comment has no pull request.
 ---@field on_cancel fun()? Handler of a discard.
 ---@field anchor codeview.editor.Anchor? Row that the inline style opens under.
+---@field id string? Id of the comment that the editor edits. Nil for a new comment.
 
 ---@class codeview.editor.State
 ---@field buf integer Buffer of the editor.
@@ -48,6 +49,7 @@ M.filetype = "markdown"
 ---@field anchor codeview.editor.Anchor? Anchor of the inline style.
 ---@field spacer integer? Extmark that holds the space of the inline editor.
 ---@field insert boolean True when the editor asked for insert mode.
+---@field id string? Id of the comment that the editor edits. Nil for a new comment.
 
 ---@alias codeview.editor.Style "inline"|"float"
 
@@ -367,6 +369,7 @@ function M.open(opts)
   vim.validate("opts.title", opts.title, "string", true)
   vim.validate("opts.text", opts.text, "string", true)
   vim.validate("opts.anchor", opts.anchor, "table", true)
+  vim.validate("opts.id", opts.id, "string", true)
 
   M.cancel()
   counter = counter + 1
@@ -443,6 +446,7 @@ function M.open(opts)
     anchor = anchor,
     spacer = spacer,
     insert = cfg.start_insert,
+    id = opts.id,
   }
   state = editor
 

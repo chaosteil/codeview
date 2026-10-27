@@ -840,6 +840,7 @@ function M.edit(opts)
     ),
     text = comment.body,
     anchor = anchor,
+    id = comment.id,
     on_save = save,
     on_send = send_handler(session, save),
     on_cancel = release,
@@ -876,6 +877,9 @@ function M.edit_or_add(opts)
 end
 
 ---Delete the comment under the cursor.
+---
+--- An open editor of the same comment closes without a question, and a
+--- message reports the close.
 ---@param opts? { id?: string, confirm?: boolean, view?: codeview.view.State, session?: codeview.Session } `confirm = false` skips the question.
 ---@return boolean removed False when no comment went away.
 function M.remove(opts)
@@ -905,9 +909,18 @@ function M.remove(opts)
     end
   end
 
+  -- An editor of the comment can save nothing after the delete. It closes
+  -- without a question, because the reviewer asked for the delete.
+  local editor = require("codeview.editor")
+  local open = editor.current()
+  local closed = open ~= nil and open.id == comment.id and editor.cancel()
+
   store:remove(comment.id)
   persist(store)
   announce("comment_deleted", ctx.session, comment)
+  if closed then
+    notify("the open editor of this comment closed", vim.log.levels.WARN)
+  end
   return true
 end
 

@@ -957,6 +957,30 @@ describe("codeview.comments", function()
       assert.are.equal(0, assert(store_mod.load({ repo = fixture.root, range = store.range })):count())
     end)
 
+    it("closes the editor of a comment that goes away", function()
+      local state = open_diff()
+      local comment = comment_on(4, "goes away")
+      api.nvim_set_current_win(state.win)
+      api.nvim_win_set_cursor(state.win, { 4, 0 })
+      assert.is_true(comments.edit())
+      local ed = assert(editor.current())
+      api.nvim_buf_set_lines(ed.buf, 0, -1, false, { "typed during the delete" })
+
+      local said = {}
+      local notify = vim.notify
+      vim.notify = function(text)
+        said[#said + 1] = text
+      end
+      local removed = comments.remove({ id = comment.id, confirm = false })
+      vim.notify = notify
+
+      assert.is_true(removed)
+      assert.is_false(editor.is_open())
+      assert.is_false(api.nvim_win_is_valid(ed.win))
+      assert.are.equal(0, assert(comments.store()):count())
+      assert.are.same({ "codeview: the open editor of this comment closed" }, said)
+    end)
+
     it("keeps the comment when the question gets no yes", function()
       local state = open_diff()
       comment_on(4, "stays")
