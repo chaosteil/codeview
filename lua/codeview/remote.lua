@@ -13,15 +13,19 @@
 --- the session file. The module drops the copy of GitHub, so the review shows
 --- the local comment alone, with its sync mark.
 ---
---- GitHub reports the position of a comment in three ways, and the mapping
---- takes the first one that answers:
+--- GitHub reports the position of a comment in two ways:
 ---
 --- 1. `line` and `start_line`: the lines of the newest version of the diff.
---- 2. `original_line` and `original_start_line`: the lines of the version that
----    the author wrote the comment on. A comment that a later push moved holds
----    these fields only, and the display marks it as outdated.
---- 3. The last line of `diff_hunk`: the hunk that GitHub sends with every
----    comment ends at the commented line.
+---    `side` names the side of `line`, and `start_side` the side of
+---    `start_line`. A range over the two sides keeps its last line only,
+---    because one anchor holds the lines of one side.
+--- 2. No `line`: a later push changed the lines, and the comment is outdated.
+---    `original_line` and the end of `diff_hunk` name the lines of the older
+---    version, which can hold other text now. The display does not draw the
+---    comment there. It looks for the last lines of `diff_hunk` in the current
+---    file instead, see |codeview.remote.locate()|. Without one clear match
+---    the comment stays unanchored: the overview lists it, but no row of the
+---    diff holds its sign.
 ---
 --- `side` is LEFT for the old side of the diff and RIGHT for the new side.
 
@@ -55,6 +59,8 @@ M.ns = api.nvim_create_namespace("codeview.remote")
 ---@field review_id string Id of the review that holds the comment. Empty when the answer names none.
 ---@field created_at integer Time of the comment, in seconds since the epoch.
 ---@field outdated boolean True when a later push moved the lines of the comment.
+---@field anchored boolean? False when the current version holds no line of the comment. Its lines are then the lines of the older version.
+---@field hunk string[]? Text of the last lines of `diff_hunk` on the side of an outdated comment. The display looks for them in the current file.
 ---@field reply_to integer? Id of the comment that this one answers.
 
 ---Comments of each open session, by session id.
@@ -63,11 +69,77 @@ local stores = {}
 
 --- Mapping ---------------------------------------------------------------------
 
+---Number of lines above the commented lines that |codeview.remote.locate()|
+---also looks for.
+---@type integer
+M.hunk_context = 3
+
 ---Side of the diff of a GitHub `side` field.
 ---@param text string? LEFT or RIGHT.
 ---@return codeview.linemap.Side side
 function M.side(text)
   return tostring(text or ""):upper() == "LEFT" and "old" or "new"
+end
+
+---Text of the lines of one side of a diff hunk.
+---@param hunk string? Value of the `diff_hunk` field.
+---@param side codeview.linemap.Side
+---@return string[] lines Lines of the side, in order, without the mark of the diff.
+local function side_lines(hunk, side)
+  local out = {}
+  local inside = false
+  for _, text in ipairs(vim.split(tostring(hunk or ""), "\n", { plain = true })) do
+    if text:match("^@@%s+%-%d+") then
+      inside = true
+    elseif inside and text ~= "" then
+      local mark = text:sub(1, 1)
+      if mark == " " or (mark == "+" and side == "new") or (mark == "-" and side == "old") then
+        out[#out + 1] = (text:sub(2):gsub("\r$", ""))
+      end
+    end
+  end
+  return out
+end
+
+---Last lines of one side of a diff hunk.
+---
+--- The hunk of a comment ends at the commented line. The call keeps the
+--- commented lines and |codeview.remote.hunk_context| lines above them.
+---@param hunk string? Value of the `diff_hunk` field.
+---@param side codeview.linemap.Side
+---@param count integer Number of commented lines.
+---@return string[] lines Empty when the hunk holds no line of the side.
+function M.hunk_lines(hunk, side, count)
+  local lines = side_lines(hunk, side)
+  local first = math.max(#lines - math.max(count, 1) - M.hunk_context + 1, 1)
+  return vim.list_slice(lines, first, #lines)
+end
+
+---Find the lines of a hunk in a file.
+---@param wanted string[] Lines to find, in order.
+---@param lines string[] Lines of the file.
+---@return integer? last Line of the file that holds the last wanted line. Nil without exactly one match.
+function M.locate(wanted, lines)
+  if #wanted == 0 then
+    return nil
+  end
+  local found
+  for start = 1, #lines - #wanted + 1 do
+    local same = true
+    for offset = 1, #wanted do
+      if lines[start + offset - 1] ~= wanted[offset] then
+        same = false
+        break
+      end
+    end
+    if same then
+      if found then
+        return nil
+      end
+      found = start + #wanted - 1
+    end
+  end
+  return found
 end
 
 ---Last line of a diff hunk, on one side.
@@ -114,6 +186,8 @@ end
 ---@field end_line integer Last line of the range.
 ---@field side codeview.linemap.Side Side that holds the lines.
 ---@field outdated boolean True when the lines come from an older push.
+---@field anchored boolean False when the current version holds no line of the comment.
+---@field hunk string[]? Last lines of `diff_hunk` on the side of an outdated comment.
 
 ---Anchor of one comment of the GitHub API.
 ---@param entry table Entry of `GET /repos/{owner}/{repo}/pulls/{n}/comments`.
@@ -126,30 +200,41 @@ function M.anchor(entry)
 
   local last = tonumber(entry.line)
   local first = tonumber(entry.start_line)
+  local start_side = entry.start_side
   local outdated = false
   if not last then
-    last = tonumber(entry.original_line)
+    last = tonumber(entry.original_line) or M.hunk_line(entry.diff_hunk, side)
     first = tonumber(entry.original_start_line)
-    outdated = last ~= nil
-  end
-  if not last then
-    last = M.hunk_line(entry.diff_hunk, side)
-    outdated = last ~= nil
+    outdated = true
   end
   if not last then
     return nil
+  end
+  -- A start on the other side holds a line number of that side. One anchor
+  -- holds the lines of one side, so the range keeps its last line only.
+  if first and start_side and M.side(start_side) ~= side then
+    first = nil
   end
 
   first = first or last
   if first > last then
     first, last = last, first
   end
-  return {
-    start_line = math.max(math.floor(first), 1),
-    end_line = math.max(math.floor(last), 1),
+  local start_line = math.max(math.floor(first), 1)
+  local end_line = math.max(math.floor(last), 1)
+  ---@type codeview.remote.Anchor
+  local anchor = {
+    start_line = start_line,
+    end_line = end_line,
     side = side,
     outdated = outdated,
+    anchored = not outdated,
   }
+  if outdated then
+    local hunk = M.hunk_lines(entry.diff_hunk, side, end_line - start_line + 1)
+    anchor.hunk = #hunk > 0 and hunk or nil
+  end
+  return anchor
 end
 
 ---Id of a review, in the form that the session file holds.
@@ -204,6 +289,8 @@ function M.parse(entries)
         review_id = M.review_id(entry.pull_request_review_id),
         created_at = store_mod.from_iso(entry.created_at) or 0,
         outdated = anchor.outdated,
+        anchored = anchor.anchored,
+        hunk = anchor.hunk,
         reply_to = reply and math.floor(reply),
       }
     end
@@ -218,6 +305,10 @@ end
 --- `host` names the GitHub server. A GitHub Enterprise repository needs it,
 --- because `gh` takes github.com without it. `dir` names the directory that
 --- `gh` runs in.
+---
+--- The endpoint answers the oldest comment first. When the fetch stops at
+--- `max` and GitHub holds more comments, the list holds the field
+--- `truncated = true`.
 ---@param opts { repo: string, number: integer, max?: integer, dir?: string, host?: string } `repo` is `owner/name`.
 ---@param cb? fun(comments: codeview.remote.Comment[]?, err: codeview.Error?) Callback for the async form.
 ---@return codeview.remote.Comment[]? comments
@@ -236,12 +327,22 @@ function M.fetch(opts, cb)
     hostname = opts.host or gh.default_host,
   }
 
+  ---@param entries table[]
+  ---@return codeview.remote.Comment[]
+  local function read(entries)
+    local comments = M.parse(entries)
+    if entries.truncated then
+      comments.truncated = true
+    end
+    return comments
+  end
+
   if not cb then
     local entries, err = gh.api_list(path, api_opts)
     if not entries then
       return nil, err
     end
-    return M.parse(entries), nil
+    return read(entries), nil
   end
 
   gh.api_list(path, api_opts, function(entries, err)
@@ -249,7 +350,7 @@ function M.fetch(opts, cb)
       cb(nil, err)
       return
     end
-    cb(M.parse(entries), nil)
+    cb(read(entries), nil)
   end)
   return nil, nil
 end
@@ -368,7 +469,12 @@ end
 function M.at(session, file, side, line)
   local out = {}
   for _, comment in ipairs(M.for_file(session, file)) do
-    if comment.side == side and comment.start_line <= line and line <= comment.end_line then
+    if
+      comment.anchored ~= false
+      and comment.side == side
+      and comment.start_line <= line
+      and line <= comment.end_line
+    then
       out[#out + 1] = comment
     end
   end
@@ -391,6 +497,8 @@ end
 ---
 --- The call runs in the background. A failure reaches the user as one
 --- notification, because the review itself works without the remote comments.
+--- A fetch that stops at the limit also gives one warning, because the
+--- newest comments are missing.
 ---@param session codeview.Session Session of a pull request.
 ---@param opts? { repo?: string, number?: integer, max?: integer, dir?: string, host?: string, silent?: boolean }
 ---@param cb? fun(comments: codeview.remote.Comment[]?, err: codeview.Error?)
@@ -421,6 +529,16 @@ function M.load(session, opts, cb)
         cb(nil, err)
       end
       return
+    end
+    if comments.truncated and not opts.silent then
+      vim.notify(
+        string.format(
+          "codeview: the pull request holds more review comments than the fetch reads. "
+            .. "The review shows the oldest %d. Raise github.max_comments to read more",
+          #comments
+        ),
+        vim.log.levels.WARN
+      )
     end
     if session:is_active() then
       M.attach(session, comments)
@@ -496,12 +614,37 @@ local function blank_lines(count)
   return out
 end
 
+---Find the lines of an outdated comment in the file of a view.
+---
+--- A comment that the call finds gets the lines of the current file and
+--- counts as anchored from then on.
+---@param view codeview.view.State
+---@param comment codeview.remote.Comment
+local function relocate(view, comment)
+  if comment.anchored ~= false or not comment.hunk or type(view.diff) ~= "table" then
+    return
+  end
+  local lines = comment.side == "old" and view.diff.old_lines or view.diff.new_lines
+  local last = M.locate(comment.hunk, lines or {})
+  if not last then
+    return
+  end
+  local span = comment.end_line - comment.start_line
+  comment.end_line = last
+  comment.start_line = math.max(last - span, 1)
+  comment.anchored = true
+end
+
 ---Place the marks of one remote comment.
 ---@param view codeview.view.State
 ---@param comment codeview.remote.Comment
 ---@param display "virtual"|"float"
----@return boolean placed False when the render hides the lines of the comment.
+---@return boolean placed False when the render hides the lines of the comment, or when the comment has no lines in the file.
 local function place(view, comment, display)
+  relocate(view, comment)
+  if comment.anchored == false then
+    return false
+  end
   local comments_mod = require("codeview.comments")
   local rows, buf = comments_mod.rows(view, comment)
   if #rows == 0 or not api.nvim_buf_is_valid(buf) then

@@ -338,6 +338,30 @@ describe("codeview.gh", function()
       local items = assert(gh.api_list("repos/o/n/pulls/12/comments", { per_page = 2, max = 1 }))
       assert.are.equal(1, #items)
       assert.are.equal(1, #calls)
+      assert.is_true(items.truncated)
+    end)
+
+    it("marks a list that stops at the page limit", function()
+      respond(function()
+        return { stdout = '[{"id":1},{"id":2}]' }
+      end)
+      local items = assert(gh.api_list("repos/o/n/pulls/12/comments", { per_page = 2, max_pages = 2 }))
+      assert.are.equal(4, #items)
+      assert.is_true(items.truncated)
+
+      local async_items = await(function(cb)
+        gh.api_list("repos/o/n/pulls/12/comments", { per_page = 2, max_pages = 2 }, cb)
+      end)
+      assert.is_true(async_items.truncated)
+    end)
+
+    it("does not mark a list that ends before a limit", function()
+      respond(function(cmd)
+        return { stdout = cmd[3]:find("page=1", 1, true) and '[{"id":1},{"id":2}]' or "[]" }
+      end)
+      local items = assert(gh.api_list("repos/o/n/pulls/12/comments", { per_page = 2, max = 2 }))
+      assert.are.equal(2, #items)
+      assert.is_nil(items.truncated)
     end)
 
     it("adds the page to a path that holds a query", function()

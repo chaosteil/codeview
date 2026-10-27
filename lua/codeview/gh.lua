@@ -444,6 +444,10 @@ end
 --- The call asks for one page after the other and stops at the first short
 --- page. It does not use `--paginate`, because that option writes one JSON
 --- document per page.
+---
+--- The call also stops at `max` items and after `max_pages` pages. When
+--- GitHub holds more items at that point, the list holds the field
+--- `truncated = true`.
 ---@param path string Path of the endpoint.
 ---@param opts? codeview.gh.ApiOpts
 ---@param cb? fun(items: any[]?, err: codeview.Error?) Callback for the async form.
@@ -469,6 +473,7 @@ function M.api_list(path, opts, cb)
     end
     for _, item in ipairs(value) do
       if max and #items >= max then
+        items.truncated = true
         return false
       end
       items[#items + 1] = item
@@ -492,6 +497,7 @@ function M.api_list(path, opts, cb)
         return items, nil
       end
     end
+    items.truncated = true
     return items, nil
   end
 
@@ -499,6 +505,7 @@ function M.api_list(path, opts, cb)
   local function step()
     page = page + 1
     if page > max_pages then
+      items.truncated = true
       cb(items, nil)
       return
     end

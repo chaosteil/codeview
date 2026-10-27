@@ -83,6 +83,59 @@ describe("codeview.remote", function()
       assert.is_nil(remote.anchor({ side = "RIGHT" }))
       assert.is_nil(remote.anchor("not a table"))
     end)
+
+    it("keeps the last line of a range that starts on the other side", function()
+      local anchor = assert(remote.anchor({ line = 12, start_line = 40, start_side = "LEFT", side = "RIGHT" }))
+      assert.are.equal("new", anchor.side)
+      assert.are.equal(12, anchor.start_line)
+      assert.are.equal(12, anchor.end_line)
+      assert.is_true(anchor.anchored)
+    end)
+
+    it("keeps a range that starts on the same side", function()
+      local anchor = assert(remote.anchor({ line = 40, start_line = 35, start_side = "LEFT", side = "LEFT" }))
+      assert.are.equal("old", anchor.side)
+      assert.are.equal(35, anchor.start_line)
+      assert.are.equal(40, anchor.end_line)
+    end)
+
+    it("leaves an outdated comment unanchored with the lines of its hunk", function()
+      local anchor = assert(remote.anchor({
+        side = "RIGHT",
+        original_line = 3,
+        diff_hunk = "@@ -1,3 +1,3 @@\n one\n-two\n+two changed\n three",
+      }))
+      assert.is_true(anchor.outdated)
+      assert.is_false(anchor.anchored)
+      assert.are.equal(3, anchor.end_line)
+      assert.are.same({ "one", "two changed", "three" }, anchor.hunk)
+    end)
+  end)
+
+  describe("hunk_lines", function()
+    local hunk = "@@ -1,6 +1,6 @@\n a\n b\n c\n d\n-e\n+e changed\n f"
+
+    it("keeps the commented lines and the lines above them", function()
+      assert.are.same({ "c", "d", "e changed", "f" }, remote.hunk_lines(hunk, "new", 1))
+      assert.are.same({ "b", "c", "d", "e changed", "f" }, remote.hunk_lines(hunk, "new", 2))
+      assert.are.same({ "c", "d", "e", "f" }, remote.hunk_lines(hunk, "old", 1))
+    end)
+
+    it("answers no line without a hunk header", function()
+      assert.are.same({}, remote.hunk_lines("no hunk", "new", 1))
+    end)
+  end)
+
+  describe("locate", function()
+    it("finds the one place of the lines", function()
+      assert.are.equal(4, remote.locate({ "b", "c" }, { "a", "x", "b", "c", "d" }))
+    end)
+
+    it("answers nothing for no match or for two matches", function()
+      assert.is_nil(remote.locate({ "b", "z" }, { "a", "b", "c" }))
+      assert.is_nil(remote.locate({ "b" }, { "b", "a", "b" }))
+      assert.is_nil(remote.locate({}, { "a" }))
+    end)
   end)
 
   describe("parse", function()
@@ -177,6 +230,84 @@ describe("codeview.remote", function()
       local comments, err = remote.fetch({ repo = "", number = 12 })
       assert.is_nil(comments)
       assert.are.equal("invalid_arg", err.code)
+    end)
+
+    describe("with a gh stub", function()
+      ---@type string[][]
+      local calls
+
+      before_each(function()
+        calls = {}
+        local gh = require("codeview.gh")
+        gh.available = function() ---@diagnostic disable-line: duplicate-set-field
+          return true
+        end
+        -- Every page is full, so the fetch only stops at a limit.
+        require("codeview.exec").capture = function(cmd, _, cb) ---@diagnostic disable-line: duplicate-set-field
+          calls[#calls + 1] = cmd
+          local page = tonumber(cmd[3]:match("[?&]page=(%d+)"))
+          local per_page = tonumber(cmd[3]:match("per_page=(%d+)"))
+          local entries = {}
+          for index = 1, per_page do
+            entries[index] = { id = page * 1000 + index, path = "a.lua", line = index, side = "RIGHT", body = "one" }
+          end
+          local result = {
+            command = cmd,
+            code = 0,
+            signal = 0,
+            stdout = vim.json.encode(entries),
+            stderr = "",
+          }
+          if cb then
+            vim.schedule(function()
+              cb(result, nil)
+            end)
+            return nil, nil
+          end
+          return result, nil
+        end
+      end)
+
+      it("names the host of the pull request", function()
+        assert(remote.fetch({ repo = "team/app", number = 7, max = 1, host = "github.acme.com" }))
+        local at = assert(vim.iter(ipairs(calls[1])):find(function(_, arg)
+          return arg == "--hostname"
+        end))
+        assert.are.equal("github.acme.com", calls[1][at + 1])
+      end)
+
+      it("marks a fetch that stops at the limit", function()
+        local comments = assert(remote.fetch({ repo = "ada/demo", number = 12, max = 3 }))
+        assert.are.equal(3, #comments)
+        assert.is_true(comments.truncated)
+      end)
+
+      it("warns once when the fetch stops at the limit", function()
+        local seen = {}
+        local notify = vim.notify
+        vim.notify = function(msg, level) ---@diagnostic disable-line: duplicate-set-field
+          seen[#seen + 1] = { msg = msg, level = level }
+        end
+        local finished = false
+        local session = {
+          id = 999,
+          is_active = function()
+            return false
+          end,
+        }
+        remote.load(session --[[@as codeview.Session]], { repo = "ada/demo", number = 12, max = 3 }, function()
+          finished = true
+        end)
+        local ok = vim.wait(5000, function()
+          return finished
+        end, 5)
+        vim.notify = notify
+
+        assert.is_true(ok)
+        assert.are.equal(1, #seen)
+        assert.are.equal(vim.log.levels.WARN, seen[1].level)
+        assert.is_truthy(seen[1].msg:find("oldest 3", 1, true), seen[1].msg)
+      end)
     end)
   end)
 end)
@@ -377,6 +508,56 @@ describe("codeview.remote in the review", function()
     local details = marks(state.buf)[1][4]
     assert.are.equal("CodeViewRemoteOutdated", details.sign_hl_group)
     assert.is_truthy(details.virt_lines[1][1][1]:find("outdated", 1, true))
+  end)
+
+  it("draws an outdated comment where the current file holds its lines", function()
+    local review = open_session()
+    remote.attach(
+      review,
+      remote.parse({
+        {
+          id = 601,
+          path = "call.lua",
+          side = "RIGHT",
+          original_line = 9,
+          body = "an older push",
+          diff_hunk = "@@ -1,2 +1,2 @@\n local a = call(one, two)\n-local b = 1\n+local b = 22",
+        },
+      })
+    )
+    local state = open_diff("call.lua")
+
+    local found = marks(state.buf)
+    assert.are.equal(1, #found)
+    -- Row 4 of the render holds the new line 2, not the old line 9.
+    assert.are.equal(3, found[1][2])
+    assert.are.equal("CodeViewRemoteOutdated", found[1][4].sign_hl_group)
+    assert.are.equal(1, #remote.at(review, "call.lua", "new", 2))
+  end)
+
+  it("lists an outdated comment that the current file does not hold, without a mark", function()
+    local review = open_session()
+    remote.attach(
+      review,
+      remote.parse({
+        {
+          id = 602,
+          path = "call.lua",
+          side = "RIGHT",
+          original_line = 2,
+          body = "a line that is gone",
+          diff_hunk = "@@ -1,2 +1,2 @@\n local a = call(one, two)\n-local b = 1\n+local b = 99",
+        },
+      })
+    )
+    local state = open_diff("call.lua")
+
+    assert.are.equal(0, #marks(state.buf))
+    assert.are.equal(0, #remote.at(review, "call.lua", "new", 2))
+    assert.are.equal(1, #remote.list(review))
+    local count, hidden = remote.decorate(state)
+    assert.are.equal(0, count)
+    assert.are.equal(1, hidden)
   end)
 
   it("draws the comments that arrive after the file is open", function()
