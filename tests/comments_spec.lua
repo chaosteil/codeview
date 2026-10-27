@@ -914,6 +914,28 @@ describe("codeview.comments", function()
       )
     end)
 
+    it("opens the float for a comment of another file", function()
+      open_tail()
+      local comment = comment_on(7, "a tail note")
+      local review = assert(opened)
+      local state = assert(view.open(review, assert(review:index_of("call.lua"))))
+      api.nvim_set_current_win(state.win)
+      local rows = api.nvim_buf_line_count(state.buf)
+
+      -- The comment overview edits by id, while the diff shows another file.
+      assert.is_true(comments.edit({ id = comment.id, session = review }))
+      local ed = assert(editor.current())
+      assert.are.equal("float", ed.style)
+      assert.are.equal("editor", api.nvim_win_get_config(ed.win).relative)
+      assert.is_nil(comments.editing)
+      local ns = api.nvim_create_namespace("codeview.editor")
+      assert.are.equal(0, #api.nvim_buf_get_extmarks(state.buf, ns, 0, -1, {}))
+      assert.are.equal(rows, api.nvim_buf_line_count(state.buf))
+
+      write_comment("a changed tail note")
+      assert.are.equal("a changed tail note", assert(comments.store()).comments[1].body)
+    end)
+
     it("reports no comment under the cursor", function()
       local state = open_diff()
       api.nvim_win_set_cursor(state.win, { 5, 0 })

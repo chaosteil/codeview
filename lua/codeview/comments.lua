@@ -760,12 +760,13 @@ end
 ---
 --- The editor opens under the last row of the comment. A comment that the
 --- render hides, or an action from the overview without a diff view, gives no
---- anchor. The editor then opens the float instead.
+--- anchor. A view of another file gives no anchor too. The editor then opens
+--- the float instead.
 ---@param view codeview.view.State?
 ---@param comment codeview.store.Comment
 ---@return codeview.editor.Anchor? anchor
 local function comment_anchor(view, comment)
-  if not view then
+  if not view or view.path ~= comment.file then
     return nil
   end
   local rows, buf = M.rows(view, comment)
