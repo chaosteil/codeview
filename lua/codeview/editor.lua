@@ -346,6 +346,28 @@ local function window_config(style, anchor)
   }
 end
 
+---Handle the close of the window that an inline editor sits on.
+---
+--- The editor closes with the window. When the editor holds a change, the
+--- call asks first. "No" keeps the editor. The spacer then goes away, and the
+--- editor moves to the float, because its window is gone.
+---@param editor codeview.editor.State
+local function anchor_closed(editor)
+  if editor.done or state ~= editor then
+    return
+  end
+  if may_discard(editor) then
+    M.cancel()
+    return
+  end
+  M.clear_spacer(editor)
+  editor.anchor = nil
+  editor.style = "float"
+  if api.nvim_win_is_valid(editor.win) then
+    pcall(api.nvim_win_set_config, editor.win, window_config("float"))
+  end
+end
+
 ---Set the buffer-local keymaps of the editor.
 ---
 --- `:w` also saves. It runs from the `BufWriteCmd` autocmd, not from a map, so
@@ -507,6 +529,16 @@ function M.open(opts)
       pcall(api.nvim_del_augroup_by_id, group)
     end,
   })
+  if style == "inline" then
+    api.nvim_create_autocmd("WinClosed", {
+      group = group,
+      pattern = tostring(anchor.win),
+      desc = "Close the codeview comment editor when its diff window closes",
+      callback = function()
+        anchor_closed(editor)
+      end,
+    })
+  end
 
   -- The cursor starts at the end of the text, so a reopen continues the note.
   local last = api.nvim_buf_line_count(buf)

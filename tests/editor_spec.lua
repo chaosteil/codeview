@@ -208,6 +208,66 @@ describe("codeview.editor", function()
       api.nvim_feedkeys(api.nvim_replace_termcodes(lhs, true, false, true), "x", false)
     end
 
+    ---Open an inline editor in a new split window.
+    ---@param on_cancel fun()?
+    ---@return integer diff Buffer under the editor.
+    ---@return integer host Window under the editor.
+    ---@return integer win Window of the editor.
+    local function open_in_split(on_cancel)
+      local diff = api.nvim_create_buf(false, true)
+      api.nvim_buf_set_lines(diff, 0, -1, false, { "one", "two", "three" })
+      vim.cmd("split")
+      local host = api.nvim_get_current_win()
+      api.nvim_win_set_buf(host, diff)
+      local _, win = editor.open({
+        on_save = function() end,
+        on_cancel = on_cancel,
+        anchor = { win = host, buf = diff, row = 2 },
+      })
+      assert.are.equal("inline", assert(editor.current()).style)
+      return diff, host, assert(win)
+    end
+
+    it("closes the editor with the window that it sits on", function()
+      local cancelled = false
+      local diff, host, win = open_in_split(function()
+        cancelled = true
+      end)
+      api.nvim_win_close(host, true)
+
+      assert.is_false(editor.is_open())
+      assert.is_false(api.nvim_win_is_valid(win))
+      assert.is_true(cancelled)
+      assert.are.equal(0, #api.nvim_buf_get_extmarks(diff, ns, 0, -1, {}))
+      api.nvim_buf_delete(diff, { force = true })
+    end)
+
+    it("asks before the window that it sits on takes a changed comment", function()
+      local diff, host, win = open_in_split()
+      api.nvim_buf_set_lines(api.nvim_win_get_buf(win), 0, -1, false, { "typed text" })
+
+      local calls = 0
+      local confirm = vim.fn.confirm
+      vim.fn.confirm = function()
+        calls = calls + 1
+        return 2
+      end
+      api.nvim_win_close(host, true)
+      vim.fn.confirm = confirm
+
+      -- "No" keeps the editor. It moves to the float, because the window
+      -- that it sat on is gone.
+      assert.are.equal(1, calls)
+      local ed = assert(editor.current())
+      assert.are.equal(win, ed.win)
+      assert.are.equal("float", ed.style)
+      assert.are.equal("editor", api.nvim_win_get_config(win).relative)
+      assert.are.equal("typed text", editor.body())
+      assert.are.equal(0, #api.nvim_buf_get_extmarks(diff, ns, 0, -1, {}))
+      editor.cancel()
+      api.nvim_buf_delete(diff, { force = true })
+    end)
+
     for _, case in ipairs({
       {
         name = ":q",
