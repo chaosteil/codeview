@@ -714,6 +714,10 @@ While the editor holds a comment, the diff drops the virtual lines of that
 comment and keeps its sign, because the editor shows the same text one row
 below the sign.
 
+A delete of the comment that the editor holds also closes the editor, without
+a question, because the delete asked one. The message "the open editor of this
+comment closed" reports it.
+
 The visual mode keeps `i` free, because `i` is the prefix of the text objects.
 `vi(` still selects a text object in the diff buffer. The maps are
 buffer-local. They never reach a file buffer of your own.
@@ -744,6 +748,11 @@ In the editor: >
 <
 An empty body counts as a discard. A close of the window without a write
 discards the comment too.
+
+One editor is open at a time. A second open, for example `o` on another line,
+replaces the editor. When the open editor holds typed text, the plugin first
+asks "Discard the comment?". "No" keeps that editor, and the second open does
+nothing.
 
 Each write of the editor buffer saves the comment. The save runs from the
 |BufWriteCmd| autocmd, so every command and key that writes the buffer saves
@@ -788,8 +797,13 @@ The `comments.editor` option selects where the editor opens: >
 The inline editor opens the diff at the commented row. The space comes from
 virtual lines, so the diff keeps its rows, keeps its line map, and stays
 read-only. The lines under the comment move down while you type, and they move
-back when you save or discard. A window that shows no diff row, for example an
-edit from the comment overview, opens the float instead.
+back when you save or discard. A window that shows no diff row opens the
+float instead, for example an edit from the comment overview. An edit of a
+comment of another file than the open diff opens the float too.
+
+When the window under the inline editor closes, the editor closes too. When it
+holds typed text, the plugin first asks "Discard the comment?". "No" keeps the
+editor and moves it to the float, because its window is gone.
 
 The editor starts in insert mode, after the last character of the text. Set
 `comments.start_insert` to false to start in normal mode.
@@ -1034,6 +1048,16 @@ line in the file at that commit. The side is "new" for an added line or for an
 unchanged line, and "old" for a removed line. A resolved comment holds the word
 "resolved" in its header.
 
+The path of a file heading is a code span, so a path with markdown in it, for
+example `pkg/__init__.py`, keeps its characters. An old-side comment on a
+renamed file also names the old path in its header, because its lines come
+from that file: >markdown
+
+    ### L4 · old · `lua/old_name.lua` · 9b2688a5
+<
+A body with a markdown heading line goes into a fenced block, so its lines
+cannot start a new section of the export. Every other body stays as it is.
+
 The files come in the order of the changed-files sidebar, and the comments of
 one file come in line order. A file with comments that the range does not
 change any more comes last, with the note "(outside the range)".
@@ -1097,6 +1121,7 @@ The data table holds these fields: >lua
     data.repo       -- absolute path of the repository root
     data.prompt     -- text under the title, from the export.prompt option
     data.files      -- files with comments, each with its comment list
+                    -- and `old_path`, the old path of a renamed file
     data.comments   -- every comment, in the order of the render
     data.count      -- number of comments
     data.resolved   -- number of resolved comments
