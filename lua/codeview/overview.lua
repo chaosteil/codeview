@@ -308,12 +308,20 @@ local function remote_comment_line(comment, width)
   if sign ~= "" then
     line.add(sign .. " ", comment.outdated and "CodeViewRemoteOutdated" or "CodeViewRemoteSign")
   end
-  line.add(range_text(comment), "CodeViewRemoteHeader")
-  line.add(" " .. comment.side, "CodeViewHint")
+  -- An outdated comment that no line of the current version holds keeps the
+  -- lines of an older version. Those numbers name other text now, so the line
+  -- shows none.
+  local unanchored = comment.anchored == false
+  if unanchored then
+    line.add(comment.side, "CodeViewHint")
+  else
+    line.add(range_text(comment), "CodeViewRemoteHeader")
+    line.add(" " .. comment.side, "CodeViewHint")
+  end
   if comment.author ~= "" then
     line.add(" @" .. comment.author, "CodeViewCount")
   end
-  if comment.outdated then
+  if comment.outdated or unanchored then
     line.add(" outdated", "CodeViewRemoteOutdated")
   end
 
@@ -602,7 +610,14 @@ function Overview:jump(comment, cb)
   ---@param state codeview.view.State?
   ---@param err codeview.Error?
   local function place(state, err)
-    if state and not view.go_to_line(comment.start_line, comment.side, { focus = true }) then
+    -- The render of the file looks for the lines of an outdated remote
+    -- comment. A comment that it did not find has no line to go to.
+    if state and comment.anchored == false then
+      err = errors.new(
+        errors.codes.NOT_FOUND,
+        string.format("the comment is outdated. The diff of %s holds none of its lines", comment.file)
+      )
+    elseif state and not view.go_to_line(comment.start_line, comment.side, { focus = true }) then
       err = errors.new(
         errors.codes.NOT_FOUND,
         string.format("the diff of %s holds no line %d", comment.file, comment.start_line)

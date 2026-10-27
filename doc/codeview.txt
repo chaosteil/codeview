@@ -1143,10 +1143,17 @@ A remote comment is read-only. The edit key, the delete key, and the resolve
 key report that and change nothing. `<CR>` on a remote comment opens its line
 in the diff, like a local comment.
 
-GitHub reports the position of a comment in three ways, and the mapping takes
-the first one that answers: the lines of the newest version of the diff, the
-lines of the version that the comment was written on, and the last line of the
-diff hunk. A comment that a later push moved shows the word "outdated".
+GitHub reports the lines of a comment in the newest version of the diff. A
+comment over lines of both sides keeps its last line only, because one anchor
+holds the lines of one side.
+
+A comment that a later push moved is outdated. GitHub then gives only the
+lines of an older version, and those lines can hold other text now. The diff
+looks for the last lines of the `diff_hunk` of the comment in the current
+file. With one clear match the comment shows on those lines, with the word
+"outdated". Without one, no row of the diff holds the comment. The overview
+lists it with the word "outdated" and without line numbers. `<CR>` on it opens
+the diff of the file, but moves the cursor to no line.
 
 A comment that a submit of this session sent lives on GitHub and in the
 session file. The review drops the copy of GitHub and keeps the local comment
