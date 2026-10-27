@@ -27,20 +27,6 @@ local api = vim.api
 
 local M = {}
 
----Status mark of each file status.
----@type table<codeview.vcs.Status, string>
-M.marks = {
-  added = "A",
-  modified = "M",
-  deleted = "D",
-  renamed = "R",
-  copied = "C",
-  typechanged = "T",
-  unmerged = "U",
-  message = "",
-  unknown = "?",
-}
-
 ---@class codeview.Sidebar
 ---@field session codeview.Session Session that the sidebar shows.
 ---@field panel codeview.Panel Window of the sidebar.
@@ -54,13 +40,6 @@ Sidebar.__index = Sidebar
 
 --- Lines ------------------------------------------------------------------
 
----Status mark of one status.
----@param status codeview.vcs.Status?
----@return string
-local function mark_of(status)
-  return M.marks[status] or M.marks.unknown
-end
-
 ---Text of the old path of a rename or a copy.
 ---
 --- A file that keeps its directory shows the old name only.
@@ -72,21 +51,6 @@ local function old_name(file)
     return vim.fs.basename(old)
   end
   return old
-end
-
----Count of the files and the commits of a session.
----@param session codeview.Session
----@return string
-local function counts(session)
-  -- The commit documents do not change the range, so they do not count.
-  local files, commits = session:changed_count(), #session.commits
-  return string.format(
-    "%d %s, %d %s",
-    files,
-    files == 1 and "file" or "files",
-    commits,
-    commits == 1 and "commit" or "commits"
-  )
 end
 
 ---Build the line of one tree node.
@@ -107,7 +71,7 @@ local function node_line(node, is_current)
     if not node.expanded then
       line.add(" ")
       for _, status in ipairs(node.statuses) do
-        line.add(mark_of(status), highlight.for_status(status))
+        line.add(tree.mark(status), highlight.for_status(status))
       end
     end
     return line.build({ data = node })
@@ -121,7 +85,7 @@ local function node_line(node, is_current)
   if file.old_path then
     line.add(" ← " .. old_name(file), "CodeViewDir")
   end
-  local mark = mark_of(file.status)
+  local mark = tree.mark(file.status)
   if mark ~= "" then
     line.add(" ")
     line.add(mark, group)
@@ -162,7 +126,7 @@ local function render_lines(self)
   ---@type codeview.panel.Line[]
   local lines = {
     { text = session:label(), hl = "CodeViewTitle" },
-    { text = counts(session), hl = "CodeViewCount" },
+    { text = session:counts(), hl = "CodeViewCount" },
     { text = "" },
   }
 
@@ -289,29 +253,6 @@ function Sidebar:set_current(index)
   end
 end
 
----Position of one entry after a reload of the session.
----
---- The reload can add a file to the range and remove another one, so an entry
---- can move to another position. The path answers first. The document of the
---- working-copy commit takes the id of the new commit, so the list does not
---- hold its old path any more. Its position stays, because the range holds
---- the same commits.
----@param session codeview.Session
----@param file codeview.vcs.FileChange Entry before the reload.
----@param index integer Position before the reload.
----@return integer? index Nil when the range does not hold the entry any more.
-local function position_of(session, file, index)
-  local found = session:index_of(file.path)
-  if found then
-    return found
-  end
-  if file.virtual then
-    local entry = session:file(index)
-    return entry and entry.virtual and index or nil
-  end
-  return nil
-end
-
 ---Show one changed file in the diff view.
 ---
 --- A review of the working-copy commit reads its data again first, so the
@@ -337,7 +278,7 @@ function Sidebar:open_file(index, cb)
 
   ---Open the entry at its position after the reload.
   local function arrive()
-    local at = position_of(session, file, index)
+    local at = session:position_of(file, index)
     if not at then
       answer(nil, errors.new(errors.codes.NOT_FOUND, "the range does not change " .. file.path))
       return

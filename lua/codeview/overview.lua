@@ -139,17 +139,6 @@ local function fit(text, width)
   return out .. "…"
 end
 
----Short form of a commit id.
----@param rev string?
----@return string
-local function short(rev)
-  rev = rev or ""
-  if #rev >= 12 and rev:match("^%x+$") then
-    return rev:sub(1, 7)
-  end
-  return rev
-end
-
 ---Text of the line range of a comment.
 ---@param comment codeview.store.Comment
 ---@return string
@@ -231,7 +220,7 @@ local function comment_line(item, depth, width)
   end
   line.add(range_text(comment), resolved and "CodeViewComment" or "CodeViewCommentHeader")
   line.add(" " .. comment.side, "CodeViewHint")
-  local rev = short(comment.commit)
+  local rev = util.short(comment.commit)
   if rev ~= "" then
     line.add(" " .. rev, "CodeViewCount")
   end

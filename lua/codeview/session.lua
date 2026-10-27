@@ -388,10 +388,18 @@ end
 ---One line with the range, the file count, and the commit count.
 ---@return string
 function Session:summary()
+  return self:label() .. ": " .. self:counts()
+end
+
+---Text with the file count and the commit count.
+---
+--- The commit documents do not change the range, so they do not count. See
+--- |codeview.Session:changed_count()|.
+---@return string
+function Session:counts()
   local count = self:changed_count()
   return string.format(
-    "%s: %d %s, %d %s",
-    self:label(),
+    "%d %s, %d %s",
     count,
     count == 1 and "file" or "files",
     #self.commits,
@@ -435,6 +443,28 @@ function Session:index_of(path)
     if file.path == path then
       return index
     end
+  end
+  return nil
+end
+
+---Position of one entry after a refresh or a reload of the session.
+---
+--- The new data can add a file to the range and remove another one, so an
+--- entry can move to another position. The path answers first. The document
+--- of a commit takes the id of that commit in its path, so a snapshot of the
+--- working copy gives it a new path. Its position stays, because the range
+--- holds the same commits.
+---@param entry { path: string, virtual: boolean? } Entry before the new data.
+---@param index integer Position of the entry before the new data.
+---@return integer? index Nil when the range does not hold the entry any more.
+function Session:position_of(entry, index)
+  local found = self:index_of(entry.path)
+  if found then
+    return found
+  end
+  if entry.virtual then
+    local file = self:file(index)
+    return file and file.virtual and index or nil
   end
   return nil
 end

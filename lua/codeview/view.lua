@@ -1488,26 +1488,6 @@ local function open_state(view)
   }
 end
 
----Position of the open file after the refresh.
----
---- The path answers first. The document of a commit takes the id of that
---- commit in its path, so a snapshot of the working copy gives it a new path.
---- Its position stays, because the range holds the same commits.
----@param session codeview.Session
----@param before codeview.view.Open
----@return integer? index Nil when the range does not hold the file any more.
-local function position_after(session, before)
-  local found = session:index_of(before.path)
-  if found then
-    return found
-  end
-  if before.virtual then
-    local entry = session:file(before.index)
-    return entry and entry.virtual and before.index or nil
-  end
-  return nil
-end
-
 ---Read the review again from the repository.
 ---
 --- The call resolves the range of the session again, so the review follows a
@@ -1551,7 +1531,7 @@ function M.refresh(opts, cb)
       return done(cb, true)
     end
 
-    local index = position_after(session, before)
+    local index = session:position_of(before, before.index)
     if not index then
       notify("the range does not change " .. before.path .. " any more")
       M.close()

@@ -23,6 +23,7 @@
 --- none.
 
 local errors = require("codeview.error")
+local tree = require("codeview.tree")
 
 local M = {}
 
@@ -204,14 +205,6 @@ end
 
 --- Document ---------------------------------------------------------------
 
----Status mark of one changed file, for the file list of a commit.
----@param status codeview.vcs.Status?
----@return string
-local function mark_of(status)
-  local marks = require("codeview.sidebar").marks
-  return marks[status] or marks.unknown
-end
-
 ---Lines of the header and the message of a commit.
 ---@param commit codeview.vcs.Commit
 ---@return string[]
@@ -248,7 +241,7 @@ local function file_lines(files)
   lines[#lines + 1] = string.format("%d changed %s:", #files, #files == 1 and "file" or "files")
   lines[#lines + 1] = ""
   for _, file in ipairs(files) do
-    local text = string.format("    %s  %s", mark_of(file.status), file.path)
+    local text = string.format("    %s  %s", tree.mark(file.status), file.path)
     if file.old_path then
       text = text .. " ← " .. file.old_path
     end

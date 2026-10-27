@@ -20,7 +20,7 @@ describe("codeview.overview", function()
   ---Short commit id of the new side, as the overview shows it.
   ---@return string
   local function rev()
-    return fixture.ids.change:sub(1, 7)
+    return fixture.ids.change:sub(1, 8)
   end
 
   ---Wait until a check answers true.

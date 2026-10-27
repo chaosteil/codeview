@@ -11,8 +11,32 @@
 --- The children of a node come in one order: directories first, then files,
 --- both by name. |codeview.tree.order()| gives the same order as a flat list
 --- of positions, for the next-file and previous-file keys.
+---
+--- The module also holds the status mark of each file status. The sidebar and
+--- the commit documents of |codeview.message| show the same marks.
 
 local M = {}
+
+---Status mark of each file status.
+---@type table<codeview.vcs.Status, string>
+M.marks = {
+  added = "A",
+  modified = "M",
+  deleted = "D",
+  renamed = "R",
+  copied = "C",
+  typechanged = "T",
+  unmerged = "U",
+  message = "",
+  unknown = "?",
+}
+
+---Status mark of one status.
+---@param status codeview.vcs.Status? Status of a file. An unknown status gives the mark of `unknown`.
+---@return string mark
+function M.mark(status)
+  return M.marks[status] or M.marks.unknown
+end
 
 ---Order of the statuses of a directory node.
 ---@type codeview.vcs.Status[]
