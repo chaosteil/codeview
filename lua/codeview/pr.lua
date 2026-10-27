@@ -576,16 +576,16 @@ function M.open(number, opts, cb)
   end
 
   step(function(step_cb)
-    detect(opts.dir, step_cb)
+    return detect(opts.dir, step_cb)
   end, "repo")
   step(function(step_cb)
-    M.view(number, { dir = opts.dir, repo = opts.repo }, step_cb)
+    return M.view(number, { dir = opts.dir, repo = opts.repo }, step_cb)
   end, "info")
   step(function(step_cb)
-    M.fetch(state.repo.root, state.info, { remote = opts.remote }, step_cb)
+    return M.fetch(state.repo.root, state.info, { remote = opts.remote }, step_cb)
   end, "refs")
   step(function(step_cb)
-    M.range(state.repo, state.info, step_cb)
+    return M.range(state.repo, state.info, step_cb)
   end, "range")
 
   ---Open the session, after every call gave its answer.
