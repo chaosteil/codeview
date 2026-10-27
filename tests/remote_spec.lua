@@ -639,6 +639,7 @@ describe("codeview.remote in the review", function()
     assert.is_true(bar.panel:set_cursor(lnum))
 
     local seen = {}
+    require("codeview.config").setup({ log_level = vim.log.levels.INFO })
     local notify = vim.notify
     vim.notify = function(msg) ---@diagnostic disable-line: duplicate-set-field
       seen[#seen + 1] = msg

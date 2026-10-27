@@ -19,6 +19,7 @@
 
 local config = require("codeview.config")
 local errors = require("codeview.error")
+local notify = require("codeview.notify")
 local util = require("codeview.util")
 
 local api = vim.api
@@ -158,7 +159,7 @@ function M.check(session, cb)
       err = err or errors.new(errors.codes.COMMAND_FAILED, "the range call gave no answer")
       if mine and state == held and not held.quiet then
         held.quiet = true
-        vim.notify("codeview: the watcher cannot read the range: " .. tostring(err), vim.log.levels.WARN)
+        notify.warn("the watcher cannot read the range: " .. tostring(err))
       end
       return finish(nil, err)
     end

@@ -36,6 +36,7 @@ local export = require("codeview.export")
 local message = require("codeview.message")
 local events = require("codeview.events")
 local highlight = require("codeview.highlight")
+local notify = require("codeview.notify")
 local panel = require("codeview.panel")
 local store_mod = require("codeview.store")
 local tree = require("codeview.tree")
@@ -460,7 +461,7 @@ end
 ---Report an error of an action of the overview.
 ---@param err codeview.Error|string
 local function report(err)
-  vim.notify("codeview: " .. tostring(err), vim.log.levels.INFO)
+  notify.info(tostring(err))
 end
 
 ---Render the overview again.

@@ -19,6 +19,7 @@
 local config = require("codeview.config")
 local errors = require("codeview.error")
 local export = require("codeview.export")
+local notify = require("codeview.notify")
 local overview = require("codeview.overview")
 local picker = require("codeview.picker")
 local session = require("codeview.session")
@@ -51,7 +52,7 @@ local M = {}
 ---Report an error to the user.
 ---@param err codeview.Error
 local function report(err)
-  vim.notify("codeview: " .. tostring(err), vim.log.levels.ERROR)
+  notify.error(tostring(err))
 end
 
 ---Handle the answer of an open call.
@@ -191,7 +192,7 @@ end
 ---Run `:Codeview close`.
 function M.close()
   if not session.close() then
-    vim.notify("codeview: no review session", vim.log.levels.WARN)
+    notify.warn("no review session")
   end
 end
 

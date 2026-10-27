@@ -139,8 +139,10 @@ keeps its own indexes.
 
 - `config.setup()` returns a plain message string, because it runs before the
   error module is useful.
-- Show an error to the user with `vim.notify` and a `vim.log.levels` value.
-  Respect `config.get().log_level`.
+- Show a message to the user with `require("codeview.notify")`, not with
+  `vim.notify` itself. The wrapper adds the "codeview: " prefix and drops a
+  message below `config.get().log_level`. Only `config.lua`,
+  `plugin/codeview.lua`, and `events.lua` call `vim.notify` directly.
 
 ### Asynchronous work
 

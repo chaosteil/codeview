@@ -35,6 +35,7 @@ local errors = require("codeview.error")
 local events = require("codeview.events")
 local gh = require("codeview.gh")
 local highlight = require("codeview.highlight")
+local notify = require("codeview.notify")
 local mapper = require("codeview.position")
 local util = require("codeview.util")
 
@@ -503,7 +504,7 @@ function M.load(session, opts, cb)
   if repo == "" or type(number) ~= "number" then
     local err = errors.new(errors.codes.INVALID_ARG, "the session does not review a pull request")
     if not opts.silent then
-      vim.notify("codeview: cannot read the review comments: " .. tostring(err), vim.log.levels.WARN)
+      notify.warn("cannot read the review comments: " .. tostring(err))
     end
     if cb then
       cb(nil, err)
@@ -514,7 +515,7 @@ function M.load(session, opts, cb)
   M.fetch({ repo = repo, number = number, max = opts.max, dir = opts.dir, host = host }, function(comments, err)
     if not comments then
       if not opts.silent then
-        vim.notify("codeview: cannot read the review comments: " .. tostring(err), vim.log.levels.WARN)
+        notify.warn("cannot read the review comments: " .. tostring(err))
       end
       if cb then
         cb(nil, err)
@@ -522,13 +523,12 @@ function M.load(session, opts, cb)
       return
     end
     if comments.truncated and not opts.silent then
-      vim.notify(
+      notify.warn(
         string.format(
-          "codeview: the pull request holds more review comments than the fetch reads. "
+          "the pull request holds more review comments than the fetch reads. "
             .. "The review shows the oldest %d. Raise github.max_comments to read more",
           #comments
-        ),
-        vim.log.levels.WARN
+        )
       )
     end
     if session:is_active() then

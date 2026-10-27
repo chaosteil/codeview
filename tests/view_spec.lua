@@ -762,7 +762,11 @@ describe("codeview.view", function()
 
     before_each(function()
       -- The key is the only actor here, so the watcher stays off.
-      require("codeview.config").setup({ commit_message = false, auto_refresh = false })
+      require("codeview.config").setup({
+        commit_message = false,
+        auto_refresh = false,
+        log_level = vim.log.levels.INFO,
+      })
       messages = {}
       notify = vim.notify
       ---@diagnostic disable-next-line: duplicate-set-field

@@ -1687,9 +1687,13 @@ Defaults: >lua
         editor_cancel = { "q", "<Esc><Esc>" },
         close = "q",
       },
-      log_level = vim.log.levels.WARN,
+      log_level = vim.log.levels.WARN, -- lowest level of a message
     }
 <
+The plugin shows a message only when its level is `log_level` or higher. The
+default WARN shows warnings and errors. Set `vim.log.levels.INFO` to also see
+the reports of a successful action, for example of a submit or an export.
+
 Set a keymap to false to disable it. A list holds more than one key for one
 action, and a list from you replaces the default list. setup() rejects an
 unknown key, and reports the name of the key. |codeview-keymaps| lists every

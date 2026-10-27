@@ -15,6 +15,7 @@
 --- first, and "No" keeps it.
 
 local config = require("codeview.config")
+local notify = require("codeview.notify")
 
 local api = vim.api
 
@@ -231,12 +232,12 @@ function M.send()
     return false
   end
   if not editor.on_send then
-    vim.notify("codeview: this comment has no pull request to go to", vim.log.levels.WARN)
+    notify.warn("this comment has no pull request to go to")
     return false
   end
   local body = M.body() or ""
   if body == "" then
-    vim.notify("codeview: the comment is empty", vim.log.levels.WARN)
+    notify.warn("the comment is empty")
     return false
   end
   editor.done = true

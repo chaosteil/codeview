@@ -55,6 +55,7 @@
 local errors = require("codeview.error")
 local events = require("codeview.events")
 local gh = require("codeview.gh")
+local notify = require("codeview.notify")
 local mapper = require("codeview.position")
 local session_mod = require("codeview.session")
 local store_mod = require("codeview.store")
@@ -144,13 +145,6 @@ M.diff_opts = mapper.diff_opts
 ---Sessions with a submit or a send that runs, by session id.
 ---@type table<integer, boolean>
 local busy = {}
-
----Report a message of the submit flow.
----@param message string
----@param level integer? A `vim.log.levels` value. INFO by default.
-local function notify(message, level)
-  vim.notify("codeview: " .. message, level or vim.log.levels.INFO)
-end
 
 ---Text of an error, with every line that the server sent.
 ---
@@ -934,9 +928,8 @@ end
 ---@param err codeview.Error
 ---@param what string Text that names what went to GitHub.
 local function report_save(err, what)
-  notify(
-    what .. " is on GitHub, but the session file did not change: " .. tostring(err) .. ". Do not send it again",
-    vim.log.levels.ERROR
+  notify.error(
+    what .. " is on GitHub, but the session file did not change: " .. tostring(err) .. ". Do not send it again"
   )
 end
 
@@ -968,7 +961,7 @@ function M.run(opts, cb)
       key = nil
     end
     if err and loud then
-      notify(M.error_text(err), vim.log.levels.ERROR)
+      notify.error(M.error_text(err))
     end
     if cb then
       -- An early exit runs on the stack of the caller. `done` sends every
@@ -996,7 +989,7 @@ function M.run(opts, cb)
       lines[#lines + 1] =
         string.format("  %s %s: %s", skipped.comment.file, lines_text(skipped.comment), skipped.reason)
     end
-    notify(table.concat(lines, "\n"), vim.log.levels.WARN)
+    notify.warn(table.concat(lines, "\n"))
   end
 
   ---Change the text of every edited comment on GitHub, one after the other.
@@ -1054,7 +1047,7 @@ function M.run(opts, cb)
             comment_count(count)
           )
         end
-        notify(url ~= "" and (message .. ": " .. url) or message)
+        notify.info(url ~= "" and (message .. ": " .. url) or message)
       end
       report_skipped(plan)
       if edit_err then
@@ -1129,7 +1122,7 @@ function M.run(opts, cb)
         elseif plan.synced > 0 then
           reason = "every comment went to the pull request already"
         end
-        notify(reason)
+        notify.info(reason)
       end
       report_skipped(plan)
       finish({ posted = 0, skipped = #plan.skipped, cancelled = true, review = nil, url = "" }, nil)
@@ -1146,7 +1139,7 @@ function M.run(opts, cb)
       M.confirm(plan, function(ok)
         if not ok then
           if loud then
-            notify("you canceled the submit. Nothing went to GitHub")
+            notify.info("you canceled the submit. Nothing went to GitHub")
           end
           finish({ posted = 0, skipped = #plan.skipped, cancelled = true, review = nil, url = "" }, nil)
           return
@@ -1220,7 +1213,7 @@ function M.send(opts, cb)
       key = nil
     end
     if err and loud then
-      notify(M.error_text(err), vim.log.levels.ERROR)
+      notify.error(M.error_text(err))
     end
     if cb then
       -- An early exit runs on the stack of the caller. `done` sends every
@@ -1246,7 +1239,7 @@ function M.send(opts, cb)
   end
   if store_mod.is_synced(comment) then
     if loud then
-      notify("the comment went to the pull request already")
+      notify.info("the comment went to the pull request already")
     end
     finish({ posted = 0, skipped = 0, cancelled = true, review = nil, url = "" }, nil)
     return
@@ -1289,7 +1282,7 @@ function M.send(opts, cb)
       if loud then
         local message = method == "PATCH" and string.format("the new text went to PR #%d", info.number)
           or string.format("the comment went to PR #%d", info.number)
-        notify(url ~= "" and (message .. ": " .. url) or message)
+        notify.info(url ~= "" and (message .. ": " .. url) or message)
       end
       finish({ posted = 1, skipped = 0, cancelled = false, review = answer, url = url }, nil)
     end)

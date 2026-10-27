@@ -59,6 +59,7 @@ local comments_mod = require("codeview.comments")
 local config = require("codeview.config")
 local errors = require("codeview.error")
 local fsutil = require("codeview.fsutil")
+local notify = require("codeview.notify")
 local panel = require("codeview.panel")
 local session_mod = require("codeview.session")
 local tree = require("codeview.tree")
@@ -105,13 +106,6 @@ local M = {}
 ---@field buf integer? Scratch buffer with the text.
 ---@field win integer? Window of the scratch buffer.
 ---@field file string? File that holds the text. Nil without a file.
-
----Report a message of the export.
----@param message string
----@param level integer? A `vim.log.levels` value. INFO by default.
-local function notify(message, level)
-  vim.notify("codeview: " .. message, level or vim.log.levels.INFO)
-end
 
 --- Data ------------------------------------------------------------------------
 
@@ -363,11 +357,11 @@ local function apply_template(data)
   end
   local ok, text = pcall(template, data.session, data)
   if not ok then
-    notify("the export template failed: " .. tostring(text), vim.log.levels.WARN)
+    notify.warn("the export template failed: " .. tostring(text))
     return M.markdown(data)
   end
   if type(text) ~= "string" then
-    notify("the export template gave " .. type(text) .. ", not a string", vim.log.levels.WARN)
+    notify.warn("the export template gave " .. type(text) .. ", not a string")
     return M.markdown(data)
   end
   return text
@@ -542,12 +536,12 @@ function M.run(opts)
   if type(register) == "string" and register ~= "" then
     if not is_register(register) then
       if opts.notify ~= false then
-        notify("not a register name: " .. register, vim.log.levels.WARN)
+        notify.warn("not a register name: " .. register)
       end
     elseif to_register(register, text) then
       result.register = register
     elseif opts.notify ~= false then
-      notify("cannot write the register " .. register, vim.log.levels.WARN)
+      notify.warn("cannot write the register " .. register)
     end
   end
 
@@ -560,7 +554,7 @@ function M.run(opts)
     if result.register then
       message = message .. " in the register " .. result.register
     end
-    notify(message)
+    notify.info(message)
   end
   return result, nil
 end

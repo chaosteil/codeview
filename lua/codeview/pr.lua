@@ -34,6 +34,7 @@ local config = require("codeview.config")
 local errors = require("codeview.error")
 local exec = require("codeview.exec")
 local gh = require("codeview.gh")
+local notify = require("codeview.notify")
 local git_backend = require("codeview.vcs.git")
 local session_mod = require("codeview.session")
 local util = require("codeview.util")
@@ -795,7 +796,7 @@ function M.open(number, opts, cb)
     local info = state.info --[[@as codeview.pr.Info]]
     local refs = state.refs --[[@as codeview.pr.Refs]]
     if refs.warning then
-      vim.notify("codeview: " .. refs.warning, vim.log.levels.WARN)
+      notify.warn(refs.warning)
     end
     local open_opts = {
       repo = state.repo,

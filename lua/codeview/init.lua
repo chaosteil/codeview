@@ -11,6 +11,7 @@
 --- session or a view state. Read only the documented fields of such a table.
 
 local config = require("codeview.config")
+local notify = require("codeview.notify")
 
 local M = {}
 
@@ -32,7 +33,7 @@ M.did_setup = false
 function M.setup(opts)
   local merged, err = config.setup(opts)
   if err then
-    vim.notify("codeview: " .. err, vim.log.levels.ERROR)
+    notify.error(err)
     return nil, err
   end
   M.did_setup = true

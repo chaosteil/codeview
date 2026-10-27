@@ -28,6 +28,7 @@ local config = require("codeview.config")
 local errors = require("codeview.error")
 local events = require("codeview.events")
 local marks = require("codeview.marks")
+local notify = require("codeview.notify")
 local store_mod = require("codeview.store")
 
 local api = vim.api
@@ -41,13 +42,6 @@ M.ns = marks.ns
 ---Store of each open session, by session id.
 ---@type table<integer, codeview.store.Store>
 local stores = {}
-
----Report a message of the comment flow.
----@param text string
----@param level integer? A `vim.log.levels` value. INFO by default.
-local function notify(text, level)
-  vim.notify("codeview: " .. text, level or vim.log.levels.INFO)
-end
 
 --- Store ------------------------------------------------------------------------
 
@@ -195,7 +189,7 @@ end
 local function persist(store)
   local ok, err = store:save()
   if not ok then
-    notify(tostring(err), vim.log.levels.ERROR)
+    notify.error(tostring(err))
   end
   return ok
 end
@@ -300,17 +294,17 @@ function M.add(opts)
   opts = opts or {}
   local view = opts.view or require("codeview.view").current()
   if not view then
-    notify("no diff view", vim.log.levels.WARN)
+    notify.warn("no diff view")
     return false
   end
   local store, err = M.store(view.session)
   if not store then
-    notify(tostring(err), vim.log.levels.ERROR)
+    notify.error(tostring(err))
     return false
   end
   local target = M.target(view, opts)
   if not target then
-    notify("this row holds no line of the file", vim.log.levels.WARN)
+    notify.warn("this row holds no line of the file")
     return false
   end
 
@@ -322,7 +316,7 @@ function M.add(opts)
     -- while the editor is open drops its store.
     local live, live_err = M.store(view.session)
     if not live then
-      notify(tostring(live_err), vim.log.levels.ERROR)
+      notify.error(tostring(live_err))
       return nil
     end
     local comment, add_err = live:add({
@@ -334,7 +328,7 @@ function M.add(opts)
       body = body,
     })
     if not comment then
-      notify(tostring(add_err), vim.log.levels.ERROR)
+      notify.error(tostring(add_err))
       return nil
     end
     persist(live)
@@ -418,14 +412,14 @@ function M.edit(opts)
   opts = opts or {}
   local ctx, ctx_err = context(opts)
   if not ctx then
-    notify(tostring(ctx_err), vim.log.levels.WARN)
+    notify.warn(tostring(ctx_err))
     return false
   end
   local session = ctx.session
 
   local comment = pick(ctx, opts)
   if not comment then
-    notify(nothing_here(ctx), vim.log.levels.WARN)
+    notify.warn(nothing_here(ctx))
     return false
   end
 
@@ -451,12 +445,12 @@ function M.edit(opts)
     -- while the editor is open drops its store.
     local live, live_err = M.store(session)
     if not live then
-      notify(tostring(live_err), vim.log.levels.ERROR)
+      notify.error(tostring(live_err))
       return nil
     end
     local changed, err = live:update(comment.id, { body = body })
     if not changed then
-      notify(tostring(err), vim.log.levels.ERROR)
+      notify.error(tostring(err))
       return nil
     end
     persist(live)
@@ -522,14 +516,14 @@ function M.remove(opts)
   opts = opts or {}
   local ctx, ctx_err = context(opts)
   if not ctx then
-    notify(tostring(ctx_err), vim.log.levels.WARN)
+    notify.warn(tostring(ctx_err))
     return false
   end
   local store = ctx.store
 
   local comment = pick(ctx, opts)
   if not comment then
-    notify(nothing_here(ctx), vim.log.levels.WARN)
+    notify.warn(nothing_here(ctx))
     return false
   end
 
@@ -559,7 +553,7 @@ function M.remove(opts)
   persist(store)
   announce("comment_deleted", ctx.session, comment)
   if closed then
-    notify("the open editor of this comment closed", vim.log.levels.WARN)
+    notify.warn("the open editor of this comment closed")
   end
   return true
 end
@@ -574,13 +568,13 @@ function M.set_state(opts)
   opts = opts or {}
   local ctx, ctx_err = context(opts)
   if not ctx then
-    notify(tostring(ctx_err), vim.log.levels.WARN)
+    notify.warn(tostring(ctx_err))
     return nil
   end
 
   local comment = pick(ctx, opts)
   if not comment then
-    notify(nothing_here(ctx), vim.log.levels.WARN)
+    notify.warn(nothing_here(ctx))
     return nil
   end
 
@@ -590,7 +584,7 @@ function M.set_state(opts)
   end
   local changed, err = ctx.store:update(comment.id, { state = state })
   if not changed then
-    notify(tostring(err), vim.log.levels.ERROR)
+    notify.error(tostring(err))
     return nil
   end
   persist(ctx.store)
@@ -617,7 +611,7 @@ function M.show(opts)
   local found, target = M.at_cursor(view)
   local remote = target and remote_mod.at(view.session, target.file, target.side, target.start_line) or {}
   if #found == 0 and #remote == 0 then
-    notify("no comment on this line", vim.log.levels.INFO)
+    notify.info("no comment on this line")
     return nil, nil
   end
 

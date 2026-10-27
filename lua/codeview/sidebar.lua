@@ -18,6 +18,7 @@
 local config = require("codeview.config")
 local errors = require("codeview.error")
 local highlight = require("codeview.highlight")
+local notify = require("codeview.notify")
 local panel = require("codeview.panel")
 local session_mod = require("codeview.session")
 local tree = require("codeview.tree")
@@ -165,7 +166,7 @@ end
 ---Report an error of an action of the sidebar.
 ---@param err codeview.Error
 local function report(err)
-  vim.notify("codeview: " .. tostring(err), vim.log.levels.ERROR)
+  notify.error(tostring(err))
 end
 
 ---Render the sidebar again.

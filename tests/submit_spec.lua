@@ -472,6 +472,8 @@ describe("codeview.submit", function()
       on_confirm(ui.input)
     end
 
+    -- The tests read the reports of the INFO level too.
+    require("codeview.config").setup({ log_level = vim.log.levels.INFO })
     messages = {}
     real_notify = vim.notify
     vim.notify = function(message) ---@diagnostic disable-line: duplicate-set-field

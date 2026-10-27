@@ -29,6 +29,7 @@ local errors = require("codeview.error")
 local highlight = require("codeview.highlight")
 local inline = require("codeview.inline")
 local linemap = require("codeview.linemap")
+local notify = require("codeview.notify")
 local panel = require("codeview.panel")
 local split = require("codeview.split")
 local tree = require("codeview.tree")
@@ -221,13 +222,6 @@ local function working_line(view, row)
   return 1
 end
 
----Report a message of an action of the view.
----@param message string
----@param level integer? A `vim.log.levels` value. The default is INFO.
-local function notify(message, level)
-  vim.notify("codeview: " .. message, level or vim.log.levels.INFO)
-end
-
 ---Buffer-local keymaps of the view.
 ---@param session codeview.Session
 ---@param buf integer
@@ -247,7 +241,7 @@ local function set_keymaps(session, buf)
   ---@param err codeview.Error?
   local function report(_, err)
     if err then
-      notify(tostring(err), vim.log.levels.ERROR)
+      notify.error(tostring(err))
     end
   end
 
@@ -259,17 +253,17 @@ local function set_keymaps(session, buf)
   end, "open the previous file")
   add(keys.next_hunk, function()
     if not M.next_hunk() then
-      notify("no hunk after this one")
+      notify.info("no hunk after this one")
     end
   end, "jump to the next hunk")
   add(keys.prev_hunk, function()
     if not M.prev_hunk() then
-      notify("no hunk before this one")
+      notify.info("no hunk before this one")
     end
   end, "jump to the previous hunk")
   add(keys.expand_context, function()
     if not M.toggle_context() then
-      notify("no collapsed section on this line")
+      notify.info("no collapsed section on this line")
     end
   end, "show or hide the section")
   add(keys.expand_all, function()
@@ -1188,7 +1182,7 @@ function M.load_diff(cb)
   end
   M.open(view.session, view.index, { force = true }, cb or function(_, err)
     if err then
-      notify(tostring(err), vim.log.levels.ERROR)
+      notify.error(tostring(err))
     end
   end)
   return true
@@ -1231,7 +1225,7 @@ function M.set_style(style)
   if view.diff and view.diff.message then
     -- A document has one side. The next file takes the new style, but this
     -- view stays inline.
-    notify("the document has no side-by-side style")
+    notify.info("the document has no side-by-side style")
     return view.style
   end
 
@@ -1308,24 +1302,24 @@ function M.edit(opts)
   opts = opts or {}
   local session = require("codeview.session").current()
   if not session or not session:is_active() then
-    notify("no review session")
+    notify.info("no review session")
     return false
   end
 
   local view = M.current()
   local path = opts.path or (view and view.path)
   if not path then
-    notify("no file of the review")
+    notify.info("no file of the review")
     return false
   end
   if require("codeview.message").is(path) then
-    notify("a document of the review is not a file of the working copy")
+    notify.info("a document of the review is not a file of the working copy")
     return false
   end
 
   local full = vim.fs.joinpath(session.repo.root, path)
   if vim.fn.filereadable(full) ~= 1 then
-    notify("the working copy holds no " .. path)
+    notify.info("the working copy holds no " .. path)
     return false
   end
 
@@ -1410,7 +1404,7 @@ function M.back(opts, cb)
   opts = opts or {}
   local session = require("codeview.session").current()
   if not session or not session:is_active() then
-    notify("no review session")
+    notify.info("no review session")
     return done(cb, false)
   end
 
@@ -1421,7 +1415,7 @@ function M.back(opts, cb)
   local buf = api.nvim_win_get_buf(win)
   local name = api.nvim_buf_get_name(buf)
   if name == "" then
-    notify("this window holds no file of the review")
+    notify.info("this window holds no file of the review")
     return done(cb, false)
   end
 
@@ -1431,7 +1425,7 @@ function M.back(opts, cb)
     local full = vim.fs.normalize(name)
     local prefix = vim.fs.normalize(root) .. "/"
     if not vim.startswith(full, prefix) then
-      notify("the file is outside " .. root)
+      notify.info("the file is outside " .. root)
       return done(cb, false)
     end
     path = full:sub(#prefix + 1)
@@ -1440,7 +1434,7 @@ function M.back(opts, cb)
   -- A modified buffer stays loaded while the window shows the diff, but only
   -- when Neovim can hide it. Without 'hidden' the write comes first.
   if vim.bo[buf].modified and not vim.o.hidden then
-    notify("write " .. path .. " first, or set 'hidden'")
+    notify.info("write " .. path .. " first, or set 'hidden'")
     return done(cb, false)
   end
 
@@ -1454,13 +1448,13 @@ function M.back(opts, cb)
   local function arrive()
     local index = session:index_of(path)
     if not index then
-      notify("the range does not change " .. path)
+      notify.info("the range does not change " .. path)
       return done(cb, false)
     end
     if not cb then
       local state_view, err = M.open(session, index, { win = win })
       if not state_view then
-        notify(tostring(err), vim.log.levels.ERROR)
+        notify.error(tostring(err))
         return false
       end
       M.go_to_line(line, "new")
@@ -1468,7 +1462,7 @@ function M.back(opts, cb)
     end
     load(session, index, { win = win }, function(state_view, err)
       if not state_view then
-        notify(tostring(err), vim.log.levels.ERROR)
+        notify.error(tostring(err))
         cb(false)
         return
       end
@@ -1541,7 +1535,7 @@ function M.refresh(opts, cb)
   end
   local session = require("codeview.session").current()
   if not session or not session:is_active() then
-    notify("no review session")
+    notify.info("no review session")
     return done(cb, false)
   end
 
@@ -1555,7 +1549,7 @@ function M.refresh(opts, cb)
   ---@return boolean? refreshed
   local function reopen(err)
     if err then
-      notify(tostring(err), vim.log.levels.ERROR)
+      notify.error(tostring(err))
       return done(cb, false)
     end
     if not before then
@@ -1564,7 +1558,7 @@ function M.refresh(opts, cb)
 
     local index = session:position_of(before, before.index)
     if not index then
-      notify("the range does not change " .. before.path .. " any more")
+      notify.info("the range does not change " .. before.path .. " any more")
       M.close()
       return done(cb, true)
     end
@@ -1572,7 +1566,7 @@ function M.refresh(opts, cb)
     if not cb then
       local fresh_view, open_err = M.open(session, index, { win = before.win })
       if not fresh_view then
-        notify(tostring(open_err), vim.log.levels.ERROR)
+        notify.error(tostring(open_err))
         return false
       end
       M.go_to_line(before.line, "new")
@@ -1580,7 +1574,7 @@ function M.refresh(opts, cb)
     end
     load(session, index, { win = before.win }, function(fresh_view, open_err)
       if not fresh_view then
-        notify(tostring(open_err), vim.log.levels.ERROR)
+        notify.error(tostring(open_err))
         cb(false)
         return
       end

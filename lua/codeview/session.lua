@@ -19,6 +19,7 @@
 
 local config = require("codeview.config")
 local errors = require("codeview.error")
+local notify = require("codeview.notify")
 local util = require("codeview.util")
 local vcs = require("codeview.vcs")
 
@@ -181,7 +182,7 @@ local function write_export(session, path)
     notify = false,
   })
   if err then
-    vim.notify("codeview: cannot write the export file: " .. tostring(err), vim.log.levels.WARN)
+    notify.warn("cannot write the export file: " .. tostring(err))
   end
 end
 
@@ -285,7 +286,7 @@ function M.open(spec, opts, cb)
     -- shows its anchors at once.
     local _, store_err = require("codeview.comments").attach(session)
     if store_err then
-      vim.notify("codeview: " .. tostring(store_err), vim.log.levels.WARN)
+      notify.warn(tostring(store_err))
     end
     -- The review follows the repository from here on. See |codeview.watch|.
     require("codeview.watch").start(session)
@@ -361,7 +362,7 @@ function M.auto_reload(session, cb)
   ---@param err codeview.Error?
   local function warn(err)
     if err then
-      vim.notify("codeview: the reload failed: " .. tostring(err), vim.log.levels.WARN)
+      notify.warn("the reload failed: " .. tostring(err))
     end
   end
 
