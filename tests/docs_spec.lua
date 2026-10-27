@@ -152,6 +152,17 @@ describe("codeview documentation", function()
     assert.are.same({}, missing_from(vimdoc, names))
   end)
 
+  it("holds the plugin version or an Unreleased section in the changelog", function()
+    -- The release steps of CONTRIBUTING.md move the Unreleased changes under
+    -- the new version. Between two releases the changelog collects them under
+    -- Unreleased.
+    local changelog = read("CHANGELOG.md")
+    local versioned = changelog:find("\n## " .. codeview.version, 1, true)
+      or changelog:find("\n## [" .. codeview.version .. "]", 1, true)
+    local unreleased = changelog:find("\n## Unreleased", 1, true) or changelog:find("\n## [Unreleased]", 1, true)
+    assert.is_truthy(versioned or unreleased, "CHANGELOG.md names neither " .. codeview.version .. " nor Unreleased")
+  end)
+
   it("ends the help file with a modeline", function()
     assert.is_truthy(vimdoc:find("vim:tw=78:ts=8:noet:ft=help:norl:", 1, true))
   end)

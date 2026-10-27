@@ -176,13 +176,17 @@ Write the commit messages in the conventional commit style, for example
 
 ## Release
 
+`CHANGELOG.md` collects the changes for users under `## Unreleased`, in the
+Keep a Changelog groups Fixed, Changed, and Added. Add a line there with each
+change that a user can see.
+
 Do these steps for a new version:
 
 1. Set `M.version` in `lua/codeview/init.lua`.
 2. Set the version in `doc/codeview.txt`. Move the changes under
    `## Unreleased` in `CHANGELOG.md` to a new section for the version.
-3. Run `make`. `tests/docs_spec.lua` checks that the changelog holds the
-   version.
+3. Run `make`. `tests/docs_spec.lua` checks that `CHANGELOG.md` holds the
+   version of `M.version` or an `## Unreleased` section.
 4. Create the tag `v<version>` and push it, for example:
 
    ```sh
