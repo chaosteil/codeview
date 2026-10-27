@@ -2,7 +2,10 @@
 ---
 --- A comment belongs to a file, a line range, a side of the diff, and a
 --- commit. |codeview.store| keeps the comments of a session in one markdown
---- file. This module puts them into the diff view and runs the edit flow.
+--- file. This module holds the store of each session, runs the edit flow,
+--- and sets the keymaps. |codeview.anchor| maps rows to anchors, and
+--- |codeview.marks| draws the extmarks. The functions of those two modules
+--- are also available here, for the callers of this module.
 ---
 --- The diff buffer stays read-only through the whole flow:
 ---
@@ -14,50 +17,26 @@
 --- - The session file is the only write target. The reviewed files of the
 ---   repository never change.
 ---
---- Every anchor goes through the |codeview.LineMap| of the render. The map
---- turns a buffer row into a file line and back, for both diff styles and for
---- both sides. Virtual lines do not shift the map, because they hold no buffer
---- row.
----
 --- The insert keys open the editor. `i`, `a`, `o`, and `O` do nothing in a
 --- read-only buffer. The diff buffer maps them to the one thing a reviewer
 --- wants to type: a comment on the line under the cursor. In visual mode `I`,
 --- `A`, and `c` comment on the selected lines, like the GitHub review UI. `i`
 --- stays free in visual mode, because it is the prefix of the text objects.
 
+local anchor_mod = require("codeview.anchor")
 local config = require("codeview.config")
 local errors = require("codeview.error")
 local events = require("codeview.events")
-local highlight = require("codeview.highlight")
-local message = require("codeview.message")
+local marks = require("codeview.marks")
 local store_mod = require("codeview.store")
 
 local api = vim.api
 
 local M = {}
 
----Namespace of the comment decorations.
+---Namespace of the comment decorations. See |codeview.marks|.
 ---@type integer
-M.ns = api.nvim_create_namespace("codeview.comments")
-
----Comment that the editor has open, while it edits an existing comment.
----
---- The diff keeps the sign of the comment, but drops its virtual lines. The
---- editor shows the same body right under that row, and one body is enough.
----@type string?
-M.editing = nil
-
----@class codeview.comments.Target
----@field view codeview.view.State View that holds the lines.
----@field buf integer Buffer that shows the side of the anchor.
----@field map codeview.LineMap Map of that buffer.
----@field file string Path of the file in the review.
----@field side codeview.linemap.Side Side of the diff.
----@field start_line integer First line of the file, from 1.
----@field end_line integer Last line of the file.
----@field commit string Revision of the side.
----@field win integer Window that the reviewer marked the lines in.
----@field row integer Last marked row of that window. The inline editor opens under it.
+M.ns = marks.ns
 
 ---Store of each open session, by session id.
 ---@type table<integer, codeview.store.Store>
@@ -125,193 +104,24 @@ function M.list(session)
   return store and store.comments or {}
 end
 
---- Anchors ---------------------------------------------------------------------
+--- Anchors and marks ----------------------------------------------------------
 
----Buffer and map of one side of a view.
----@param view codeview.view.State
----@param side codeview.linemap.Side
----@return integer buf
----@return codeview.LineMap map
-local function side_of(view, side)
-  if view.style == "split" and side == "old" and view.old_buf and view.old_map then
-    return view.old_buf, view.old_map
-  end
-  return view.buf, view.map
-end
-
----Revision that one side of a view comes from.
----@param view codeview.view.State
----@param side codeview.linemap.Side
----@return string commit
-local function commit_of(view, side)
-  if side == "old" then
-    return view.old_rev or view.rev or ""
-  end
-  return view.new_rev or view.rev or ""
-end
-
----Rows of the view that the cursor covers.
----@param view codeview.view.State
----@param opts? { visual?: boolean, first?: integer, last?: integer }
----@return integer first
----@return integer last
----@return integer win Window that the rows come from.
-local function rows_of(view, opts)
-  opts = opts or {}
-  local win = api.nvim_get_current_win()
-  local windows = { view.win, view.old_win }
-  if not vim.tbl_contains(windows, win) then
-    win = view.win
-  end
-  if opts.first then
-    return opts.first, opts.last or opts.first, win
-  end
-  if opts.visual then
-    local first = vim.fn.line("v")
-    local last = vim.fn.line(".")
-    if first > last then
-      first, last = last, first
-    end
-    return first, last, win
-  end
-  local row = 1
-  if api.nvim_win_is_valid(win) then
-    row = api.nvim_win_get_cursor(win)[1]
-  end
-  return row, row, win
-end
-
----Anchor of a row range of the view.
----
---- The map of the window with the cursor answers first. A row that this side
---- does not hold goes to the other side. An example is the filler row of an
---- added line in the old window.
+---Anchor of a row range of the view. See |codeview.anchor.target()|.
 ---@param view? codeview.view.State View to read. The open file by default.
 ---@param opts? { visual?: boolean, first?: integer, last?: integer }
 ---@return codeview.comments.Target? target Nil on a range without a file line.
 function M.target(view, opts)
-  view = view or require("codeview.view").current()
-  if not view then
-    return nil
-  end
-  local first, last, win = rows_of(view, opts)
-
-  local maps = { view.map }
-  if view.old_map then
-    maps = win == view.old_win and { view.old_map, view.map } or { view.map, view.old_map }
-  end
-
-  for _, map in ipairs(maps) do
-    local anchor = map:anchor(first, last)
-    if anchor then
-      local buf, side_map = side_of(view, anchor.side)
-      return {
-        view = view,
-        buf = buf,
-        map = side_map,
-        file = view.path,
-        side = anchor.side,
-        start_line = anchor.start_line,
-        end_line = anchor.end_line,
-        -- A commit document belongs to one commit, so its comments take that
-        -- commit and not the head of the range.
-        commit = message.commit_id(view.path) or commit_of(view, anchor.side),
-        win = win,
-        row = last,
-      }
-    end
-  end
-  return nil
+  return anchor_mod.target(view, opts)
 end
 
----Row of the collapsed section that hides one line of a comment.
----
---- The call answers for a line that no row of the side is at or above. Such a
---- line belongs to a section at the start of the file. The filler row of that
---- section is the first row that the reader sees, so the comment goes there.
----@param map codeview.LineMap
----@param comment codeview.store.Comment
----@return integer? row Nil for a map without rows.
-local function hidden_row(map, comment)
-  local below = map:next_row(comment.start_line, comment.side)
-  for lnum = (below or map:len() + 1) - 1, 1, -1 do
-    local record = map:row(lnum)
-    if record and record.kind == "filler" and record.gap then
-      return lnum
-    end
-  end
-  if below then
-    return below
-  end
-  -- The side holds no line at all, for example on a message row. The first row
-  -- keeps the comment in the view.
-  return map:len() > 0 and 1 or nil
-end
-
----Rows of a buffer that hold the lines of a comment.
----@param map codeview.LineMap
----@param comment codeview.store.Comment
----@return integer[] rows Rows from 1, in buffer order.
-local function comment_rows(map, comment)
-  local rows, seen = {}, {}
-  for line = comment.start_line, comment.end_line do
-    local row = map:buf_row(line, comment.side)
-    if row and not seen[row] then
-      seen[row] = true
-      rows[#rows + 1] = row
-    end
-  end
-  if #rows == 0 then
-    -- A collapsed section hides the lines. The sign goes to the row above it,
-    -- so that the comment stays visible. A section at the start of the file has
-    -- no row above it, so the sign goes on the row of the section.
-    local row = map:nearest_row(comment.start_line, comment.side) or hidden_row(map, comment)
-    if row then
-      rows[1] = row
-    end
-  end
-  table.sort(rows)
-  return rows
-end
-
----Rows of a view that hold the lines of one anchor.
----
---- |codeview.remote| places its own marks on the same rows, so the two kinds
---- of comment sit next to each other.
+---Rows of a view that hold the lines of one anchor. See |codeview.anchor.rows()|.
 ---@param view codeview.view.State View that shows the file.
 ---@param anchor { start_line: integer, end_line: integer, side: codeview.linemap.Side } Lines of the anchor.
 ---@return integer[] rows Rows from 1, in buffer order. Empty when the render hides the lines.
 ---@return integer buf Buffer of the side of the anchor.
 ---@return codeview.LineMap map Map of that buffer.
 function M.rows(view, anchor)
-  local buf, map = side_of(view, anchor.side)
-  return comment_rows(map, anchor --[[@as codeview.store.Comment]]), buf, map
-end
-
----Comments that a collapsed section hides, with their sign on one row.
----
---- The sign of a hidden comment sits on a row that holds another line, or no
---- line at all. That row answers for the comment, so that edit and delete
---- reach a comment which the render does not show at its own line.
----@param view codeview.view.State
----@param store codeview.store.Store
----@param row integer Buffer row of the cursor, from 1.
----@param buf integer Buffer under the cursor.
----@return codeview.store.Comment[] comments
-local function marked_at(view, store, row, buf)
-  local out = {}
-  for _, comment in ipairs(store:for_file(view.path)) do
-    local side_buf, map = side_of(view, comment.side)
-    if side_buf == buf then
-      for _, lnum in ipairs(comment_rows(map, comment)) do
-        if lnum == row then
-          out[#out + 1] = comment
-          break
-        end
-      end
-    end
-  end
-  return out
+  return anchor_mod.rows(view, anchor)
 end
 
 ---Comments under the cursor.
@@ -323,185 +133,29 @@ function M.at_cursor(view)
   if not view then
     return {}, nil
   end
-  local target = M.target(view)
-  local store = M.store(view.session)
-  if not store then
-    return {}, target
-  end
-  if target then
-    local found = store:at(target.file, target.side, target.start_line)
-    if #found > 0 then
-      return found, target
-    end
-  end
-
-  local row, _, win = rows_of(view)
-  local buf = view.buf
-  if api.nvim_win_is_valid(win) then
-    buf = api.nvim_win_get_buf(win)
-  end
-  return marked_at(view, store, row, buf), target
+  return anchor_mod.at_cursor(view, (M.store(view.session)))
 end
 
---- Decoration ------------------------------------------------------------------
-
----Text of a line range, without a prefix.
----@param first integer
----@param last integer
----@return string
-local function lines_text(first, last)
-  if first == last then
-    return tostring(first)
-  end
-  return string.format("%d-%d", first, last)
+---Buffer of the other side of a side-by-side view. See |codeview.anchor.mirror()|.
+---@param view codeview.view.State
+---@param side codeview.linemap.Side Side that holds the comment.
+---@return integer? buf Nil outside the split style.
+function M.mirror(view, side)
+  return anchor_mod.mirror(view, side)
 end
 
----Text of the line range of a comment.
----@param comment codeview.store.Comment
----@return string
-local function range_text(comment)
-  return "L" .. lines_text(comment.start_line, comment.end_line)
-end
-
----Header line of a comment.
----@param comment codeview.store.Comment
----@return string
-local function header_text(comment)
-  local text = string.format("comment %s (%s)", range_text(comment), comment.side)
-  if comment.state == "resolved" then
-    text = text .. " · resolved"
-  end
-  if store_mod.is_synced(comment) then
-    text = text .. " · synced"
-  end
-  return text
-end
-
----Sign text of one comment.
----
---- A resolved comment takes its own sign, so that the diff and the comment
---- overview both show the state without a word.
+---Sign text of one comment. See |codeview.marks.sign()|.
 ---@param comment codeview.store.Comment
 ---@return string text Empty when the option holds no sign.
 function M.sign(comment)
-  local cfg = config.get().comments
-  local text = (comment.state == "resolved" and cfg.resolved_sign or cfg.sign) or ""
-  while vim.fn.strdisplaywidth(text) > 2 do
-    text = vim.fn.strcharpart(text, 0, vim.fn.strchars(text) - 1)
-  end
-  return text
+  return marks.sign(comment)
 end
 
 ---Highlight group of the sign of one comment.
 ---@param comment codeview.store.Comment
 ---@return string group
 function M.sign_group(comment)
-  return comment.state == "resolved" and "CodeViewCommentResolved" or "CodeViewCommentSign"
-end
-
----Virtual lines of one comment.
----@param comment codeview.store.Comment
----@return string[][][] lines Chunks of every virtual line.
-local function virt_lines(comment)
-  local prefix = M.sign(comment) .. " "
-  local header = comment.state == "resolved" and "CodeViewCommentResolved" or "CodeViewCommentHeader"
-  local out = { { { prefix .. header_text(comment), header } } }
-  for _, line in ipairs(vim.split(comment.body, "\n", { plain = true })) do
-    out[#out + 1] = { { prefix .. line, "CodeViewComment" } }
-  end
-  return out
-end
-
----Virtual lines that hold no text.
----
---- The other side of a side-by-side view takes them, so that a comment adds
---- the same number of screen rows to both windows.
----@param count integer Number of lines.
----@return string[][][] lines
-local function blank_lines(count)
-  local out = {}
-  for index = 1, count do
-    out[index] = { { "" } }
-  end
-  return out
-end
-
----Buffer of the other side of a side-by-side view.
----@param view codeview.view.State
----@param side codeview.linemap.Side Side that holds the comment.
----@return integer? buf Nil outside the split style.
-local function mirror_of(view, side)
-  if view.style ~= "split" or not view.old_buf then
-    return nil
-  end
-  local buf = side == "old" and view.buf or view.old_buf
-  if type(buf) == "number" and api.nvim_buf_is_valid(buf) then
-    return buf
-  end
-  return nil
-end
-
----Buffer of the other side of a side-by-side view.
----
---- Virtual lines in that buffer keep the two windows on the same screen row.
---- |codeview.remote| needs the same alignment for its own marks.
----@param view codeview.view.State
----@param side codeview.linemap.Side Side that holds the comment.
----@return integer? buf Nil outside the split style.
-function M.mirror(view, side)
-  return mirror_of(view, side)
-end
-
----Place the marks of one comment.
----
---- In the side-by-side style the other side takes virtual lines of the same
---- number, without text. Both windows then grow by the same number of screen
---- rows, and 'scrollbind' keeps the two sides on the same row.
----@param view codeview.view.State
----@param comment codeview.store.Comment
----@param display "virtual"|"float"
----@return boolean placed False when the render hides the lines of the comment.
-local function place(view, comment, display)
-  local buf, map = side_of(view, comment.side)
-  if not api.nvim_buf_is_valid(buf) then
-    return false
-  end
-  if M.editing == comment.id then
-    -- The editor holds the body of this comment, one row under the sign. The
-    -- virtual lines then print the same text twice.
-    display = "float"
-  end
-  local rows = comment_rows(map, comment)
-  if #rows == 0 then
-    return false
-  end
-  local sign = M.sign(comment)
-  for _, row in ipairs(rows) do
-    local opts = {
-      sign_text = sign ~= "" and sign or nil,
-      sign_hl_group = M.sign_group(comment),
-      priority = 200,
-    }
-    if display == "virtual" and row == rows[#rows] then
-      opts.virt_lines = virt_lines(comment)
-      opts.virt_lines_above = false
-    end
-    local ok = pcall(api.nvim_buf_set_extmark, buf, M.ns, row - 1, 0, opts)
-    if not ok then
-      -- A sign of more than two cells is not valid. Keep the virtual lines.
-      opts.sign_text, opts.sign_hl_group = nil, nil
-      pcall(api.nvim_buf_set_extmark, buf, M.ns, row - 1, 0, opts)
-    end
-    local other = opts.virt_lines and mirror_of(view, comment.side) or nil
-    if other then
-      pcall(api.nvim_buf_set_extmark, other, M.ns, row - 1, 0, {
-        virt_lines = blank_lines(#opts.virt_lines),
-        virt_lines_above = false,
-        priority = 200,
-      })
-    end
-  end
-  return true
+  return marks.sign_group(comment)
 end
 
 ---Draw the comments of the file that a view shows.
@@ -516,28 +170,7 @@ function M.decorate(view)
   if not view or not api.nvim_buf_is_valid(view.buf) then
     return 0, 0
   end
-
-  highlight.setup()
-  api.nvim_buf_clear_namespace(view.buf, M.ns, 0, -1)
-  if view.old_buf and api.nvim_buf_is_valid(view.old_buf) then
-    api.nvim_buf_clear_namespace(view.old_buf, M.ns, 0, -1)
-  end
-
-  local store = M.store(view.session)
-  if not store then
-    return 0, 0
-  end
-
-  local display = config.get().comments.display
-  local count, hidden = 0, 0
-  for _, comment in ipairs(store:for_file(view.path)) do
-    if place(view, comment, display) then
-      count = count + 1
-    else
-      hidden = hidden + 1
-    end
-  end
-  return count, hidden
+  return marks.decorate(view, (M.store(view.session)))
 end
 
 ---Draw the comments of the file that is open again.
@@ -551,10 +184,7 @@ end
 ---@param buf integer Buffer of a diff.
 ---@return table[] marks Result of `nvim_buf_get_extmarks()`, with details.
 function M.marks(buf)
-  if not api.nvim_buf_is_valid(buf) then
-    return {}
-  end
-  return api.nvim_buf_get_extmarks(buf, M.ns, 0, -1, { details = true })
+  return marks.marks(buf)
 end
 
 --- Edit flow -------------------------------------------------------------------
@@ -620,7 +250,7 @@ local function title_of(target, action)
     "%s %s:%s (%s)",
     action,
     target.file,
-    lines_text(target.start_line, target.end_line),
+    marks.lines_text(target.start_line, target.end_line),
     target.side
   )
 end
@@ -806,8 +436,8 @@ function M.edit(opts)
   --- A refresh during the edit replaces the view, so the call draws the view
   --- that is open now.
   local function release()
-    if M.editing == comment.id then
-      M.editing = nil
+    if marks.editing == comment.id then
+      marks.editing = nil
       M.decorate()
     end
   end
@@ -838,7 +468,7 @@ function M.edit(opts)
     title = string.format(
       "Edit %s:%s (%s)",
       comment.file,
-      lines_text(comment.start_line, comment.end_line),
+      marks.lines_text(comment.start_line, comment.end_line),
       comment.side
     ),
     text = comment.body,
@@ -855,7 +485,7 @@ function M.edit(opts)
   -- The editor sits under the row of the comment, where the virtual lines of
   -- the body are. Drop them while the editor holds the same text.
   if anchor and require("codeview.editor").current() then
-    M.editing = comment.id
+    marks.editing = comment.id
     M.decorate(ctx.view)
   end
   return true
@@ -905,7 +535,11 @@ function M.remove(opts)
 
   if opts.confirm ~= false then
     local answer = vim.fn.confirm(
-      string.format("Delete the comment on %s:%s?", comment.file, lines_text(comment.start_line, comment.end_line)),
+      string.format(
+        "Delete the comment on %s:%s?",
+        comment.file,
+        marks.lines_text(comment.start_line, comment.end_line)
+      ),
       "&Yes\n&No",
       2,
       "Question"
@@ -992,7 +626,7 @@ function M.show(opts)
     if index > 1 then
       lines[#lines + 1] = "---"
     end
-    lines[#lines + 1] = "### " .. header_text(comment)
+    lines[#lines + 1] = "### " .. marks.header_text(comment)
     lines[#lines + 1] = ""
     vim.list_extend(lines, vim.split(comment.body, "\n", { plain = true }))
   end
