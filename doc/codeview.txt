@@ -865,6 +865,7 @@ section with a field block and a markdown body: >
     - review_id:
     - created_at: 2026-08-12T09:10:00Z
     - updated_at: 2026-08-12T09:10:00Z
+    - remote_id:
 
     The body of the comment.
 <
@@ -880,9 +881,12 @@ The fields hold: >
     review_id     review of GitHub that holds the comment
     created_at    time of the first save
     updated_at    time of the last change
+    remote_id     id of the comment on GitHub
 <
-The two sync fields stay empty until a |:Codeview-submit| confirms the post.
-See |codeview-submit-state|.
+The three sync fields stay empty until a |:Codeview-submit| confirms the post.
+A comment that goes into the text of a review keeps an empty `remote_id`. A
+file of an older release has no `remote_id` field, and the plugin reads it
+with an empty one. See |codeview-submit-state|.
 
 The plugin writes the file atomically. It writes a temporary file in the same
 directory and renames it over the target. A failed write keeps the file of the
@@ -1143,6 +1147,27 @@ The command needs the gh CLI in $PATH, and a login. Run `gh auth login` once.
 
 The `github.binary` option names that executable. See |codeview-binaries|.
 
+                                                        *codeview-github-host*
+Every API call goes to the host of the address of the pull request, through
+`gh api --hostname`. A pull request on a GitHub Enterprise host therefore gets
+the token of that host. A call that writes, for example a submit, gets a time
+limit of 120 seconds, because a review with many comments takes GitHub more
+time. `require("codeview.gh").write_timeout` holds the limit, in milliseconds.
+
+                                                      *codeview-github-errors*
+A failed call gives one message. These failures have their own error code: >
+
+    not_authenticated   gh has no valid token for the host (HTTP 401)
+    rate_limited        the rate limit of GitHub is used up
+    offline             the call did not reach the host
+    unsupported         gh is not in $PATH
+<
+Only HTTP 401 means a missing login. Another refusal of GitHub, for example
+HTTP 403 on a repository without access, gives the message of GitHub.
+
+The callback of a GitHub call always runs later, on the main loop. This is
+also true for an error that the call finds before it starts gh.
+
                                                         *codeview-github-refs*
 The working copy does not change. The command fetches two refs of the plugin
 and checks out no branch: >
@@ -1218,7 +1243,9 @@ session file. The review drops the copy of GitHub and keeps the local comment
 with the word "synced", so the comment shows once.
 
 Set `github.comments` to false to leave the review comments out. The option
-`github.max_comments` limits the number of comments of one fetch.
+`github.max_comments` limits the number of comments of one fetch. A pull
+request with more comments gives a warning: the review shows the oldest
+comments, up to the limit. Raise the option to read more.
 
 A failed fetch of the comments gives one message. The review itself stays
 open, because it needs no network after the fetch of the refs.
@@ -1307,14 +1334,30 @@ A comment carries its sync state in the session file: >
 
     - synced_at: 2026-08-13T09:41:12Z
     - review_id: 2371558991
+    - remote_id: 1680042137
 <
-A comment gets both fields only after GitHub confirms the post. The next
+A comment gets these fields only after GitHub confirms the post. The next
 submit then leaves this comment out, so no comment goes out twice. The diff
 and the comment overview show the word "synced" on it.
 
-An edit of the text clears the sync state. The pull request holds the text of
-the last submit, so the next submit sends the new text. GitHub takes it as a
-new comment, because the review API writes no comment a second time.
+An edit of the text clears the sync time. The pull request holds the text of
+the last submit, so the next submit sends the new text. It changes the text of
+the comment on GitHub with a PATCH call, through `remote_id`, and posts no new
+comment.
+
+A move of the anchor (the file, the side, or the lines) also clears the sync
+time. GitHub cannot move a comment, so the move clears `remote_id` too, and the
+next submit posts a new comment.
+
+                                                       *codeview-submit-guard*
+A post that the time limit stopped can still reach GitHub. Before a review
+post, the submit therefore lists the reviews of the pull request. A review of
+your login, on the same commit, with the same text and the same comments, is
+the review of an earlier try. The submit then marks the comments as sent and
+posts nothing. The `existing` field of the result is true in that case.
+
+One session runs one submit or one send at a time. A second call while the
+first one runs gives an error, so no comment goes out twice.
 
 A failed post writes nothing. No comment gets the fields, and the session file
 does not change. The report holds the answer of the server, for example the
@@ -1644,7 +1687,9 @@ codeview.submit({opts}, {cb})
 <
     {cb} gets `result, err`. The result holds the number of comments that
     GitHub took, the number of comments that stay local, the review of the
-    answer, and its address. See |codeview-submit|.
+    answer, and its address. `result.existing` is true when GitHub held the
+    review of an earlier try, so the call posted nothing. See
+    |codeview-submit| and |codeview-submit-guard|.
 
                                                              *codeview.send()*
 codeview.send({opts}, {cb})
