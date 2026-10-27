@@ -809,6 +809,7 @@ function M.post(plan, cb)
     input = "-",
     stdin = vim.json.encode(M.payload(plan)),
     cwd = plan.dir,
+    hostname = gh.host(plan.pr.url),
   }
   return gh.api(path, opts, cb)
 end
@@ -1108,6 +1109,7 @@ function M.send(opts, cb)
       input = "-",
       stdin = vim.json.encode(payload),
       cwd = opts.dir or session.repo.root,
+      hostname = gh.host(info.url),
     }
     gh.api(path, api_opts, function(answer, post_err)
       if not answer then

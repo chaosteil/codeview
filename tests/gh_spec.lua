@@ -199,6 +199,7 @@ describe("codeview.gh", function()
         "gh",
         "api",
         "repos/o/n/pulls/12",
+        "--include",
         "--method",
         "GET",
         "--header",
@@ -212,6 +213,96 @@ describe("codeview.gh", function()
       local value, err = gh.api("")
       assert.is_nil(value)
       assert.are.equal(errors.codes.INVALID_ARG, err.code)
+    end)
+
+    it("names the host of the call", function()
+      respond(function()
+        return { stdout = "{}" }
+      end)
+      gh.api("repos/o/n/pulls/12", { hostname = "github.acme.com" })
+      assert.are.same({ "gh", "api", "repos/o/n/pulls/12", "--include", "--hostname", "github.acme.com" }, calls[1].cmd)
+    end)
+
+    it("reads the body after the head of the answer", function()
+      respond(function()
+        return {
+          stdout = "HTTP/2.0 200 OK\r\nContent-Type: application/json\r\nX-Ratelimit-Remaining: 4999\r\n\r\n"
+            .. '{"id":7}',
+        }
+      end)
+      local value = assert(gh.api("repos/o/n/pulls/12"))
+      assert.are.equal(7, value.id)
+    end)
+
+    it("gives a write the long time limit", function()
+      respond(function()
+        return { stdout = "{}" }
+      end)
+      gh.api("repos/o/n/pulls/12/reviews", { method = "POST" })
+      gh.api("repos/o/n/pulls/comments/1", { method = "PATCH" })
+      gh.api("repos/o/n/pulls/12")
+      gh.api("repos/o/n/pulls/12/reviews", { method = "POST", timeout = 5 })
+      assert.are.equal(gh.write_timeout, calls[1].opts.timeout)
+      assert.are.equal(120000, calls[2].opts.timeout)
+      assert.is_nil(calls[3].opts.timeout)
+      assert.are.equal(5, calls[4].opts.timeout)
+    end)
+
+    it("reports a used up rate limit from the header", function()
+      respond(function()
+        return {
+          code = 1,
+          stdout = "HTTP/2.0 403 Forbidden\nX-Ratelimit-Remaining: 0\n\n" .. '{"message":"Forbidden"}',
+          stderr = "gh: Forbidden (HTTP 403)",
+        }
+      end)
+      local value, err = gh.api("repos/o/n/pulls/12")
+      assert.is_nil(value)
+      assert.are.equal(errors.codes.RATE_LIMITED, err.code)
+    end)
+
+    it("reports a used up rate limit from the message", function()
+      respond(function()
+        return { code = 1, stderr = "gh: API rate limit exceeded for user ID 1. (HTTP 403)" }
+      end)
+      local _, err = gh.api("repos/o/n/pulls/12")
+      assert.are.equal(errors.codes.RATE_LIMITED, err.code)
+    end)
+
+    it("reports another refusal with the message of GitHub", function()
+      respond(function()
+        return {
+          code = 1,
+          stdout = "HTTP/2.0 403 Forbidden\nX-Ratelimit-Remaining: 4000\n\n"
+            .. '{"message":"Resource not accessible by integration"}',
+          stderr = "gh: Resource not accessible by integration (HTTP 403)",
+        }
+      end)
+      local _, err = gh.api("repos/o/n/pulls/12")
+      assert.are.equal(errors.codes.COMMAND_FAILED, err.code)
+      assert.is_truthy(tostring(err):find("Resource not accessible by integration", 1, true), tostring(err))
+    end)
+
+    it("reports bad credentials as a missing login", function()
+      respond(function()
+        return { code = 1, stderr = "gh: Bad credentials (HTTP 401)" }
+      end)
+      local _, err = gh.api("repos/o/n/pulls/12")
+      assert.are.equal(errors.codes.NOT_AUTHENTICATED, err.code)
+    end)
+  end)
+
+  describe("host", function()
+    it("reads the host of a pull request address", function()
+      assert.are.equal("github.com", gh.host("https://github.com/ada/demo/pull/12"))
+      assert.are.equal("github.acme.com", gh.host("https://GitHub.Acme.com/team/app/pull/7"))
+      assert.are.equal("git.example.org", gh.host("https://user@git.example.org:8443/team/app/pull/7"))
+    end)
+
+    it("takes github.com without an address", function()
+      assert.are.equal("github.com", gh.host(nil))
+      assert.are.equal("github.com", gh.host(""))
+      assert.are.equal("github.com", gh.host("not an address"))
     end)
   end)
 

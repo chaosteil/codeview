@@ -371,6 +371,24 @@ describe("codeview.pr", function()
       assert.is_false(comments[1].outdated)
     end)
 
+    it("reads the review comments from the host of the pull request", function()
+      local opened = assert(open(12))
+      wait_for(function()
+        return #remote.list(opened) > 0
+      end, "the review comments did not arrive")
+
+      local api_call
+      for _, cmd in ipairs(gh_calls) do
+        if cmd[2] == "api" then
+          api_call = cmd
+        end
+      end
+      local at = assert(vim.iter(ipairs(assert(api_call))):find(function(_, arg)
+        return arg == "--hostname"
+      end))
+      assert.are.equal("github.com", api_call[at + 1])
+    end)
+
     it("leaves the review comments out on request", function()
       local opened = assert(open(12, { comments = false }))
       assert.are.equal(0, #remote.list(opened))

@@ -215,9 +215,10 @@ end
 
 ---Read the review comments of one pull request.
 ---
---- `dir` names the directory that `gh` runs in. It decides the host that `gh`
---- talks to, so a GitHub Enterprise repository needs it.
----@param opts { repo: string, number: integer, max?: integer, dir?: string } `repo` is `owner/name`.
+--- `host` names the GitHub server. A GitHub Enterprise repository needs it,
+--- because `gh` takes github.com without it. `dir` names the directory that
+--- `gh` runs in.
+---@param opts { repo: string, number: integer, max?: integer, dir?: string, host?: string } `repo` is `owner/name`.
 ---@param cb? fun(comments: codeview.remote.Comment[]?, err: codeview.Error?) Callback for the async form.
 ---@return codeview.remote.Comment[]? comments
 ---@return codeview.Error? err
@@ -229,7 +230,11 @@ function M.fetch(opts, cb)
   end
 
   local path = string.format("repos/%s/pulls/%d/comments", opts.repo, math.floor(opts.number))
-  local api_opts = { max = opts.max or config.get().github.max_comments, cwd = opts.dir }
+  local api_opts = {
+    max = opts.max or config.get().github.max_comments,
+    cwd = opts.dir,
+    hostname = opts.host or gh.default_host,
+  }
 
   if not cb then
     local entries, err = gh.api_list(path, api_opts)
@@ -387,7 +392,7 @@ end
 --- The call runs in the background. A failure reaches the user as one
 --- notification, because the review itself works without the remote comments.
 ---@param session codeview.Session Session of a pull request.
----@param opts? { repo?: string, number?: integer, max?: integer, dir?: string, silent?: boolean }
+---@param opts? { repo?: string, number?: integer, max?: integer, dir?: string, host?: string, silent?: boolean }
 ---@param cb? fun(comments: codeview.remote.Comment[]?, err: codeview.Error?)
 ---@return boolean started False without a pull request.
 function M.load(session, opts, cb)
@@ -395,6 +400,7 @@ function M.load(session, opts, cb)
   local info = require("codeview.pr").current(session)
   local repo = opts.repo or (info and info.repo) or ""
   local number = opts.number or (info and info.number) or nil
+  local host = opts.host or gh.host(info and info.url)
   if repo == "" or type(number) ~= "number" then
     local err = errors.new(errors.codes.INVALID_ARG, "the session does not review a pull request")
     if not opts.silent then
@@ -406,7 +412,7 @@ function M.load(session, opts, cb)
     return false
   end
 
-  M.fetch({ repo = repo, number = number, max = opts.max, dir = opts.dir }, function(comments, err)
+  M.fetch({ repo = repo, number = number, max = opts.max, dir = opts.dir, host = host }, function(comments, err)
     if not comments then
       if not opts.silent then
         vim.notify("codeview: cannot read the review comments: " .. tostring(err), vim.log.levels.WARN)

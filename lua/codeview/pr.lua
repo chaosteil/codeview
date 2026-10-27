@@ -617,6 +617,7 @@ function M.open(number, opts, cb)
           repo = info.repo,
           number = info.number,
           dir = opts.dir or state.repo.root,
+          host = gh.host(info.url),
         })
       end
       return session, err

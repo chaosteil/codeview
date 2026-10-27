@@ -17,6 +17,7 @@ local M = {}
 ---| "unsupported" # The backend does not support the operation.
 ---| "not_authenticated" # The tool holds no valid credentials for the host.
 ---| "offline" # The call did not reach the host.
+---| "rate_limited" # The host refused the call, because the rate limit is used up.
 
 ---Error codes. Compare `err.code` against these values.
 ---@type table<string, codeview.ErrorCode>
@@ -31,6 +32,7 @@ M.codes = {
   UNSUPPORTED = "unsupported",
   NOT_AUTHENTICATED = "not_authenticated",
   OFFLINE = "offline",
+  RATE_LIMITED = "rate_limited",
 }
 
 ---@class codeview.Error
