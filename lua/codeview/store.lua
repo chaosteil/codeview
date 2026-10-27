@@ -33,6 +33,7 @@
 ---     - review_id:
 ---     - created_at: 2026-08-12T09:10:00Z
 ---     - updated_at: 2026-08-12T09:10:00Z
+---     - remote_id:
 ---
 ---     The body of the comment.
 --- <
@@ -41,6 +42,9 @@
 --- heading with the id, a field block, and a markdown body. |M.decode()| reads
 --- the format back without loss. A body line that looks like a section heading
 --- keeps a backslash in the file, and the parser removes it again.
+---
+--- A file of an older release has no `remote_id` field. The decoder reads such
+--- a comment with an empty `remote_id`.
 ---
 --- |codeview.store.Store:save()| writes the file atomically: it writes a
 --- temporary file in the same directory and renames it over the target. A
@@ -78,6 +82,7 @@ M.marker = "## codeview-comment "
 ---@field state codeview.store.State State of the comment.
 ---@field synced_at integer Time of the post to the review host, in seconds since the epoch. 0 while the comment is local.
 ---@field review_id string Id of the review that holds the comment on the host. Empty while the comment is local.
+---@field remote_id string Id of the comment on the host. Empty while the comment is local, and for a comment in the text of a review.
 ---@field created_at integer Time of the first save, in seconds since the epoch.
 ---@field updated_at integer Time of the last change, in seconds since the epoch.
 ---@field body string Markdown text of the comment.
@@ -108,6 +113,7 @@ local FIELDS = {
   review_id = "string",
   created_at = "time",
   updated_at = "time",
+  remote_id = "string",
 }
 
 ---Order of the fields in the file.
@@ -123,6 +129,7 @@ local FIELD_ORDER = {
   "review_id",
   "created_at",
   "updated_at",
+  "remote_id",
 }
 
 ---Number of ids that this Neovim made.
@@ -337,6 +344,7 @@ local function decode_comment(id, lines)
     review_id = "",
     created_at = 0,
     updated_at = 0,
+    remote_id = "",
     body = "",
   }
 
@@ -615,6 +623,7 @@ local function build_comment(fields)
     review_id = type(fields.review_id) == "string" and fields.review_id or "",
     created_at = tonumber(fields.created_at) or now,
     updated_at = tonumber(fields.updated_at) or now,
+    remote_id = type(fields.remote_id) == "string" and fields.remote_id or "",
     body = vim.trim(fields.body),
   },
     nil
@@ -642,7 +651,12 @@ end
 ---Change the fields of one comment.
 ---
 --- A new body clears the sync mark of the comment. The text on the review host
---- is the text of the last submit, so the comment needs a new submit.
+--- is the text of the last submit, so the comment needs a new submit. That
+--- submit changes the text of the comment on the host, through `remote_id`.
+---
+--- A move of the anchor (`file`, `side`, `start_line`, or `end_line`) also
+--- clears the sync mark. The host cannot move a comment, so the move clears
+--- `remote_id` too, and the next submit posts a new comment.
 ---@param id string Id of the comment.
 ---@param fields table Fields to set. `body`, `state`, and the anchor fields.
 ---@return codeview.store.Comment? comment
@@ -655,6 +669,7 @@ function Store:update(id, fields)
   if type(fields) ~= "table" then
     return nil, errors.new(errors.codes.INVALID_ARG, "the fields must be a table, got " .. type(fields))
   end
+  local anchor = { comment.file, comment.side, comment.start_line, comment.end_line }
   if fields.body ~= nil then
     if type(fields.body) ~= "string" or vim.trim(fields.body) == "" then
       return nil, errors.new(errors.codes.INVALID_ARG, "the comment needs a body")
@@ -689,6 +704,10 @@ function Store:update(id, fields)
   if type(fields.commit) == "string" then
     comment.commit = fields.commit
   end
+  if not vim.deep_equal(anchor, { comment.file, comment.side, comment.start_line, comment.end_line }) then
+    comment.synced_at = 0
+    comment.remote_id = ""
+  end
   comment.updated_at = os.time()
   return comment, nil
 end
@@ -708,7 +727,7 @@ end
 --- The call does not write the file. Call |codeview.store.Store:save()| after
 --- it.
 ---@param id string Id of the comment.
----@param opts? { time?: integer, review_id?: string|integer } `time` is the sync time. The current time by default.
+---@param opts? { time?: integer, review_id?: string|integer, remote_id?: string|integer } `time` is the sync time. The current time by default. `remote_id` is the id of the comment on the host.
 ---@return codeview.store.Comment? comment
 ---@return codeview.Error? err
 function Store:mark_synced(id, opts)
@@ -720,6 +739,9 @@ function Store:mark_synced(id, opts)
   comment.synced_at = math.max(math.floor(tonumber(opts.time) or os.time()), 1)
   if opts.review_id ~= nil then
     comment.review_id = tostring(opts.review_id)
+  end
+  if opts.remote_id ~= nil then
+    comment.remote_id = tostring(opts.remote_id)
   end
   return comment, nil
 end

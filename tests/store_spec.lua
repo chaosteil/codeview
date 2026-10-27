@@ -413,6 +413,99 @@ describe("codeview.store", function()
       local text = store_mod.encode(store)
       assert.is_truthy(text:find("- synced_at:\n", 1, true), text)
       assert.is_truthy(text:find("- review_id:\n", 1, true), text)
+      assert.is_truthy(text:find("- remote_id:\n", 1, true), text)
+    end)
+
+    it("keeps the id of the comment on the host in the file", function()
+      local store = new_store()
+      local comment = add(store)
+      assert.are.equal("", comment.remote_id)
+      assert(store:mark_synced(comment.id, { time = 1786527000, review_id = "42", remote_id = 1000000001 }))
+      assert(store:save())
+
+      local back = assert(store_mod.load({ repo = store.repo, range = store.range }))
+      assert.are.equal("1000000001", assert(back:get(comment.id)).remote_id)
+      assert.are.equal(store_mod.version, back.version)
+    end)
+
+    it("reads a file without the id of the comment on the host", function()
+      local text = table.concat({
+        "---",
+        "version: 1",
+        "key: abc",
+        "repo: /home/ada/code/demo",
+        "range: aaaa1111..bbbb2222",
+        "spec: main..@",
+        "created_at: 2026-08-12T09:00:00Z",
+        "updated_at: 2026-08-12T09:30:00Z",
+        "---",
+        "",
+        "# codeview review: main..@",
+        "",
+        "## codeview-comment 0001",
+        "",
+        "- file: lua/demo.lua",
+        "- start_line: 3",
+        "- end_line: 5",
+        "- side: new",
+        "- commit: bbbb2222",
+        "- state: open",
+        "- synced_at: 2026-08-12T09:20:00Z",
+        "- review_id: 42",
+        "- created_at: 2026-08-12T09:10:00Z",
+        "- updated_at: 2026-08-12T09:10:00Z",
+        "",
+        "the body",
+        "",
+      }, "\n")
+      local store = assert(store_mod.decode(text))
+      local comment = store.comments[1]
+      assert.are.equal("", comment.remote_id)
+      assert.are.equal("42", comment.review_id)
+      assert.are.equal("the body", comment.body)
+      assert.is_true(store_mod.is_synced(comment))
+    end)
+
+    it("keeps the id of the comment on the host after a new body", function()
+      local store = new_store()
+      local comment = add(store)
+      assert(store:mark_synced(comment.id, { review_id = "42", remote_id = "7" }))
+      local changed = assert(store:update(comment.id, { body = "a better note" }))
+      assert.is_false(store_mod.is_synced(changed))
+      assert.are.equal("7", changed.remote_id)
+    end)
+
+    it("clears the sync state and the id on the host when the anchor moves", function()
+      local moves = {
+        { file = "lua/other.lua" },
+        { side = "old" },
+        { start_line = 4 },
+        { end_line = 9 },
+      }
+      for _, move in ipairs(moves) do
+        local store = new_store()
+        local comment = add(store)
+        assert(store:mark_synced(comment.id, { review_id = "42", remote_id = "7" }))
+        local changed = assert(store:update(comment.id, move))
+        assert.is_false(store_mod.is_synced(changed), vim.inspect(move))
+        assert.are.equal("", changed.remote_id, vim.inspect(move))
+        assert.are.equal("42", changed.review_id, vim.inspect(move))
+      end
+    end)
+
+    it("keeps the sync state when the anchor stays", function()
+      local store = new_store()
+      local comment = add(store)
+      assert(store:mark_synced(comment.id, { review_id = "42", remote_id = "7" }))
+      local changed = assert(store:update(comment.id, {
+        file = comment.file,
+        side = comment.side,
+        start_line = comment.start_line,
+        end_line = comment.end_line,
+        state = "resolved",
+      }))
+      assert.is_true(store_mod.is_synced(changed))
+      assert.are.equal("7", changed.remote_id)
     end)
   end)
 end)
