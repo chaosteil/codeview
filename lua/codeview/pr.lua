@@ -803,6 +803,7 @@ function M.open(number, opts, cb)
       label = M.label(info),
       store_key = M.store_key(info),
       pr = info,
+      pr_opts = { dir = opts.dir, repo = opts.repo, remote = opts.remote },
     }
 
     ---@param session codeview.Session?

@@ -1514,6 +1514,15 @@ local function open_state(view)
   }
 end
 
+---Line of the new side under the cursor of a view.
+---
+--- A row of the old side takes the nearest row of the new side.
+---@param view codeview.view.State
+---@return integer line Line of the file, from 1.
+function M.cursor_line(view)
+  return open_state(view).line
+end
+
 ---Read the review again from the repository.
 ---
 --- The call resolves the range of the session again, so the review follows a

@@ -41,6 +41,8 @@ local M = {}
 ---@field commits codeview.vcs.Commit[] Commits of the range, newest first.
 ---@field store_key string? Key text of the comment store. A pull request session sets it.
 ---@field pr codeview.pr.Info? Pull request that the session reviews. Nil for a local range.
+---@field pr_opts codeview.session.PrOpts? Options of the open call of the pull request. Nil for a local range.
+---@field export_file string? Path of the file that holds the export of the session.
 ---@field opened_at integer Time of the open call, in seconds since the epoch.
 ---@field closed boolean True after |codeview.Session:close()|.
 ---@field private windows integer[] Windows that close with the session.
@@ -57,6 +59,32 @@ local current = nil
 ---Number of sessions that this Neovim opened.
 ---@type integer
 local counter = 0
+
+---@class codeview.session.PrOpts
+---@field dir string? Directory for the detection of the repository.
+---@field repo string? Repository of the pull request, as `owner/name`.
+---@field remote string? Git remote that holds the pull request.
+
+---@class codeview.session.LastPr
+---@field number integer Number of the pull request.
+---@field repo string Repository of the pull request, as `owner/name`.
+---@field opts codeview.session.PrOpts Options of the open call of the pull request.
+
+---@class codeview.session.Last
+---@field input string|codeview.vcs.Range|codeview.vcs.RangeSpec Argument of the open call.
+---@field dir string Root of the repository.
+---@field pr codeview.session.LastPr? Pull request of the session. Nil for a local range.
+---@field export_file string? Path of the export file of the session.
+---@field path string? Path of the open file. Nil when no file was open.
+---@field line integer? Line of the new side under the cursor.
+---@field style "inline"|"split"? Diff style of the open file.
+---@field expanded table<string, boolean>? Expanded state of the sidebar directories. Nil without a sidebar.
+---@field sidebar boolean True when the sidebar was open.
+---@field overview boolean True when the overview was open.
+
+---Record of the session that closed last. It lives in memory only.
+---@type codeview.session.Last?
+local last = nil
 
 ---@alias codeview.session.Step codeview.util.Step
 
@@ -163,6 +191,7 @@ end
 ---@field label string? Text that names the session. The revision argument by default.
 ---@field store_key string? Key text of the comment store. The resolved range by default.
 ---@field pr codeview.pr.Info? Pull request that the session reviews.
+---@field pr_opts codeview.session.PrOpts? Options of the open call of the pull request.
 ---@field export_file string? Path of a file that holds the export of the session. The session keeps it up to date.
 
 ---Write the export of a session to a file.
@@ -275,6 +304,8 @@ function M.open(spec, opts, cb)
       commits = state.commits,
       store_key = opts.store_key,
       pr = opts.pr,
+      pr_opts = opts.pr_opts,
+      export_file = opts.export_file,
       opened_at = os.time(),
       closed = false,
       windows = {},
@@ -322,6 +353,14 @@ function M.close()
     return false
   end
   return current:close()
+end
+
+---Read the record of the session that closed last.
+---
+--- |codeview.Session:close()| writes the record. `:Codeview reopen` reads it.
+---@return codeview.session.Last? last Nil before the first close.
+function M.last()
+  return last
 end
 
 ---Read the session that runs.
@@ -794,9 +833,55 @@ function Session:off_close(fn)
   return false
 end
 
+---Read the state of a session before it closes.
+---
+--- The record holds plain values only: no session, no buffer, and no window.
+---@param session codeview.Session
+---@return codeview.session.Last
+local function record_of(session)
+  ---@type codeview.session.Last
+  local record = {
+    input = vim.deepcopy(session.input),
+    dir = session.repo.root,
+    export_file = session.export_file,
+    sidebar = false,
+    overview = false,
+  }
+  if session.pr then
+    record.pr = {
+      number = session.pr.number,
+      repo = session.pr.repo,
+      opts = vim.deepcopy(session.pr_opts or {}),
+    }
+  end
+
+  local view = require("codeview.view")
+  local state = view.current()
+  if state and state.session == session then
+    record.path = state.path
+    record.line = view.cursor_line(state)
+    record.style = state.style
+  end
+
+  local sidebar = require("codeview.sidebar")
+  local bar = sidebar.get()
+  if bar and bar.session == session then
+    record.expanded = vim.deepcopy(bar.expanded)
+    record.sidebar = sidebar.is_open()
+  end
+
+  local overview = require("codeview.overview")
+  local panel = overview.get()
+  if panel and panel.session == session then
+    record.overview = overview.is_open()
+  end
+  return record
+end
+
 ---Close the session.
 ---
---- The call runs the close handlers, deletes the autocmd group, closes the
+--- The call keeps a record of the session for |codeview.session.last()|. It
+--- then runs the close handlers, deletes the autocmd group, closes the
 --- windows, and deletes the buffers of the session. A second call does
 --- nothing.
 ---@return boolean closed False when the session was closed already.
@@ -804,6 +889,9 @@ function Session:close()
   if self.closed then
     return false
   end
+  -- The record reads the view and the panels, so it comes before the close
+  -- handlers remove them.
+  last = record_of(self)
   self.closed = true
   if current == self then
     current = nil
