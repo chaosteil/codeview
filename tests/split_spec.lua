@@ -212,6 +212,13 @@ describe("codeview.split", function()
       assert.is_nil(build.gaps[1].row)
     end)
 
+    it("reads the context option again on each build of one diff", function()
+      local file = diff.compute(numbered(20), numbered(20, { [10] = " changed" }))
+      assert.are.equal(10, #split.build(file).rows)
+      require("codeview.config").setup({ diff = { context = 1 } })
+      assert.are.equal(6, #split.build(file).rows)
+    end)
+
     it("renders a note of a file without a text diff", function()
       local file = diff.compute("same\n", "same\n")
       local build = split.build(file)

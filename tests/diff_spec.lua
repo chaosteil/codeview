@@ -108,9 +108,10 @@ describe("codeview.diff", function()
       local old = "1\n2\n3\n4\n5\n6\n7\n8\n"
       local new = "1 x\n2\n3\n4\n5\n6\n7 x\n8\n"
       for _, context in ipairs({ 1, 3, 10 }) do
-        local result = diff.compute(old, new, { context = context })
+        require("codeview.config").setup({ diff = { context = context } })
+        local result = diff.compute(old, new)
         assert.are.equal(2, #result.hunks)
-        assert.are.equal(context, result.context)
+        assert.is_nil(result.context)
         local added, removed = diff.stat(result)
         assert.are.equal(2, added)
         assert.are.equal(2, removed)

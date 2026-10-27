@@ -165,7 +165,8 @@ describe("codeview.inline", function()
     end)
 
     it("keeps the context of the configuration around a hunk", function()
-      local file = diff.compute(numbered(20), numbered(20, { [10] = " changed" }), { context = 1 })
+      local file = diff.compute(numbered(20), numbered(20, { [10] = " changed" }))
+      require("codeview.config").setup({ diff = { context = 1 } })
       local build = inline.build(file)
       assert.are.same({
         "⋯ 8 unchanged lines",
@@ -176,6 +177,13 @@ describe("codeview.inline", function()
         " line 11",
         "⋯ 9 unchanged lines",
       }, build.lines)
+    end)
+
+    it("reads the context option again on each build of one diff", function()
+      local file = diff.compute(numbered(20), numbered(20, { [10] = " changed" }))
+      assert.are.equal(11, #inline.build(file).lines)
+      require("codeview.config").setup({ diff = { context = 1 } })
+      assert.are.equal(7, #inline.build(file).lines)
     end)
 
     it("hides the unchanged section between two hunks", function()

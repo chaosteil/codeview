@@ -235,7 +235,9 @@ end
 function M.build(diff, opts)
   opts = opts or {}
   local cfg = config.get().diff
-  local ctx = opts.context or diff.context or cfg.context
+  -- The option can change between two renders of one diff, so the call reads
+  -- it each time, like `diff.word_diff`.
+  local ctx = opts.context or cfg.context
   local word_diff = opts.word_diff
   if word_diff == nil then
     word_diff = cfg.word_diff

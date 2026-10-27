@@ -8,8 +8,8 @@
 --- The hunks hold only the changed lines. |vim.diff()| runs with a context
 --- length of 0, so it keeps each change region separate. A larger context
 --- length makes it merge two near changes and report the unchanged lines
---- between them as changed. The `diff.context` option stays in the result as
---- `context`, because the renderer adds the context lines itself.
+--- between them as changed. The renderer adds the context lines itself, and
+--- it reads the `diff.context` option on every render.
 ---
 --- A file with a NUL byte on one side is binary. The result then holds no
 --- hunks, and the renderer shows a note.
@@ -61,11 +61,9 @@ local M = {}
 ---@field max_lines integer Line limit that applied. 0 when the line limit did not apply.
 ---@field byte_count integer? Number of bytes of the two sides together.
 ---@field max_bytes integer? Byte limit that applied. 0 or nil when the byte limit did not apply.
----@field context integer Context length for the renderer.
 ---@field message boolean? True for the commit message document, which holds no diff.
 
 ---@class codeview.diff.Opts
----@field context integer? Context length. The `diff.context` option by default.
 ---@field algorithm string? Algorithm of |vim.diff()|. |codeview.diff.algorithm()| by default.
 ---@field indent_heuristic boolean? True moves a change to the line that the indent suggests. False by default.
 ---@field linematch integer? Highest number of lines of a hunk that |vim.diff()| aligns by similarity. 0 turns the alignment off. |codeview.diff.linematch()| by default.
@@ -173,7 +171,6 @@ end
 function M.compute(old_text, new_text, opts)
   opts = opts or {}
   local cfg = config.get().diff
-  local context = opts.context or cfg.context
   local max_lines = opts.max_lines or cfg.max_lines
   -- A caller that removes the line limit wants the whole file, so the byte
   -- limit goes too. The load key of the view works this way.
@@ -199,7 +196,6 @@ function M.compute(old_text, new_text, opts)
     max_lines = 0,
     byte_count = #(old_text or "") + #(new_text or ""),
     max_bytes = 0,
-    context = context,
   }
   if binary then
     return out
