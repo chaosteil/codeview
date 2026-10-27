@@ -1,7 +1,14 @@
 ---@brief codeview — review commits and ranges of commits inside Neovim.
 ---
---- The public API of the plugin. Every call of this table is stable. The
---- modules under `codeview.*` hold the work.
+--- The public API of the plugin. The modules under `codeview.*` hold the
+--- work.
+---
+--- These calls are stable: `setup`, `open`, `review`, `open_pr`, `close`,
+--- `session`, `comments`, `export`, `export_text`, `submit`, and `refresh`.
+--- Their names, arguments, and results stay the same within version 0.x.
+--- Every other call is unstable. It can change before version 1.0, and its
+--- doc comment says so. Some calls return internal tables, for example a
+--- session or a view state. Read only the documented fields of such a table.
 
 local config = require("codeview.config")
 
@@ -33,6 +40,8 @@ function M.setup(opts)
 end
 
 ---Read the active configuration.
+---
+--- Unstable: the call can change before version 1.0.
 ---@return codeview.Config
 function M.config()
   return config.get()
@@ -64,6 +73,8 @@ function M.review(spec, opts)
 end
 
 ---Open the commit picker.
+---
+--- Unstable: the call can change before version 1.0.
 ---@param opts? codeview.picker.Opts `mode = "range"` asks for two picks.
 ---@param cb? fun(session: codeview.Session?, err: codeview.Error?) Nil session and nil error mean cancel.
 function M.pick(opts, cb)
@@ -85,12 +96,16 @@ function M.open_pr(number, opts, cb)
 end
 
 ---Read the pull request that the session reviews.
+---
+--- Unstable: the call can change before version 1.0.
 ---@return codeview.pr.Info? info Nil for a session of a local range.
 function M.pr()
   return require("codeview.pr").current()
 end
 
 ---Review comments that the pull request of the session already holds.
+---
+--- Unstable: the call can change before version 1.0.
 ---@return codeview.remote.Comment[] comments
 function M.remote_comments()
   return require("codeview.remote").list()
@@ -109,12 +124,16 @@ function M.close()
 end
 
 ---Read the changed-files sidebar.
+---
+--- Unstable: the call can change before version 1.0.
 ---@return codeview.Sidebar? sidebar Nil when no sidebar runs.
 function M.sidebar()
   return require("codeview.sidebar").get()
 end
 
 ---Open the changed-files sidebar for the session that runs.
+---
+--- Unstable: the call can change before version 1.0.
 ---@param opts? { session?: codeview.Session, focus?: boolean }
 ---@return codeview.Sidebar? sidebar
 ---@return codeview.Error? err
@@ -123,12 +142,16 @@ function M.open_sidebar(opts)
 end
 
 ---Close the changed-files sidebar. The session stays open.
+---
+--- Unstable: the call can change before version 1.0.
 ---@return boolean closed False when no sidebar is open.
 function M.close_sidebar()
   return require("codeview.sidebar").close()
 end
 
 ---Close the sidebar when it is open, and open it when it is closed.
+---
+--- Unstable: the call can change before version 1.0.
 ---@param opts? { session?: codeview.Session, focus?: boolean }
 ---@return boolean open State after the call.
 function M.toggle_sidebar(opts)
@@ -136,12 +159,16 @@ function M.toggle_sidebar(opts)
 end
 
 ---Read the comment overview.
+---
+--- Unstable: the call can change before version 1.0.
 ---@return codeview.Overview? overview Nil when no overview runs.
 function M.overview()
   return require("codeview.overview").get()
 end
 
 ---Open the comment overview for the session that runs.
+---
+--- Unstable: the call can change before version 1.0.
 ---@param opts? { session?: codeview.Session, focus?: boolean }
 ---@return codeview.Overview? overview
 ---@return codeview.Error? err
@@ -150,12 +177,16 @@ function M.open_overview(opts)
 end
 
 ---Close the comment overview. The session stays open.
+---
+--- Unstable: the call can change before version 1.0.
 ---@return boolean closed False when no overview is open.
 function M.close_overview()
   return require("codeview.overview").close()
 end
 
 ---Close the overview when it is open, and open it when it is closed.
+---
+--- Unstable: the call can change before version 1.0.
 ---@param opts? { session?: codeview.Session, focus?: boolean }
 ---@return boolean open State after the call.
 function M.toggle_overview(opts)
@@ -163,12 +194,16 @@ function M.toggle_overview(opts)
 end
 
 ---Read the file view of the session that runs.
+---
+--- Unstable: the call can change before version 1.0.
 ---@return codeview.view.State? view Nil when no file is open.
 function M.view()
   return require("codeview.view").current()
 end
 
 ---Open one changed file of the session in the diff view.
+---
+--- Unstable: the call can change before version 1.0.
 ---@param index integer Position of the file in the file list of the session.
 ---@param opts? { session?: codeview.Session, force?: boolean } `force = true` renders a diff above the `diff.max_lines` limit.
 ---@param cb? fun(view: codeview.view.State?, err: codeview.Error?) Callback for the async form.
@@ -190,6 +225,8 @@ function M.open_file(index, opts, cb)
 end
 
 ---Render the diff that the `diff.max_lines` limit stopped.
+---
+--- Unstable: the call can change before version 1.0.
 ---@param cb? fun(view: codeview.view.State?, err: codeview.Error?) Callback for the async form.
 ---@return boolean started False when the view shows no limited diff.
 function M.load_diff(cb)
@@ -197,6 +234,8 @@ function M.load_diff(cb)
 end
 
 ---Move the cursor to the first row of the next hunk.
+---
+--- Unstable: the call can change before version 1.0.
 ---@param opts? { wrap?: boolean } `wrap = true` continues at the first hunk.
 ---@return integer? row Nil when no hunk follows.
 function M.next_hunk(opts)
@@ -204,6 +243,8 @@ function M.next_hunk(opts)
 end
 
 ---Move the cursor to the first row of the previous hunk.
+---
+--- Unstable: the call can change before version 1.0.
 ---@param opts? { wrap?: boolean } `wrap = true` continues at the last hunk.
 ---@return integer? row Nil when no hunk is above the cursor.
 function M.prev_hunk(opts)
@@ -214,6 +255,8 @@ end
 ---
 --- The call leaves the review: the window of the diff takes the real file,
 --- with the cursor on the line of the diff. See |codeview.view.edit()|.
+---
+--- Unstable: the call can change before version 1.0.
 ---@param opts? { path?: string, line?: integer, win?: integer }
 ---@return boolean opened
 function M.edit_file(opts)
@@ -221,6 +264,8 @@ function M.edit_file(opts)
 end
 
 ---Read the diff style of the view, or the style of the next file.
+---
+--- Unstable: the call can change before version 1.0.
 ---@return "inline"|"split" style
 function M.style()
   return require("codeview.view").style()
@@ -231,6 +276,8 @@ end
 --- The call keeps the cursor on the same line of the file. The new style also
 --- becomes the style of the next file. The `diff.style` option keeps its
 --- value.
+---
+--- Unstable: the call can change before version 1.0.
 ---@param style "inline"|"split"? Style to set. The other style by default.
 ---@return "inline"|"split"? style Style after the call. Nil for an invalid name.
 function M.set_style(style)
@@ -238,12 +285,16 @@ function M.set_style(style)
 end
 
 ---Switch between the inline style and the side-by-side style.
+---
+--- Unstable: the call can change before version 1.0.
 ---@return "inline"|"split"? style Style after the call.
 function M.toggle_style()
   return require("codeview.view").toggle_style()
 end
 
 ---Show or hide the lines of the collapsed section under the cursor.
+---
+--- Unstable: the call can change before version 1.0.
 ---@param id integer? Number of the section. The section under the cursor by default.
 ---@param expanded boolean? State to set. The other state by default.
 ---@return boolean changed False without a section.
@@ -254,6 +305,8 @@ end
 ---Comment on the line under the cursor, or on the selected lines.
 ---
 --- The call opens the comment editor. The diff buffer stays read-only.
+---
+--- Unstable: the call can change before version 1.0.
 ---@param opts? { visual?: boolean, first?: integer, last?: integer }
 ---@return boolean opened False when the row holds no line of the file.
 function M.comment(opts)
@@ -261,6 +314,8 @@ function M.comment(opts)
 end
 
 ---Open the editor for the comment under the cursor.
+---
+--- Unstable: the call can change before version 1.0.
 ---@param opts? { id?: string }
 ---@return boolean opened False when no comment covers the cursor.
 function M.edit_comment(opts)
@@ -268,6 +323,8 @@ function M.edit_comment(opts)
 end
 
 ---Delete the comment under the cursor, after a question.
+---
+--- Unstable: the call can change before version 1.0.
 ---@param opts? { id?: string, confirm?: boolean } `confirm = false` skips the question.
 ---@return boolean removed
 function M.delete_comment(opts)
@@ -275,6 +332,8 @@ function M.delete_comment(opts)
 end
 
 ---Set the state of the comment under the cursor.
+---
+--- Unstable: the call can change before version 1.0.
 ---@param opts? { id?: string, state?: "open"|"resolved" } Without a state the call takes the other state.
 ---@return codeview.store.Comment? comment The comment after the change.
 function M.resolve_comment(opts)
@@ -282,6 +341,8 @@ function M.resolve_comment(opts)
 end
 
 ---Show the comment under the cursor in a float.
+---
+--- Unstable: the call can change before version 1.0.
 ---@return integer? buf
 ---@return integer? win
 function M.show_comment()
@@ -295,6 +356,8 @@ function M.comments()
 end
 
 ---Comment store of the session that runs.
+---
+--- Unstable: the call can change before version 1.0.
 ---@return codeview.store.Store? store Nil when no session runs.
 ---@return codeview.Error? err
 function M.store()
@@ -337,6 +400,8 @@ end
 ---Send one comment to the pull request.
 ---
 --- The send key of the comment editor calls this function.
+---
+--- Unstable: the call can change before version 1.0.
 ---@param opts codeview.submit.SendOpts
 ---@param cb? fun(result: codeview.submit.Result?, err: codeview.Error?) Handler of the answer.
 function M.send(opts, cb)
@@ -357,6 +422,8 @@ end
 ---Run the health check of the plugin.
 ---
 --- The same report comes from `:checkhealth codeview`.
+---
+--- Unstable: the call can change before version 1.0.
 function M.health()
   vim.cmd.checkhealth("codeview")
 end
