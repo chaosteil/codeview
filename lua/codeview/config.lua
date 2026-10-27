@@ -80,7 +80,7 @@ local M = {}
 ---@field template fun(session: codeview.Session, data: codeview.export.Data): string|false Custom renderer. False uses the built-in renderer.
 
 ---@class codeview.Config.GitHub
----@field remote string Git remote that holds the pull requests. An empty text takes origin, or the first remote.
+---@field remote string Git remote that holds the pull requests. An empty text takes the remote whose URL names the repository of the pull request, else upstream, github, origin, or the first remote.
 ---@field comments boolean Read the review comments of the pull request and show them in the diff.
 ---@field max_comments integer Highest number of review comments that one fetch reads.
 ---@field binary string Name or path of the gh executable.

@@ -1111,7 +1111,21 @@ A pull request review needs a git repository. A colocated jj repository holds
 one, so it works there too.
 
 The `github.remote` option names the git remote of the fetch. An empty text
-takes `origin`, or the first remote of the repository.
+lets the plugin pick the remote:
+
+    1. The remote whose URL names the repository of the pull request. The
+       SSH, HTTPS, and scp forms all match, with or without `.git`. A remote
+       on the host of the pull request comes before one on another host.
+    2. Else, when the `repo` option of |codeview.open_pr()| names the
+       repository, the HTTPS URL of that repository on the host of the pull
+       request.
+    3. Else the first of `upstream`, `github`, and `origin`.
+    4. Else the first remote of the repository.
+
+When more than one remote matches in step 1, the order of step 3 decides.
+The head that the fetch gives must be the head commit that GitHub reports. A
+push between the two reads gives another commit, and the open stops with a
+message. Open the pull request again.
 
                                                        *codeview-github-store*
 The session key of the comment file is `pr-{number}-{head commit}`. A new push
@@ -1651,7 +1665,7 @@ Defaults: >lua
         template = false,            -- false uses the built-in renderer
       },
       github = {
-        remote = "",                 -- git remote, "" takes origin
+        remote = "",                 -- git remote, "" picks one
         comments = true,             -- read the review comments of the PR
         max_comments = 500,          -- highest number of comments of a fetch
         binary = "gh",               -- name or path of the gh executable
