@@ -182,6 +182,20 @@ local function render_lines(self)
   return lines
 end
 
+---Report whether the data of two lines names the same entry.
+---
+--- A render keeps the cursor on the entry, so a new file above it does not
+--- move the cursor to another file.
+---@param a any Data of the old line.
+---@param b any Data of the new line.
+---@return boolean
+local function same_node(a, b)
+  if type(a) ~= "table" or type(b) ~= "table" then
+    return false
+  end
+  return a.kind == b.kind and a.path == b.path and a.action == b.action
+end
+
 --- Sidebar --------------------------------------------------------------------
 
 ---Report an error of an action of the sidebar.
@@ -550,6 +564,7 @@ local function make(session, on_close)
     end,
     keymaps = keymaps(sidebar),
     on_close = on_close,
+    same = same_node,
   })
   watch(sidebar)
   return sidebar

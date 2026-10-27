@@ -446,6 +446,26 @@ local function render_lines(self)
   return lines
 end
 
+---Report whether the data of two lines names the same item.
+---
+--- A render keeps the cursor on the item, so a new comment above it does not
+--- move the cursor to another comment.
+---@param a any Data of the old line.
+---@param b any Data of the new line.
+---@return boolean
+local function same_item(a, b)
+  if type(a) ~= "table" or type(b) ~= "table" or a.kind ~= b.kind or a.path ~= b.path then
+    return false
+  end
+  if a.comment or b.comment then
+    return a.comment ~= nil and b.comment ~= nil and a.comment.id == b.comment.id
+  end
+  if a.remote or b.remote then
+    return a.remote ~= nil and b.remote ~= nil and a.remote.id == b.remote.id
+  end
+  return true
+end
+
 --- Overview ---------------------------------------------------------------
 
 ---Report an error of an action of the overview.
@@ -909,6 +929,7 @@ local function make(session, on_close)
     end,
     keymaps = keymaps(overview),
     on_close = on_close,
+    same = same_item,
   })
   local state = view.current()
   if state and state.session == session then

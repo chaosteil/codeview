@@ -121,6 +121,7 @@ end
 ---@field width integer? Width in columns. 40 by default.
 ---@field filetype string? Filetype of the buffer. "codeview" by default.
 ---@field on_close fun(panel: codeview.Panel)? Handler that runs after the close.
+---@field same fun(a: any, b: any): boolean? Report whether the data of two lines names the same item. A render keeps the cursor on that item.
 
 ---@class codeview.Panel
 ---@field id integer Number of the panel. It counts from 1.
@@ -131,6 +132,7 @@ end
 ---@field private render_fn fun(panel: codeview.Panel): codeview.panel.Line[]
 ---@field private keymaps table<string, false|codeview.panel.Keymap>
 ---@field private on_close fun(panel: codeview.Panel)?
+---@field private same fun(a: any, b: any): boolean?
 ---@field private buf integer? Buffer of the panel, while it is open.
 ---@field private win integer? Window of the panel, while it is open.
 ---@field private group integer? Autocmd group of the panel.
@@ -149,6 +151,7 @@ function M.new(opts)
   vim.validate("opts.keymaps", opts.keymaps, "table", true)
   vim.validate("opts.width", opts.width, "number", true)
   vim.validate("opts.on_close", opts.on_close, "callable", true)
+  vim.validate("opts.same", opts.same, "callable", true)
 
   counter = counter + 1
   return setmetatable({
@@ -160,6 +163,7 @@ function M.new(opts)
     render_fn = opts.render,
     keymaps = opts.keymaps or {},
     on_close = opts.on_close,
+    same = opts.same,
     rendered = {},
     closing = false,
   }, Panel)
@@ -365,7 +369,9 @@ end
 
 ---Render the panel again.
 ---
---- The call keeps the cursor on its line, when the new content is long
+--- The call keeps the cursor on its item: the new line whose data the `same`
+--- function of the panel matches with the data of the old line. Without a
+--- match the cursor keeps its line number, when the new content is long
 --- enough. A line break inside the text of a line becomes a space, because
 --- one line of the render is one line of the buffer.
 ---@return boolean rendered False while the panel has no buffer.
@@ -373,6 +379,12 @@ function Panel:render()
   local buf = self:buffer()
   if not buf then
     return false
+  end
+
+  local row, before = nil, nil
+  if self:is_open() then
+    row = api.nvim_win_get_cursor(self.win --[[@as integer]])[1]
+    before = self:data(row)
   end
 
   local lines = self.render_fn(self) or {}
@@ -397,9 +409,14 @@ function Panel:render()
     set_marks(buf, index - 1, line)
   end
 
-  if self:is_open() then
-    local row = api.nvim_win_get_cursor(self.win --[[@as integer]])[1]
-    self:set_cursor(row)
+  if row and self:is_open() then
+    local found = nil
+    if before ~= nil and self.same then
+      found = self:find(function(data)
+        return self.same(before, data) == true
+      end)
+    end
+    self:set_cursor(found or row)
   end
   return true
 end
