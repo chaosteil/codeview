@@ -98,7 +98,8 @@ end
 --- call with a read-only command. On jj that command runs with
 --- `--ignore-working-copy`. The same commit ids mean that the review is
 --- current, and the call does nothing. Other ids read the review again with
---- |codeview.view.refresh()|, without a snapshot of the working copy.
+--- |codeview.view.refresh()|, without a snapshot of the working copy. The
+--- async form also runs that refresh in the async form.
 ---
 --- A failed check keeps the data of the review. The user gets one message,
 --- and the next failed checks stay quiet until a check succeeds.
@@ -172,8 +173,15 @@ function M.check(session, cb)
     end
     -- The refresh takes no snapshot. The trigger is an operation of the
     -- repository, and the working copy belongs to the user.
-    require("codeview.view").refresh({ snapshot = false })
-    return finish(true, nil)
+    local view = require("codeview.view")
+    if not cb then
+      view.refresh({ snapshot = false })
+      return finish(true, nil)
+    end
+    view.refresh({ snapshot = false }, function()
+      finish(true, nil)
+    end)
+    return nil, nil
   end
 
   local repo = session.repo

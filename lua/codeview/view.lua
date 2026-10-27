@@ -261,7 +261,7 @@ local function set_keymaps(session, buf)
     M.toggle_style()
   end, "switch the diff style")
   add(keys.refresh, function()
-    M.refresh()
+    M.refresh(nil, function() end)
   end, "read the review again")
   add(keys.close, function()
     session:close()
@@ -771,6 +771,10 @@ function M.step(session, delta)
   return order[at]
 end
 
+---Load and show one changed file. The definition follows |M.open()|.
+---@type fun(session: codeview.Session, index: integer, opts: codeview.view.OpenOpts?, cb: fun(view: codeview.view.State?, err: codeview.Error?)?, dropped: fun()?): codeview.view.State?, codeview.Error?
+local load
+
 ---Show one changed file of the session.
 ---
 --- Without a callback the call blocks and returns `view, err`. With a
@@ -789,6 +793,21 @@ function M.open(session, index, opts, cb)
   if type(opts) == "function" then
     cb, opts = opts, nil
   end
+  return load(session, index, opts, cb, nil)
+end
+
+---Show one changed file of the session. |M.open()| holds the description.
+---
+--- `dropped` runs when another call cancels the request. A caller that waits
+--- for the answer then still gets to its end.
+---@param session codeview.Session
+---@param index integer
+---@param opts codeview.view.OpenOpts?
+---@param cb fun(view: codeview.view.State?, err: codeview.Error?)?
+---@param dropped fun()?
+---@return codeview.view.State? view
+---@return codeview.Error? err
+function load(session, index, opts, cb, dropped)
   opts = opts or {}
   if type(session) ~= "table" or type(session.file) ~= "function" then
     return done(cb, nil, errors.new(errors.codes.INVALID_ARG, "the first argument must be a session"))
@@ -875,6 +894,9 @@ function M.open(session, index, opts, cb)
     pending = { session = session, index = index, ticket = ticket }
     message.for_file(session, file, function(document, err)
       if not fresh(ticket) then
+        if dropped then
+          dropped()
+        end
         return
       end
       pending = nil
@@ -900,6 +922,9 @@ function M.open(session, index, opts, cb)
   pending = { session = session, index = index, ticket = ticket }
   diff_mod.for_file(session, file, diff_opts, function(result, err)
     if not fresh(ticket) then
+      if dropped then
+        dropped()
+      end
       return
     end
     pending = nil
@@ -1317,7 +1342,7 @@ end
 set_back_key = function(session, buf)
   for _, lhs in ipairs(config.keys(config.get().keymaps.back)) do
     vim.keymap.set("n", lhs, function()
-      M.back()
+      M.back(nil, function() end)
     end, { buffer = buf, nowait = true, silent = true, desc = "codeview: back to the review" })
   end
   session:on_close(function()
@@ -1341,25 +1366,32 @@ end
 --- The file of the working copy can hold a change that the review does not
 --- know. A review of the working-copy commit therefore reads its data again
 --- first. See |codeview.Session:reload()| and the `auto_reload` option.
+---
+--- Without a callback the call blocks. With a callback it returns at once,
+--- runs every backend call in the async form, and calls `cb(opened)`.
 ---@param opts? { win?: integer, line?: integer, reload?: boolean } `reload = false` keeps the data of the session.
----@return boolean opened
-function M.back(opts)
+---@param cb? fun(opened: boolean) Callback for the async form.
+---@return boolean? opened Nil with a callback.
+function M.back(opts, cb)
+  if type(opts) == "function" then
+    cb, opts = opts, nil
+  end
   opts = opts or {}
   local session = require("codeview.session").current()
   if not session or not session:is_active() then
     notify("no review session")
-    return false
+    return done(cb, false)
   end
 
   local win = opts.win or api.nvim_get_current_win()
   if not api.nvim_win_is_valid(win) then
-    return false
+    return done(cb, false)
   end
   local buf = api.nvim_win_get_buf(win)
   local name = api.nvim_buf_get_name(buf)
   if name == "" then
     notify("this window holds no file of the review")
-    return false
+    return done(cb, false)
   end
 
   local root = session.repo.root
@@ -1369,7 +1401,7 @@ function M.back(opts)
     local prefix = vim.fs.normalize(root) .. "/"
     if not vim.startswith(full, prefix) then
       notify("the file is outside " .. root)
-      return false
+      return done(cb, false)
     end
     path = full:sub(#prefix + 1)
   end
@@ -1378,29 +1410,60 @@ function M.back(opts)
   -- when Neovim can hide it. Without 'hidden' the write comes first.
   if vim.bo[buf].modified and not vim.o.hidden then
     notify("write " .. path .. " first, or set 'hidden'")
-    return false
-  end
-
-  -- The reload can add a file to the range and remove another one, so the
-  -- position of the path comes after it.
-  if opts.reload ~= false then
-    require("codeview.session").auto_reload(session)
-  end
-
-  local index = session:index_of(path)
-  if not index then
-    notify("the range does not change " .. path)
-    return false
+    return done(cb, false)
   end
 
   local line = opts.line or api.nvim_win_get_cursor(win)[1]
-  local state_view, err = M.open(session, index, { win = win })
-  if not state_view then
-    notify(tostring(err), vim.log.levels.ERROR)
-    return false
+
+  ---Open the diff of the path, after the reload.
+  ---
+  --- The reload can add a file to the range and remove another one, so the
+  --- position of the path comes after it.
+  ---@return boolean? opened
+  local function arrive()
+    local index = session:index_of(path)
+    if not index then
+      notify("the range does not change " .. path)
+      return done(cb, false)
+    end
+    if not cb then
+      local state_view, err = M.open(session, index, { win = win })
+      if not state_view then
+        notify(tostring(err), vim.log.levels.ERROR)
+        return false
+      end
+      M.go_to_line(line, "new")
+      return true
+    end
+    load(session, index, { win = win }, function(state_view, err)
+      if not state_view then
+        notify(tostring(err), vim.log.levels.ERROR)
+        cb(false)
+        return
+      end
+      M.go_to_line(line, "new")
+      cb(true)
+    end, function()
+      cb(false)
+    end)
+    return nil
   end
-  M.go_to_line(line, "new")
-  return true
+
+  if opts.reload == false then
+    return arrive()
+  end
+  if not cb then
+    require("codeview.session").auto_reload(session)
+    return arrive()
+  end
+  require("codeview.session").auto_reload(session, function()
+    if session:is_active() then
+      arrive()
+    else
+      cb(false)
+    end
+  end)
+  return nil
 end
 
 ---@class codeview.view.Open
@@ -1455,13 +1518,20 @@ end
 --- The file that the view shows opens again, with the cursor on the same line
 --- of the file. A file that leaves the range gets a message, and the view
 --- closes, because the review has no diff to show for it.
+---
+--- Without a callback the call blocks. With a callback it returns at once,
+--- runs every backend call in the async form, and calls `cb(refreshed)`.
 ---@param opts? codeview.session.RefreshOpts `snapshot = false` keeps the working copy out of the repository.
----@return boolean refreshed False with a message when the call failed.
-function M.refresh(opts)
+---@param cb? fun(refreshed: boolean) Callback for the async form.
+---@return boolean? refreshed False with a message when the call failed. Nil with a callback.
+function M.refresh(opts, cb)
+  if type(opts) == "function" then
+    cb, opts = opts, nil
+  end
   local session = require("codeview.session").current()
   if not session or not session:is_active() then
     notify("no review session")
-    return false
+    return done(cb, false)
   end
 
   -- The state of the view reads first. The refresh replaces the file list of
@@ -1469,29 +1539,57 @@ function M.refresh(opts)
   local view = M.current()
   local before = view and open_state(view) or nil
 
-  local _, err = session:refresh(opts)
-  if err then
-    notify(tostring(err), vim.log.levels.ERROR)
-    return false
-  end
-  if not before then
-    return true
+  ---Open the file of the view again, after the session read its data.
+  ---@param err codeview.Error?
+  ---@return boolean? refreshed
+  local function reopen(err)
+    if err then
+      notify(tostring(err), vim.log.levels.ERROR)
+      return done(cb, false)
+    end
+    if not before then
+      return done(cb, true)
+    end
+
+    local index = position_after(session, before)
+    if not index then
+      notify("the range does not change " .. before.path .. " any more")
+      M.close()
+      return done(cb, true)
+    end
+
+    if not cb then
+      local fresh_view, open_err = M.open(session, index, { win = before.win })
+      if not fresh_view then
+        notify(tostring(open_err), vim.log.levels.ERROR)
+        return false
+      end
+      M.go_to_line(before.line, "new")
+      return true
+    end
+    load(session, index, { win = before.win }, function(fresh_view, open_err)
+      if not fresh_view then
+        notify(tostring(open_err), vim.log.levels.ERROR)
+        cb(false)
+        return
+      end
+      M.go_to_line(before.line, "new")
+      cb(true)
+    end, function()
+      -- A newer request took the view. The session holds the new data.
+      cb(true)
+    end)
+    return nil
   end
 
-  local index = position_after(session, before)
-  if not index then
-    notify("the range does not change " .. before.path .. " any more")
-    M.close()
-    return true
+  if not cb then
+    local _, err = session:refresh(opts)
+    return reopen(err)
   end
-
-  local fresh_view, open_err = M.open(session, index, { win = before.win })
-  if not fresh_view then
-    notify(tostring(open_err), vim.log.levels.ERROR)
-    return false
-  end
-  M.go_to_line(before.line, "new")
-  return true
+  session:refresh(opts, function(_, err)
+    reopen(err)
+  end)
+  return nil
 end
 
 return M

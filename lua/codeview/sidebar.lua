@@ -306,6 +306,9 @@ end
 ---
 --- A review of the working-copy commit reads its data again first, so the
 --- diff holds the writes of your editor. See |codeview.session.auto_reload()|.
+---
+--- With a callback, every backend call runs in the async form. Without one,
+--- the reload blocks and an error goes to the user as a message.
 ---@param index integer Position in the file list.
 ---@param cb? fun(view: codeview.view.State?, err: codeview.Error?)
 function Sidebar:open_file(index, cb)
@@ -315,18 +318,31 @@ function Sidebar:open_file(index, cb)
     end
   end
 
-  local file = self.session:file(index)
-  if file then
-    session_mod.auto_reload(self.session)
-    local at = position_of(self.session, file, index)
+  local session = self.session
+  local file = session:file(index)
+  if not file then
+    view.open(session, index, answer)
+    return
+  end
+
+  ---Open the entry at its position after the reload.
+  local function arrive()
+    local at = position_of(session, file, index)
     if not at then
       answer(nil, errors.new(errors.codes.NOT_FOUND, "the range does not change " .. file.path))
       return
     end
-    index = at
+    view.open(session, at, answer)
   end
 
-  view.open(self.session, index, answer)
+  if not cb then
+    session_mod.auto_reload(session)
+    arrive()
+    return
+  end
+  session_mod.auto_reload(session, function()
+    arrive()
+  end)
 end
 
 ---Act on the line under the cursor.
@@ -444,7 +460,11 @@ local function keymaps(sidebar)
   end
 
   add(keys.open_file, function()
-    sidebar:open_cursor()
+    sidebar:open_cursor(function(_, err)
+      if err then
+        report(err)
+      end
+    end)
   end, "open the file under the cursor")
   add(keys.toggle_node, function()
     sidebar:toggle_node()
@@ -474,7 +494,7 @@ local function keymaps(sidebar)
     require("codeview.overview").toggle({ session = sidebar.session, focus = true })
   end, "open or close the comment overview")
   add(keys.refresh, function()
-    view.refresh()
+    view.refresh(nil, function() end)
   end, "read the review again")
   add(keys.close, function()
     sidebar.session:close()

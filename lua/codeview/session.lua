@@ -343,18 +343,38 @@ end
 ---
 --- A failed reload is no error of the caller. The session keeps its data, the
 --- user gets a message, and the diff opens with the old data.
+---
+--- Without a callback the call blocks. With a callback it returns at once,
+--- runs the backend calls in the async form, and calls `cb(session)`.
 ---@param session? codeview.Session Session to read again. The session that runs by default.
----@return codeview.Session? session The same session.
-function M.auto_reload(session)
+---@param cb? fun(session: codeview.Session?) Callback for the async form.
+---@return codeview.Session? session The same session. Nil with a callback.
+function M.auto_reload(session, cb)
+  if type(session) == "function" then
+    cb, session = session, nil
+  end
   session = session or current
   if not session or session.closed or not config.get().auto_reload then
+    return done(cb, session, nil)
+  end
+
+  ---@param err codeview.Error?
+  local function warn(err)
+    if err then
+      vim.notify("codeview: the reload failed: " .. tostring(err), vim.log.levels.WARN)
+    end
+  end
+
+  if not cb then
+    local _, err = session:reload()
+    warn(err)
     return session
   end
-  local _, err = session:reload()
-  if err then
-    vim.notify("codeview: the reload failed: " .. tostring(err), vim.log.levels.WARN)
-  end
-  return session
+  session:reload(function(_, err)
+    warn(err)
+    cb(session)
+  end)
+  return nil
 end
 
 --- Session methods -----------------------------------------------------------
