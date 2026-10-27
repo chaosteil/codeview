@@ -499,6 +499,7 @@ end
 
 ---@class codeview.session.RefreshOpts
 ---@field snapshot boolean? False keeps the working copy out of the repository. True by default.
+---@field range codeview.vcs.Range? Range that the caller resolved already. The call then skips its own resolve.
 
 ---Read the review again from the repository.
 ---
@@ -515,6 +516,10 @@ end
 --- Set `opts.snapshot` to false to leave the working copy alone. The watcher
 --- of |codeview.watch| uses that form, because a repository operation must not
 --- write the working copy behind your back.
+---
+--- Set `opts.range` to a range that the caller resolved from the argument of
+--- the open call. The call then reads that range, and it does not resolve the
+--- argument a second time. The watcher passes the range of its check.
 ---
 --- The call then reads the changed files and the commits of the new range, and
 --- it sends CodeViewSessionRefreshed.
@@ -542,9 +547,13 @@ function Session:refresh(opts, cb)
       return self.repo:snapshot(step_cb)
     end, state, "head")
   end
-  steps[#steps + 1] = into(function(step_cb)
-    return self.repo:resolve_range(self.input, step_cb)
-  end, state, "range")
+  if opts.range then
+    state.range = vim.deepcopy(opts.range)
+  else
+    steps[#steps + 1] = into(function(step_cb)
+      return self.repo:resolve_range(self.input, step_cb)
+    end, state, "range")
+  end
 
   ---Range of the answer, with the head of the snapshot.
   ---

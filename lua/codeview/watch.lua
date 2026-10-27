@@ -172,13 +172,14 @@ function M.check(session, cb)
       return finish(false, nil)
     end
     -- The refresh takes no snapshot. The trigger is an operation of the
-    -- repository, and the working copy belongs to the user.
+    -- repository, and the working copy belongs to the user. The range of the
+    -- check goes with it, so the backend resolves the range once.
     local view = require("codeview.view")
     if not cb then
-      view.refresh({ snapshot = false })
+      view.refresh({ snapshot = false, range = range })
       return finish(true, nil)
     end
-    view.refresh({ snapshot = false }, function()
+    view.refresh({ snapshot = false, range = range }, function()
       finish(true, nil)
     end)
     return nil, nil
