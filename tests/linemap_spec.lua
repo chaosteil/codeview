@@ -225,4 +225,142 @@ describe("codeview.linemap", function()
       assert.is_nil(map:anchor(nil))
     end)
   end)
+
+  describe("the map of random diffs", function()
+    local diff, inline, split
+
+    before_each(function()
+      diff = require("codeview.diff")
+      inline = require("codeview.inline")
+      split = require("codeview.split")
+    end)
+
+    ---Random number source with a fixed seed, so every run sees the same diffs.
+    ---@param seed integer
+    ---@return fun(low: integer, high: integer): integer
+    local function source(seed)
+      local state = seed
+      return function(low, high)
+        -- A linear congruential generator. The numbers of glibc keep the
+        -- state below 2^31, so a double holds every step exactly. The low
+        -- bits repeat fast, so the result takes the high bits.
+        state = (state * 1103515245 + 12345) % 2147483648
+        return low + math.floor(state / 65536) % (high - low + 1)
+      end
+    end
+
+    ---Text of a random file and a random change of it.
+    ---@param random fun(low: integer, high: integer): integer
+    ---@return string old_text
+    ---@return string new_text
+    local function random_pair(random)
+      -- A small alphabet gives repeated lines, which makes the diff harder.
+      local old = {}
+      for index = 1, random(0, 30) do
+        old[index] = "line " .. random(1, 6)
+      end
+      local new = {}
+      for _, line in ipairs(old) do
+        local action = random(1, 10)
+        if action == 1 then
+          -- Remove the line.
+          line = nil
+        elseif action == 2 then
+          line = line .. " changed"
+        elseif action == 3 then
+          new[#new + 1] = "added " .. random(1, 3)
+        end
+        new[#new + 1] = line
+      end
+      for _ = 1, random(0, 2) do
+        table.insert(new, random(1, #new + 1), "added " .. random(1, 3))
+      end
+      local old_text = table.concat(old, "\n")
+      local new_text = table.concat(new, "\n")
+      -- Most files end with a line break, some do not.
+      if #old > 0 and random(1, 5) > 1 then
+        old_text = old_text .. "\n"
+      end
+      if #new > 0 and random(1, 5) > 1 then
+        new_text = new_text .. "\n"
+      end
+      return old_text, new_text
+    end
+
+    ---Check the order, the text, and the hunks of one map.
+    ---@param map codeview.LineMap
+    ---@param lines string[] Text of the rows.
+    ---@param offset integer Width of the marker column.
+    ---@param file codeview.diff.File
+    ---@param label string
+    local function check_rows(map, lines, offset, file, label)
+      local last = { old = 0, new = 0 }
+      for lnum, row in ipairs(map.rows) do
+        for _, side in ipairs({ "old", "new" }) do
+          local line = map:file_line(lnum, side)
+          if line then
+            assert.is_true(line > last[side], string.format("%s: %s line %d at row %d", label, side, line, lnum))
+            last[side] = line
+          end
+        end
+        if row.kind == "context" then
+          local text = lines[lnum]:sub(offset + 1)
+          assert.are.equal(file.old_lines[row.old], text, label .. ": old text of row " .. lnum)
+          assert.are.equal(file.new_lines[row.new], text, label .. ": new text of row " .. lnum)
+        end
+        if row.kind == "add" or row.kind == "delete" then
+          assert.is_not_nil(row.hunk, label .. ": no hunk on row " .. lnum)
+        end
+      end
+    end
+
+    ---Check that a map shows every line of both files.
+    ---@param map codeview.LineMap
+    ---@param file codeview.diff.File
+    ---@param sides codeview.linemap.Side[]
+    ---@param label string
+    local function check_complete(map, file, sides, label)
+      for _, side in ipairs(sides) do
+        local lines = side == "old" and file.old_lines or file.new_lines
+        for line = 1, #lines do
+          assert.is_not_nil(map:buf_row(line, side), string.format("%s: %s line %d is missing", label, side, line))
+        end
+      end
+    end
+
+    it("keeps the rules of the map for 300 diffs", function()
+      local random = source(20240611)
+      for round = 1, 300 do
+        local old_text, new_text = random_pair(random)
+        local file = diff.compute(old_text, new_text, { max_lines = 0 })
+        local context = random(0, 4)
+        local label = string.format("round %d %s -> %s", round, vim.inspect(old_text), vim.inspect(new_text))
+
+        local folded = inline.build(file, { context = context })
+        check_rows(folded.map, folded.lines, 1, file, label .. " inline")
+
+        local expanded = {}
+        for id in ipairs(folded.gaps) do
+          expanded[id] = true
+        end
+        local full = inline.build(file, { context = context, expanded = expanded })
+        check_rows(full.map, full.lines, 1, file, label .. " inline expanded")
+        if #file.hunks > 0 then
+          check_complete(full.map, file, { "old", "new" }, label .. " inline expanded")
+        end
+
+        for _, opts in ipairs({ { context = context }, { context = context, expanded = expanded } }) do
+          local build = split.build(file, opts)
+          assert.are.equal(#build.old.lines, #build.new.lines, label .. ": split row count")
+          assert.are.equal(build.old.map:len(), build.new.map:len(), label .. ": split map length")
+          check_rows(build.old.map, build.old.lines, 0, file, label .. " split old")
+          check_rows(build.new.map, build.new.lines, 0, file, label .. " split new")
+          if opts.expanded and #file.hunks > 0 then
+            check_complete(build.old.map, file, { "old" }, label .. " split old")
+            check_complete(build.new.map, file, { "new" }, label .. " split new")
+          end
+        end
+      end
+    end)
+  end)
 end)
