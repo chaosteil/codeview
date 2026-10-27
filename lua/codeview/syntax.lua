@@ -10,6 +10,10 @@
 --- which buffer row holds which file line, and the marker column shifts every
 --- capture by its width.
 ---
+--- The module keeps the captures of each diff record, so a fold, an unfold,
+--- or a switch of the style parses no side again. The keys of that cache are
+--- weak: the captures go away with the diff record.
+---
 --- The colors of the diff itself stay in the background, so the two layers
 --- read together. The background says added or removed. The foreground says
 --- what the code is. See |codeview-highlights|.
@@ -46,6 +50,18 @@ M.max_bytes = 1000000
 --- The line itself shows the colors of the diff only.
 ---@type integer
 M.max_line_bytes = 10000
+
+---@class codeview.syntax.Entry
+---@field lang string|false Language of the path. False when no parser answers.
+---@field sides table<codeview.linemap.Side, table<integer, table[]>> Captures of each side, by line from 0.
+
+---Captures of each diff record.
+---
+--- A diff record never changes after |codeview.diff.compute()|, so its
+--- captures stay valid. The weak keys drop an entry when the view drops the
+--- diff. No value refers to its key, so the collector can free both.
+---@type table<codeview.diff.File, codeview.syntax.Entry>
+local cache = setmetatable({}, { __mode = "k" })
 
 ---Language of a path.
 ---@param path string Path of the file in the repository.
@@ -174,16 +190,20 @@ function M.apply(buf, diff, map, opts)
   if not config.get().diff.syntax or diff.binary or diff.limited or diff.message then
     return 0
   end
-  local lang = M.language(diff.path)
+  local entry = cache[diff]
+  if not entry then
+    entry = { lang = M.language(diff.path) or false, sides = {} }
+    cache[diff] = entry
+  end
+  local lang = entry.lang
   if not lang then
     return 0
   end
 
   local offset = opts.offset or 0
-  ---@type table<codeview.linemap.Side, table<integer, table[]>>
-  local sides = {}
+  local sides = entry.sides
 
-  ---Captures of one side, read once per call.
+  ---Captures of one side, read once per diff.
   ---@param side_name codeview.linemap.Side
   ---@return table<integer, table[]>
   local function side(side_name)
@@ -220,6 +240,18 @@ function M.apply(buf, diff, map, opts)
         end
       end
     end
+  end
+  return count
+end
+
+---Number of diff records with kept captures.
+---
+--- The count includes a dropped record until the next garbage collection.
+---@return integer count
+function M.cached()
+  local count = 0
+  for _ in pairs(cache) do
+    count = count + 1
   end
   return count
 end

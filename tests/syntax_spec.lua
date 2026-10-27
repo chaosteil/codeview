@@ -219,6 +219,52 @@ describe("codeview.syntax", function()
     end)
   end)
 
+  describe("the cache", function()
+    ---Diff of a small Lua file.
+    ---@return codeview.diff.File
+    local function lua_diff()
+      local file = require("codeview.diff").compute("local a = 1\n", "local a = 2\nlocal b = 3\n")
+      file.path, file.old_path = "code.lua", "code.lua"
+      return file
+    end
+
+    it("parses each side of a diff once over many renders", function()
+      local parse = vim.treesitter.get_string_parser
+      local calls = 0
+      vim.treesitter.get_string_parser = function(...)
+        calls = calls + 1
+        return parse(...)
+      end
+
+      local file = lua_diff()
+      local buf = api.nvim_create_buf(false, true)
+      local old_buf = api.nvim_create_buf(false, true)
+      inline.render(buf, file)
+      inline.render(buf, file, { expanded = { [1] = true } })
+      require("codeview.split").render(old_buf, buf, file)
+      vim.treesitter.get_string_parser = parse
+
+      assert.are.equal(2, calls)
+      assert.is_true(#marks_of(buf) > 0)
+      api.nvim_buf_delete(buf, { force = true })
+      api.nvim_buf_delete(old_buf, { force = true })
+    end)
+
+    it("drops the captures when the diff goes", function()
+      collectgarbage("collect")
+      local before = syntax.cached()
+      local buf = api.nvim_create_buf(false, true)
+      inline.render(buf, lua_diff())
+      assert.are.equal(before + 1, syntax.cached())
+
+      -- The state of the buffer holds the diff until the buffer goes.
+      api.nvim_buf_delete(buf, { force = true })
+      collectgarbage("collect")
+      collectgarbage("collect")
+      assert.are.equal(before, syntax.cached())
+    end)
+  end)
+
   describe("the row colors", function()
     it("keeps the background of the diff and drops the foreground", function()
       vim.cmd("highlight DiffAdd guibg=#123456 guifg=#abcdef")
