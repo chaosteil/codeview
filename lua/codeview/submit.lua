@@ -35,9 +35,22 @@
 --- export them.
 ---
 --- The sync state lives in the session file. |codeview.store| holds
---- `synced_at` and `review_id` per comment, and a comment gets them only after
---- the API confirms the post. A failed post writes nothing, so a second
---- submit sends the same comments again and loses nothing.
+--- `synced_at`, `review_id`, and `remote_id` per comment, and a comment gets
+--- them only after the API confirms the post. A failed post writes nothing, so
+--- a second submit sends the same comments again and loses nothing.
+---
+--- A comment that went out and then got a new text holds a `remote_id`. The
+--- next submit changes the text of that comment on GitHub with a PATCH call,
+--- and posts no new comment.
+---
+--- A post that the time limit killed can still reach GitHub. Before a review
+--- post, the call lists the reviews of the pull request. A review of the user
+--- that is logged in, on the same commit, with the same text and the same
+--- comments, is the review of an earlier try. The call then marks the
+--- comments as sent and posts nothing.
+---
+--- One session runs one submit or one send at a time. A second call during
+--- the first one reports an error, so no comment goes out twice.
 
 local diff_mod = require("codeview.diff")
 local errors = require("codeview.error")
@@ -124,6 +137,7 @@ M.diff_opts = { algorithm = "myers", indent_heuristic = true, linematch = 0, max
 ---@field body string Text of the review itself.
 ---@field entries codeview.submit.Entry[] Comments that the post carries.
 ---@field notes codeview.store.Comment[] Comments on the pull request document. They go into the text of the review.
+---@field edits codeview.store.Comment[] Comments that went out and got a new text. The submit changes their text on GitHub.
 ---@field skipped codeview.submit.Skipped[] Comments that stay local.
 ---@field synced integer Number of comments that an earlier submit sent.
 ---@field total integer Number of comments of the session.
@@ -141,6 +155,11 @@ M.diff_opts = { algorithm = "myers", indent_heuristic = true, linematch = 0, max
 ---@field cancelled boolean True when the call posted nothing.
 ---@field review table? Review object of the answer of GitHub.
 ---@field url string Address of the review. Empty when GitHub sent none.
+---@field existing boolean? True when GitHub held the review already, so the call posted nothing.
+
+---Sessions with a submit or a send that runs, by session id.
+---@type table<integer, boolean>
+local busy = {}
 
 ---Report a message of the submit flow.
 ---@param message string
@@ -498,17 +517,21 @@ function M.plan(opts, cb)
     body = type(opts.body) == "string" and opts.body or "",
     entries = {},
     notes = {},
+    edits = {},
     skipped = {},
     synced = synced,
     total = #store.comments,
   }
 
   -- A comment on the pull request document is an overall comment. It takes no
-  -- position of the diff, so it goes into the text of the review.
+  -- position of the diff, so it goes into the text of the review. A comment
+  -- with an id on GitHub went out before, so only its text changes.
   local message = require("codeview.message")
   local on_lines = {}
   for _, comment in ipairs(store:unsynced()) do
-    if message.is_pr(comment.file) then
+    if (comment.remote_id or "") ~= "" then
+      plan.edits[#plan.edits + 1] = comment
+    elseif message.is_pr(comment.file) then
       plan.notes[#plan.notes + 1] = comment
     else
       on_lines[#on_lines + 1] = comment
@@ -621,6 +644,13 @@ local function comment_count(count)
   return string.format("%d %s", count, count == 1 and "comment" or "comments")
 end
 
+---Number of comments that a plan sends.
+---@param plan codeview.submit.Plan
+---@return integer count
+local function outgoing(plan)
+  return #plan.entries + #plan.notes + #(plan.edits or {})
+end
+
 ---Lines of the summary of a plan.
 ---
 --- The user reads these lines before the post. They hold every comment that
@@ -631,7 +661,7 @@ function M.summary(plan)
   local out = {
     string.format(
       "submit %s to PR #%d of %s as %s",
-      comment_count(#plan.entries + #plan.notes),
+      comment_count(outgoing(plan)),
       plan.pr.number,
       plan.pr.repo,
       plan.event
@@ -655,6 +685,13 @@ function M.summary(plan)
     )
     for _, note in ipairs(plan.notes) do
       out[#out + 1] = "  " .. preview(note, 70)
+    end
+  end
+  if #(plan.edits or {}) > 0 then
+    out[#out + 1] =
+      string.format("%s %s a new text on GitHub:", comment_count(#plan.edits), #plan.edits == 1 and "gets" or "get")
+    for _, edit in ipairs(plan.edits) do
+      out[#out + 1] = string.format("  %s %s %s  %s", edit.file, lines_text(edit), edit.side, preview(edit, 50))
     end
   end
   if #plan.skipped > 0 then
@@ -773,13 +810,48 @@ function M.send_payload(info, comment, position)
   return string.format("repos/%s/pulls/%d/comments", info.repo, number), payload
 end
 
+---Endpoint and request body of the new text of a comment on GitHub.
+---
+--- A comment on the pull request document lives in the conversation of the
+--- pull request. Every other comment is a review comment.
+---@param info codeview.pr.Info Pull request that holds the comment.
+---@param comment codeview.store.Comment Comment of the session, with a `remote_id`.
+---@return string path Path of the endpoint.
+---@return table payload Request body.
+function M.edit_payload(info, comment)
+  local kind = require("codeview.message").is_pr(comment.file) and "issues" or "pulls"
+  return string.format("repos/%s/%s/comments/%s", info.repo, kind, comment.remote_id), { body = comment.body }
+end
+
 --- Post --------------------------------------------------------------------
 
----Id of a review of the answer of GitHub.
----@param review table?
+---Options of one API call on the pull request.
+---@param info codeview.pr.Info
+---@param dir string Directory that gh runs in.
+---@param method? string HTTP method of a write. A write gets the long time limit of |codeview.gh|.
+---@param payload? table Request body.
+---@return codeview.gh.ApiOpts
+local function api_opts(info, dir, method, payload)
+  ---@type codeview.gh.ApiOpts
+  local opts = { cwd = dir, hostname = gh.host(info.url) }
+  if method then
+    opts.method = method
+    opts.timeout = gh.write_timeout
+  end
+  if payload then
+    -- `--input -` sends the request body from standard input, so a nested
+    -- comment list keeps its shape. `--field` cannot hold a list of objects.
+    opts.input = "-"
+    opts.stdin = vim.json.encode(payload)
+  end
+  return opts
+end
+
+---Id of an object of the answer of GitHub.
+---@param object table?
 ---@return string id Empty when the answer holds no id.
-local function review_id(review)
-  local id = type(review) == "table" and review.id or nil
+local function id_of(object)
+  local id = type(object) == "table" and object.id or nil
   if type(id) == "number" then
     return string.format("%d", math.floor(id))
   end
@@ -802,16 +874,129 @@ function M.post(plan, cb)
     return done(cb, nil, errors.new(errors.codes.INVALID_ARG, "the call needs a submit plan"))
   end
   local path = string.format("repos/%s/pulls/%d/reviews", plan.pr.repo, math.floor(plan.pr.number))
-  local opts = {
-    method = "POST",
-    -- `--input -` sends the request body from standard input, so the nested
-    -- comment list keeps its shape. `--field` cannot hold a list of objects.
-    input = "-",
-    stdin = vim.json.encode(M.payload(plan)),
-    cwd = plan.dir,
-    hostname = gh.host(plan.pr.url),
-  }
-  return gh.api(path, opts, cb)
+  return gh.api(path, api_opts(plan.pr, plan.dir, "POST", M.payload(plan)), cb)
+end
+
+---Text of a comment body, for a comparison.
+---@param text any
+---@return string
+local function body_key(text)
+  return vim.trim((tostring(text or ""):gsub("\r\n", "\n")))
+end
+
+---Report whether a review comment of GitHub is one comment of a payload.
+---@param item table Comment of the payload of |codeview.submit.payload()|.
+---@param remote table Comment of `GET /pulls/{n}/reviews/{id}/comments`.
+---@return boolean same
+local function same_comment(item, remote)
+  if type(remote) ~= "table" or remote.path ~= item.path or (remote.side or "RIGHT") ~= item.side then
+    return false
+  end
+  if (tonumber(remote.line) or tonumber(remote.original_line)) ~= item.line then
+    return false
+  end
+  if (tonumber(remote.start_line) or tonumber(remote.original_start_line)) ~= item.start_line then
+    return false
+  end
+  return body_key(remote.body) == body_key(item.body)
+end
+
+---Pair the comments of a payload with the review comments of GitHub.
+---@param items table[] Comments of the payload.
+---@param remotes table[] Review comments of GitHub.
+---@return table<integer, table> pairs Review comment of each payload comment, by index.
+---@return boolean complete True when every comment on both sides has a partner.
+local function pair_comments(items, remotes)
+  local out, used, count = {}, {}, 0
+  for index, item in ipairs(items) do
+    for at, remote in ipairs(remotes) do
+      if not used[at] and same_comment(item, remote) then
+        used[at], out[index] = true, remote
+        count = count + 1
+        break
+      end
+    end
+  end
+  return out, count == #items and count == #remotes
+end
+
+---Read the comments of one review.
+---@param plan codeview.submit.Plan
+---@param id string Id of the review.
+---@param cb fun(comments: table[]?, err: codeview.Error?)
+local function review_comments(plan, id, cb)
+  local path = string.format("repos/%s/pulls/%d/reviews/%s/comments", plan.pr.repo, math.floor(plan.pr.number), id)
+  gh.api_list(path, api_opts(plan.pr, plan.dir), cb)
+end
+
+---@class codeview.submit.Found
+---@field review table Review object of GitHub.
+---@field comments table[] Review comments of that review.
+
+---Find the review of an earlier try of the same post.
+---
+--- The call lists the reviews of the pull request. A review on the same
+--- commit and with the same text is a candidate. A candidate of the user that
+--- is logged in, with the same comments, is the review of an earlier try.
+---@param plan codeview.submit.Plan
+---@param cb fun(found: codeview.submit.Found?, err: codeview.Error?) `found` is nil when GitHub holds no such review.
+local function find_review(plan, cb)
+  local payload = M.payload(plan)
+  local items = payload.comments or {}
+  local opts = api_opts(plan.pr, plan.dir)
+  local path = string.format("repos/%s/pulls/%d/reviews", plan.pr.repo, math.floor(plan.pr.number))
+  gh.api_list(path, opts, function(reviews, err)
+    if not reviews then
+      cb(nil, err)
+      return
+    end
+    local candidates = {}
+    for _, review in ipairs(reviews) do
+      if
+        type(review) == "table"
+        and review.commit_id == payload.commit_id
+        and body_key(review.body) == body_key(payload.body)
+      then
+        candidates[#candidates + 1] = review
+      end
+    end
+    if #candidates == 0 then
+      cb(nil, nil)
+      return
+    end
+    gh.api("user", opts, function(user, user_err)
+      if not user then
+        cb(nil, user_err)
+        return
+      end
+      -- The newest candidate comes first, because the list is oldest first.
+      local index = #candidates + 1
+      local function next_candidate()
+        index = index - 1
+        local review = candidates[index]
+        if not review then
+          cb(nil, nil)
+          return
+        end
+        if (review.user or {}).login ~= user.login then
+          next_candidate()
+          return
+        end
+        review_comments(plan, id_of(review), function(comments, comments_err)
+          if not comments then
+            cb(nil, comments_err)
+            return
+          end
+          if select(2, pair_comments(items, comments)) then
+            cb({ review = review, comments = comments }, nil)
+            return
+          end
+          next_candidate()
+        end)
+      end
+      next_candidate()
+    end)
+  end)
 end
 
 ---Mark the comments of a plan as sent, and write the session file.
@@ -819,16 +1004,22 @@ end
 --- The call runs only after GitHub confirmed the post. A write error leaves
 --- the comments marked in memory and reports the problem, because the review
 --- is on GitHub already.
+---
+--- With the review comments of GitHub, every comment on a line gets the id of
+--- its comment on GitHub, so that a later edit changes that comment.
 ---@param plan codeview.submit.Plan
 ---@param review table? Answer of GitHub.
+---@param remotes? table[] Review comments of the review, from `GET /pulls/{n}/reviews/{id}/comments`.
 ---@return integer count Number of comments that the call marked.
 ---@return codeview.Error? err Error of the write of the session file.
-function M.apply(plan, review)
-  local id = review_id(review)
+function M.apply(plan, review, remotes)
+  local id = id_of(review)
   local time = os.time()
   local count = 0
-  for _, entry in ipairs(plan.entries) do
-    local comment = plan.store:mark_synced(entry.comment.id, { time = time, review_id = id })
+  local paired = remotes and pair_comments(M.payload(plan).comments or {}, remotes) or {}
+  for index, entry in ipairs(plan.entries) do
+    local remote_id = paired[index] and id_of(paired[index]) or nil
+    local comment = plan.store:mark_synced(entry.comment.id, { time = time, review_id = id, remote_id = remote_id })
     if comment then
       count = count + 1
     end
@@ -861,11 +1052,7 @@ end
 ---@param cb fun(name: string?) Nil when the user cancels.
 local function ask_event(plan, cb)
   vim.ui.select(M.event_names, {
-    prompt = string.format(
-      "codeview: submit %s to PR #%d as",
-      comment_count(#plan.entries + #plan.notes),
-      plan.pr.number
-    ),
+    prompt = string.format("codeview: submit %s to PR #%d as", comment_count(outgoing(plan)), plan.pr.number),
     format_item = M.event_label,
   }, function(choice)
     cb(choice and M.normalize_event(choice) or nil)
@@ -894,7 +1081,7 @@ function M.confirm(plan, cb)
   vim.ui.select({ "submit", "cancel" }, {
     prompt = string.format(
       "codeview: post %s to PR #%d as %s?",
-      comment_count(#plan.entries + #plan.notes),
+      comment_count(outgoing(plan)),
       plan.pr.number,
       plan.event
     ),
@@ -905,26 +1092,71 @@ end
 
 --- Command -----------------------------------------------------------------
 
+---Take the lock of the session of a call.
+---@param opts codeview.submit.Opts|codeview.submit.SendOpts
+---@return integer? key Session id that the call holds. Nil without a session.
+---@return codeview.Error? err Set when another call of the session runs.
+local function lock(opts)
+  local session = opts.session or session_mod.current()
+  local key = type(session) == "table" and session.id or nil
+  if key == nil then
+    return nil, nil
+  end
+  if busy[key] then
+    return nil,
+      errors.new(errors.codes.INVALID_ARG, "a submit of this session runs already. Wait for its answer, then try again")
+  end
+  busy[key] = true
+  return key, nil
+end
+
+---Report a session file that did not change after a post.
+---@param err codeview.Error
+---@param what string Text that names what went to GitHub.
+local function report_save(err, what)
+  notify(
+    what .. " is on GitHub, but the session file did not change: " .. tostring(err) .. ". Do not send it again",
+    vim.log.levels.ERROR
+  )
+end
+
 ---Send the comments of a session to the pull request.
 ---
 --- The call collects the comments and asks for the event and for the text of
 --- the review. It shows the summary and posts only after the user confirms it.
 --- A failed post marks nothing, so every comment stays in the session file.
+---
+--- Before the post the call looks for the review of an earlier try. When
+--- GitHub holds it, the call marks the comments as sent and posts nothing.
+--- After the review, the call changes the text of every edited comment.
 ---@param opts? codeview.submit.Opts
 ---@param cb? fun(result: codeview.submit.Result?, err: codeview.Error?) Handler of the answer.
 function M.run(opts, cb)
   opts = opts or {}
   local loud = opts.notify ~= false
+  ---@type integer?
+  local key
 
   ---@param result codeview.submit.Result?
   ---@param err codeview.Error?
   local function finish(result, err)
+    if key then
+      busy[key] = nil
+      key = nil
+    end
     if err and loud then
       notify(M.error_text(err), vim.log.levels.ERROR)
     end
     if cb then
       cb(result, err)
     end
+  end
+
+  local lock_err
+  key, lock_err = lock(opts)
+  if lock_err then
+    finish(nil, lock_err)
+    return
   end
 
   ---Report the comments that stay local.
@@ -941,33 +1173,120 @@ function M.run(opts, cb)
     notify(table.concat(lines, "\n"), vim.log.levels.WARN)
   end
 
+  ---Change the text of every edited comment on GitHub, one after the other.
+  ---
+  --- The first failure stops the rest. A comment that GitHub took is marked
+  --- as sent.
   ---@param plan codeview.submit.Plan
-  local function send(plan)
-    M.post(plan, function(review, err)
-      if not review then
-        -- The call marks nothing, so every comment stays local and a later
-        -- submit sends it again. The comments that do not map stay local too,
-        -- and the report names them next to the error.
-        report_skipped(plan)
-        finish(nil, err)
+  ---@param after fun(count: integer, err: codeview.Error?)
+  local function send_edits(plan, after)
+    local count = 0
+    ---@type codeview.Error?
+    local failed
+    each(plan.edits, function(comment, step_cb)
+      if failed then
+        step_cb()
         return
       end
-      local count, save_err = M.apply(plan, review)
-      if save_err and loud then
-        notify(
-          "the review is on GitHub, but the session file did not change: "
-            .. tostring(save_err)
-            .. ". Do not submit again",
-          vim.log.levels.ERROR
-        )
+      local path, payload = M.edit_payload(plan.pr, comment)
+      gh.api(path, api_opts(plan.pr, plan.dir, "PATCH", payload), function(answer, err)
+        if answer then
+          plan.store:mark_synced(comment.id, { time = os.time() })
+          count = count + 1
+        else
+          failed = err
+        end
+        step_cb()
+      end)
+    end, function()
+      if count > 0 then
+        local ok, save_err = plan.store:save()
+        if not ok and loud then
+          report_save(save_err --[[@as codeview.Error]], "the new text")
+        end
+        events.emit("review_submitted", { session = plan.session.id, count = count, review = "" })
       end
-      local url = type(review.html_url) == "string" and review.html_url or ""
-      if loud then
-        local message = string.format("%s went to PR #%d", comment_count(count), plan.pr.number)
+      after(count, failed)
+    end)
+  end
+
+  ---Change the edited comments, then report the end of the submit.
+  ---@param plan codeview.submit.Plan
+  ---@param review table? Review of GitHub. Nil when the plan holds edits only.
+  ---@param existing boolean True when GitHub held the review already.
+  ---@param count integer Number of comments that the review marked.
+  local function after_review(plan, review, existing, count)
+    send_edits(plan, function(edited, edit_err)
+      local total = count + edited
+      local url = review and type(review.html_url) == "string" and review.html_url or ""
+      if loud and total > 0 then
+        local message = string.format("%s went to PR #%d", comment_count(total), plan.pr.number)
+        if existing then
+          message = string.format(
+            "PR #%d holds this review already, so nothing new went out. %s marked as sent",
+            plan.pr.number,
+            comment_count(count)
+          )
+        end
         notify(url ~= "" and (message .. ": " .. url) or message)
       end
       report_skipped(plan)
-      finish({ posted = count, skipped = #plan.skipped, cancelled = false, review = review, url = url }, nil)
+      if edit_err then
+        finish(nil, edit_err)
+        return
+      end
+      finish({
+        posted = total,
+        skipped = #plan.skipped,
+        cancelled = false,
+        review = review,
+        url = url,
+        existing = existing,
+      }, nil)
+    end)
+  end
+
+  ---@param plan codeview.submit.Plan
+  local function send(plan)
+    if #plan.entries + #plan.notes == 0 then
+      after_review(plan, nil, false, 0)
+      return
+    end
+    find_review(plan, function(found, find_err)
+      if find_err then
+        -- The call cannot tell whether an earlier try reached GitHub, so it
+        -- posts nothing.
+        report_skipped(plan)
+        finish(nil, find_err)
+        return
+      end
+      if found then
+        local count, save_err = M.apply(plan, found.review, found.comments)
+        if save_err and loud then
+          report_save(save_err, "the review")
+        end
+        after_review(plan, found.review, true, count)
+        return
+      end
+      M.post(plan, function(review, err)
+        if not review then
+          -- The call marks nothing, so every comment stays local and a later
+          -- submit sends it again. The comments that do not map stay local too,
+          -- and the report names them next to the error.
+          report_skipped(plan)
+          finish(nil, err)
+          return
+        end
+        -- The ids of the new review comments let a later edit change them. A
+        -- failed read only loses the ids.
+        review_comments(plan, id_of(review), function(remotes)
+          local count, save_err = M.apply(plan, review, remotes)
+          if save_err and loud then
+            report_save(save_err, "the review")
+          end
+          after_review(plan, review, false, count)
+        end)
+      end)
     end)
   end
 
@@ -976,7 +1295,7 @@ function M.run(opts, cb)
       finish(nil, err)
       return
     end
-    if #plan.entries == 0 and #plan.notes == 0 then
+    if outgoing(plan) == 0 then
       if loud then
         local reason = "no comment to submit"
         if #plan.skipped > 0 then
@@ -1021,8 +1340,9 @@ function M.run(opts, cb)
         with_body(opts.body)
         return
       end
-      if #plan.notes > 0 then
-        -- The notes are the text of the review, so the call asks for none.
+      if #plan.notes > 0 or #plan.entries == 0 then
+        -- The notes are the text of the review, so the call asks for none. A
+        -- plan of edits alone posts no review, so it needs no text either.
         with_body("")
         return
       end
@@ -1052,17 +1372,24 @@ end
 --- conversation of the pull request. A comment on a commit message stays
 --- local, because GitHub has no place for it.
 ---
---- A comment that went out already stays as it is. A failed post marks
+--- A comment that went out already stays as it is. A comment that went out
+--- and got a new text changes its text on GitHub. A failed post marks
 --- nothing.
 ---@param opts codeview.submit.SendOpts
 ---@param cb? fun(result: codeview.submit.Result?, err: codeview.Error?) Handler of the answer.
 function M.send(opts, cb)
   opts = opts or {}
   local loud = opts.notify ~= false
+  ---@type integer?
+  local key
 
   ---@param result codeview.submit.Result?
   ---@param err codeview.Error?
   local function finish(result, err)
+    if key then
+      busy[key] = nil
+      key = nil
+    end
     if err and loud then
       notify(M.error_text(err), vim.log.levels.ERROR)
     end
@@ -1092,6 +1419,54 @@ function M.send(opts, cb)
     finish({ posted = 0, skipped = 0, cancelled = true, review = nil, url = "" }, nil)
     return
   end
+  local lock_err
+  key, lock_err = lock({ session = session })
+  if lock_err then
+    finish(nil, lock_err)
+    return
+  end
+  local dir = opts.dir or session.repo.root
+
+  ---Write one comment to GitHub and mark it after GitHub confirms it.
+  ---@param method "POST"|"PATCH"
+  ---@param path string
+  ---@param payload table
+  local function write(method, path, payload)
+    gh.api(path, api_opts(info, dir, method, payload), function(answer, post_err)
+      if not answer then
+        finish(nil, post_err)
+        return
+      end
+      ---@type { time: integer, review_id?: string, remote_id?: string }
+      local mark = { time = os.time() }
+      local id = comment.review_id or ""
+      if method == "POST" then
+        -- A line comment belongs to a review of one comment. A comment of the
+        -- conversation belongs to no review, so its id is empty.
+        id = id_of({ id = answer.pull_request_review_id })
+        mark.review_id = id
+        mark.remote_id = id_of(answer)
+      end
+      store:mark_synced(comment.id, mark)
+      local ok, save_err = store:save()
+      if not ok and loud then
+        report_save(save_err --[[@as codeview.Error]], "the comment")
+      end
+      events.emit("review_submitted", { session = session.id, count = 1, review = id })
+      local url = type(answer.html_url) == "string" and answer.html_url or ""
+      if loud then
+        local message = method == "PATCH" and string.format("the new text went to PR #%d", info.number)
+          or string.format("the comment went to PR #%d", info.number)
+        notify(url ~= "" and (message .. ": " .. url) or message)
+      end
+      finish({ posted = 1, skipped = 0, cancelled = false, review = answer, url = url }, nil)
+    end)
+  end
+
+  if (comment.remote_id or "") ~= "" then
+    write("PATCH", M.edit_payload(info, comment))
+    return
+  end
 
   local index = session:index_of(comment.file)
   local file = index and session:file(index)
@@ -1100,48 +1475,9 @@ function M.send(opts, cb)
     return
   end
 
-  ---Post one comment and mark it after GitHub confirms it.
-  ---@param path string
-  ---@param payload table
-  local function post(path, payload)
-    local api_opts = {
-      method = "POST",
-      input = "-",
-      stdin = vim.json.encode(payload),
-      cwd = opts.dir or session.repo.root,
-      hostname = gh.host(info.url),
-    }
-    gh.api(path, api_opts, function(answer, post_err)
-      if not answer then
-        finish(nil, post_err)
-        return
-      end
-      -- A line comment belongs to a review of one comment. A comment of the
-      -- conversation belongs to no review, so its id is empty.
-      local id = review_id({ id = answer.pull_request_review_id })
-      store:mark_synced(comment.id, { time = os.time(), review_id = id })
-      local ok, save_err = store:save()
-      if not ok and loud then
-        notify(
-          "the comment is on GitHub, but the session file did not change: "
-            .. tostring(save_err)
-            .. ". Do not send it again",
-          vim.log.levels.ERROR
-        )
-      end
-      events.emit("review_submitted", { session = session.id, count = 1, review = id })
-      local url = type(answer.html_url) == "string" and answer.html_url or ""
-      if loud then
-        local message = string.format("the comment went to PR #%d", info.number)
-        notify(url ~= "" and (message .. ": " .. url) or message)
-      end
-      finish({ posted = 1, skipped = 0, cancelled = false, review = answer, url = url }, nil)
-    end)
-  end
-
   local message = require("codeview.message")
   if message.is_pr(file.path) then
-    post(M.send_payload(info, comment, nil))
+    write("POST", M.send_payload(info, comment, nil))
     return
   end
   if file.virtual then
@@ -1165,7 +1501,7 @@ function M.send(opts, cb)
       finish(nil, errors.new(errors.codes.INVALID_ARG, why or "the comment does not map"))
       return
     end
-    post(M.send_payload(info, comment, position))
+    write("POST", M.send_payload(info, comment, position))
   end)
 end
 

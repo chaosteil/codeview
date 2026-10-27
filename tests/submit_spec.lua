@@ -161,8 +161,14 @@ describe("codeview.submit", function()
   local comments_mod, errors, exec, gh, pr, session_mod, store_mod, submit
   ---@type { cmd: string[], opts: table }[]
   local gh_calls
-  ---@type fun(cmd: string[]): table
+  ---@type fun(cmd: string[], opts: table): table
   local answer
+  ---Reviews that the list of reviews answers.
+  ---@type table[]
+  local reviews
+  ---Request body of the last review post.
+  ---@type table?
+  local posted
   ---@type { select: string[], input: string?, prompts: string[] }
   local ui
   local real_select, real_input
@@ -192,32 +198,90 @@ describe("codeview.submit", function()
     })
   end
 
+  ---Review comments that GitHub keeps for a review post.
+  ---@param payload table Request body of the post.
+  ---@return table[] comments
+  local function comments_of(payload)
+    local out = {}
+    for index, item in ipairs(payload.comments or {}) do
+      out[index] = {
+        id = 9000 + index,
+        pull_request_review_id = 2371558991,
+        path = item.path,
+        line = item.line,
+        side = item.side,
+        start_line = item.start_line or vim.NIL,
+        start_side = item.start_side or vim.NIL,
+        body = item.body,
+      }
+    end
+    return out
+  end
+
   ---Answer every gh call. Every other command runs for real.
   ---@param cmd string[]
+  ---@param opts table
   ---@return table
-  local function default_answer(cmd)
+  local function default_answer(cmd, opts)
     if cmd[2] == "pr" and cmd[3] == "view" then
       return { stdout = pr_view() }
     end
     if cmd[2] == "api" then
       local path = cmd[3] or ""
+      local write = vim.tbl_contains(cmd, "--method")
+      if path == "user" then
+        return { stdout = vim.json.encode({ login = "ada" }) }
+      end
+      if not write and path:find("/pulls/12/reviews?", 1, true) then
+        return { stdout = vim.json.encode(reviews) }
+      end
+      if not write and path:find("/pulls/12/reviews/%d+/comments") then
+        local id = tonumber(path:match("/reviews/(%d+)/comments"))
+        if id == 2371558991 and posted then
+          return { stdout = vim.json.encode(comments_of(posted)) }
+        end
+        for _, review in ipairs(reviews) do
+          if review.id == id then
+            return { stdout = vim.json.encode(review.comments or {}) }
+          end
+        end
+        return { stdout = "[]" }
+      end
       if path:find("/pulls/12/comments$") then
         return { stdout = fixtures.gh_text("pr-comment.json") }
       end
       if path:find("/issues/12/comments$") then
         return { stdout = fixtures.gh_text("pr-issue-comment.json") }
       end
+      if path:find("/comments/%d+$") then
+        return { stdout = vim.json.encode({ id = tonumber(path:match("(%d+)$")), body = "patched" }) }
+      end
+      if path:find("/pulls/12/reviews$") then
+        posted = vim.json.decode(opts.stdin)
+      end
       return { stdout = fixtures.gh_text("pr-review.json") }
     end
     return { code = 1, stderr = "unexpected gh call: " .. table.concat(cmd, " ") }
   end
 
-  ---Calls of `gh api`.
+  ---Calls of `gh api` that write on GitHub.
   ---@return { cmd: string[], opts: table }[]
   local function api_calls()
     local out = {}
     for _, call in ipairs(gh_calls) do
-      if call.cmd[2] == "api" then
+      if call.cmd[2] == "api" and vim.tbl_contains(call.cmd, "--method") then
+        out[#out + 1] = call
+      end
+    end
+    return out
+  end
+
+  ---Calls of `gh api` that only read.
+  ---@return { cmd: string[], opts: table }[]
+  local function read_calls()
+    local out = {}
+    for _, call in ipairs(gh_calls) do
+      if call.cmd[2] == "api" and not vim.tbl_contains(call.cmd, "--method") then
         out[#out + 1] = call
       end
     end
@@ -332,13 +396,15 @@ describe("codeview.submit", function()
 
     gh_calls = {}
     answer = default_answer
+    reviews = {}
+    posted = nil
     local real = exec.capture
     exec.capture = function(cmd, opts, cb) ---@diagnostic disable-line: duplicate-set-field
       if cmd[1] ~= "gh" then
         return real(cmd, opts, cb)
       end
       gh_calls[#gh_calls + 1] = { cmd = cmd, opts = opts or {} }
-      local scripted = answer(cmd)
+      local scripted = answer(cmd, opts or {})
       local result = {
         command = cmd,
         code = scripted.code or 0,
@@ -719,9 +785,9 @@ describe("codeview.submit", function()
       local session = open_session()
       local store = store_of(session)
       local comment = add(store)
-      answer = function(cmd)
-        if cmd[2] == "pr" then
-          return { stdout = pr_view() }
+      answer = function(cmd, opts)
+        if not vim.tbl_contains(cmd, "--method") then
+          return default_answer(cmd, opts)
         end
         return {
           code = 1,
@@ -748,9 +814,9 @@ describe("codeview.submit", function()
       local store = store_of(session)
       add(store)
       local gone = add(store, { start_line = 99, end_line = 99, body = "a line that is gone" })
-      answer = function(cmd)
-        if cmd[2] == "pr" then
-          return { stdout = pr_view() }
+      answer = function(cmd, opts)
+        if not vim.tbl_contains(cmd, "--method") then
+          return default_answer(cmd, opts)
         end
         return { code = 1, stderr = "HTTP 422: Validation Failed\nline must be part of the diff" }
       end
@@ -831,6 +897,177 @@ describe("codeview.submit", function()
       assert.are.equal("2371558991", assert(store:get(note.id)).review_id)
     end)
 
+    it("keeps the id of every review comment on GitHub", function()
+      local session = open_session()
+      local store = store_of(session)
+      local one = add(store)
+      local two = add(store, { file = "feature.txt", start_line = 1, end_line = 2, body = "two lines" })
+
+      assert(run({ session = session, event = "comment", body = "hello" }))
+      local ids = { assert(store:get(one.id)).remote_id, assert(store:get(two.id)).remote_id }
+      table.sort(ids)
+      assert.are.same({ "9001", "9002" }, ids)
+
+      local reloaded = assert(store_mod.load({ repo = fixture.root, range = "pr-12-" .. fixture.ids.pr_two }))
+      for _, held in ipairs(reloaded.comments) do
+        assert.is_truthy(held.remote_id:find("^900%d$"), held.remote_id)
+      end
+    end)
+
+    it("gives the post the long time limit of gh", function()
+      local session = open_session()
+      add(store_of(session))
+      assert(run({ session = session, event = "comment", body = "hello" }))
+      assert.are.equal(gh.write_timeout, api_calls()[1].opts.timeout)
+    end)
+
+    it("looks for the review of an earlier try before the post", function()
+      local session = open_session()
+      add(store_of(session))
+      assert(run({ session = session, event = "comment", body = "hello" }))
+      local reads = read_calls()
+      assert.is_truthy(reads[1].cmd[3]:find("repos/ada/demo/pulls/12/reviews?", 1, true), reads[1].cmd[3])
+      assert.is_truthy(vim.tbl_contains(reads[1].cmd, "--hostname"))
+    end)
+
+    it("posts nothing when GitHub holds the review of an earlier try", function()
+      local session = open_session()
+      local store = store_of(session)
+      local comment = add(store)
+      reviews = {
+        {
+          id = 555,
+          user = { login = "ada" },
+          commit_id = fixture.ids.pr_two,
+          body = "hello",
+          html_url = "https://github.com/ada/demo/pull/12#pullrequestreview-555",
+          comments = {
+            { id = 777, path = "a.txt", line = 2, side = "RIGHT", body = "this line needs a test" },
+          },
+        },
+      }
+
+      local result = assert(run({ session = session, event = "comment", body = "hello" }))
+      assert.are.equal(0, #api_calls())
+      assert.is_true(result.existing)
+      assert.are.equal(1, result.posted)
+      local held = assert(store:get(comment.id))
+      assert.is_true(store_mod.is_synced(held))
+      assert.are.equal("555", held.review_id)
+      assert.are.equal("777", held.remote_id)
+      assert.is_truthy(said():find("holds this review already", 1, true), said())
+    end)
+
+    it("posts when the review of the same text belongs to another user", function()
+      local session = open_session()
+      add(store_of(session))
+      reviews = {
+        {
+          id = 555,
+          user = { login = "grace" },
+          commit_id = fixture.ids.pr_two,
+          body = "hello",
+          comments = { { id = 777, path = "a.txt", line = 2, side = "RIGHT", body = "this line needs a test" } },
+        },
+      }
+      local result = assert(run({ session = session, event = "comment", body = "hello" }))
+      assert.is_falsy(result.existing)
+      assert.are.equal(1, #api_calls())
+    end)
+
+    it("posts when the review of the same text holds other comments", function()
+      local session = open_session()
+      add(store_of(session))
+      reviews = {
+        {
+          id = 555,
+          user = { login = "ada" },
+          commit_id = fixture.ids.pr_two,
+          body = "hello",
+          comments = { { id = 777, path = "a.txt", line = 3, side = "RIGHT", body = "this line needs a test" } },
+        },
+      }
+      assert(run({ session = session, event = "comment", body = "hello" }))
+      assert.are.equal(1, #api_calls())
+    end)
+
+    it("posts nothing when the list of reviews fails", function()
+      local session = open_session()
+      local store = store_of(session)
+      local comment = add(store)
+      answer = function(cmd, opts)
+        if cmd[2] == "api" and cmd[3]:find("/reviews?", 1, true) then
+          return { code = 1, stderr = "gh: Server Error (HTTP 502)" }
+        end
+        return default_answer(cmd, opts)
+      end
+      local result, err = run({ session = session, event = "comment", body = "hello" })
+      assert.is_nil(result)
+      assert.is_truthy(err)
+      assert.are.equal(0, #api_calls())
+      assert.is_false(store_mod.is_synced(assert(store:get(comment.id))))
+    end)
+
+    it("changes the text of an edited comment on GitHub", function()
+      local session = open_session()
+      local store = store_of(session)
+      local comment = add(store)
+      assert(store:mark_synced(comment.id, { review_id = "77", remote_id = "1000000001" }))
+      assert(store:update(comment.id, { body = "a better note" }))
+
+      local result = assert(run({ session = session, event = "comment" }))
+      assert.are.equal(1, result.posted)
+      local calls = api_calls()
+      assert.are.equal(1, #calls)
+      assert.are.same({
+        "gh",
+        "api",
+        "repos/ada/demo/pulls/comments/1000000001",
+        "--include",
+        "--hostname",
+        "github.com",
+        "--method",
+        "PATCH",
+        "--input",
+        "-",
+      }, calls[1].cmd)
+      assert.are.same({ body = "a better note" }, vim.json.decode(calls[1].opts.stdin))
+      assert.are.equal(gh.write_timeout, calls[1].opts.timeout)
+
+      local held = assert(store:get(comment.id))
+      assert.is_true(store_mod.is_synced(held))
+      assert.are.equal("77", held.review_id)
+      assert.are.equal("1000000001", held.remote_id)
+    end)
+
+    it("names the edited comments in the summary", function()
+      local session = open_session()
+      local store = store_of(session)
+      local comment = add(store)
+      assert(store:mark_synced(comment.id, { review_id = "77", remote_id = "1000000001" }))
+      assert(store:update(comment.id, { body = "a better note" }))
+
+      local plan = assert(plan_of({ session = session }))
+      assert.are.equal(1, #plan.edits)
+      assert.are.equal(0, #plan.entries)
+      local text = table.concat(submit.summary(plan), "\n")
+      assert.is_truthy(text:find("1 comment gets a new text on GitHub", 1, true), text)
+    end)
+
+    it("posts a moved comment as a new comment", function()
+      local session = open_session()
+      local store = store_of(session)
+      local comment = add(store)
+      assert(store:mark_synced(comment.id, { review_id = "77", remote_id = "1000000001" }))
+      assert(store:update(comment.id, { start_line = 3, end_line = 3 }))
+
+      assert(run({ session = session, event = "comment", body = "hello" }))
+      local calls = api_calls()
+      assert.are.equal(1, #calls)
+      assert.are.equal("repos/ada/demo/pulls/12/reviews", calls[1].cmd[3])
+      assert.are.equal(3, vim.json.decode(calls[1].opts.stdin).comments[1].line)
+    end)
+
     it("posts a review of the notes alone", function()
       local session = open_session()
       local store = store_of(session)
@@ -885,10 +1122,78 @@ describe("codeview.submit", function()
 
       assert.is_true(store_mod.is_synced(assert(store:get(comment.id))))
       assert.are.equal("2371558991", assert(store:get(comment.id)).review_id)
+      assert.are.equal("1000000001", assert(store:get(comment.id)).remote_id)
+      assert.are.equal(gh.write_timeout, calls[1].opts.timeout)
 
       local reloaded = assert(store_mod.load({ repo = fixture.root, range = "pr-12-" .. fixture.ids.pr_two }))
       assert.are.equal(0, #reloaded:unsynced())
       assert.is_truthy(said():find("the comment went to PR #12", 1, true), said())
+    end)
+
+    it("changes the text of an edited comment on GitHub", function()
+      local session = open_session()
+      local store = store_of(session)
+      local comment = add(store)
+      assert(store:mark_synced(comment.id, { review_id = "77", remote_id = "1000000001" }))
+      assert(store:update(comment.id, { body = "a better note" }))
+
+      local result = assert(send({ session = session, id = comment.id }))
+      assert.are.equal(1, result.posted)
+      local calls = api_calls()
+      assert.are.equal(1, #calls)
+      assert.are.equal("repos/ada/demo/pulls/comments/1000000001", calls[1].cmd[3])
+      assert.is_truthy(vim.tbl_contains(calls[1].cmd, "PATCH"))
+      assert.are.same({ body = "a better note" }, vim.json.decode(calls[1].opts.stdin))
+      local held = assert(store:get(comment.id))
+      assert.is_true(store_mod.is_synced(held))
+      assert.are.equal("77", held.review_id)
+      assert.is_truthy(said():find("the new text went to PR #12", 1, true), said())
+    end)
+
+    it("changes the text of an edited conversation comment on GitHub", function()
+      local session = open_session()
+      local store = store_of(session)
+      local comment = add(store, {
+        file = require("codeview.message").pr_path(12),
+        start_line = 1,
+        end_line = 1,
+        body = "looks good overall",
+      })
+      assert(send({ session = session, id = comment.id }))
+      local remote_id = assert(store:get(comment.id)).remote_id
+      assert.are_not.equal("", remote_id)
+      assert(store:update(comment.id, { body = "looks great overall" }))
+
+      assert(send({ session = session, id = comment.id }))
+      local calls = api_calls()
+      assert.are.equal(2, #calls)
+      assert.are.equal("repos/ada/demo/issues/comments/" .. remote_id, calls[2].cmd[3])
+    end)
+
+    it("refuses a second call while one runs", function()
+      local session = open_session()
+      local store = store_of(session)
+      local one = add(store)
+      local two = add(store, { start_line = 3, end_line = 3, body = "the third line" })
+
+      local first = {}
+      submit.send({ session = session, id = one.id }, function(result, err)
+        first.result, first.err, first.done = result, err, true
+      end)
+      local second_result, second_err = send({ session = session, id = two.id })
+      wait_for(function()
+        return first.done
+      end, "the first send did not answer")
+
+      assert.is_nil(first.err)
+      assert.is_nil(second_result)
+      assert.is_truthy(tostring(second_err):find("runs already", 1, true), tostring(second_err))
+      assert.are.equal(1, #api_calls())
+      assert.is_false(store_mod.is_synced(assert(store:get(two.id))))
+
+      -- The lock ends with the first call.
+      assert(send({ session = session, id = two.id }))
+      assert.are.equal(2, #api_calls())
     end)
 
     it("posts a comment over more than one line with its start", function()
