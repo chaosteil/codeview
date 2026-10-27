@@ -12,10 +12,12 @@ the comments as markdown, and you send them to a GitHub pull request.
   interface. A review of the jj commit `@` snapshots the working copy, so the
   diff holds the writes of your editor.
 - Follows the repository. The review reads itself again when you commit, amend,
-  or rebase in another terminal, and `<leader>cR` reads it again by hand.
+  or rebase in another terminal, also with git in a colocated jj repository.
+  `<leader>cR` reads it again by hand. Neither blocks the editor.
 - Reviews a GitHub pull request without a checkout. The `gh` CLI reads the pull
-  request and posts your review. git fetches its two commits into refs of the
-  plugin. The diff also shows the review comments that the pull request already
+  request and posts your review, also on a GitHub Enterprise host. git fetches
+  its two commits into refs of the plugin, from the remote whose URL names the
+  repository of the pull request. The diff also shows the review comments that the pull request already
   holds. The sidebar lists the pull request itself first, with its description
   and its link, and a comment on it goes to the conversation of the pull
   request.
@@ -57,6 +59,10 @@ To set options, set the opts:
 ```
 
 `:help codeview-config` shows every option and its default value.
+
+By default codeview shows warnings and errors only. Set
+`log_level = vim.log.levels.INFO` to also see the reports of a successful
+action, for example of a submit or an export.
 
 ## Quick start
 
@@ -130,7 +136,9 @@ The skill uses `codeview.review()`. See `:help codeview.review()`.
 
 Run `:help codeview` for the full documentation: the diff view, the comment
 workflow, the keymaps (`:help codeview-keymaps`), pull requests, export,
-submit, and the Lua API (`:help codeview-api`).
+submit, and the Lua API (`:help codeview-api`). `:help codeview-api-stable`
+lists the calls that stay the same within version 0.x. Every other call can
+change before version 1.0.
 
 ## Contributing
 
