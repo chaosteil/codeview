@@ -1010,8 +1010,9 @@ describe("codeview.view", function()
       assert.is_true(api.nvim_win_is_valid(state.win))
       assert.are.equal(state.buf, api.nvim_win_get_buf(state.win))
       assert.are.equal("@@ -1,6 +1,6 @@", lines_of(state.buf)[1])
-      -- The option keeps the style that the user asked for.
-      assert.are.equal("split", config.get().diff.style)
+      -- The next file keeps the style that the user asked for.
+      view.close()
+      assert.are.equal("split", view.style())
     end)
 
     it("keeps the handles of the session at the windows that live", function()
@@ -1052,13 +1053,13 @@ describe("codeview.view", function()
       assert.are.equal(before, assert(view.current()).diff)
     end)
 
-    it("stores the style in the configuration", function()
+    it("keeps the style for the next file and leaves the configuration alone", function()
       open_long()
       view.set_style("split")
-      assert.are.equal("split", config.get().diff.style)
+      assert.are.equal("inline", config.get().diff.style)
       assert.are.equal("split", view.style())
 
-      -- The next file opens in the style of the configuration.
+      -- The next file opens in the style of the last switch.
       local review = assert(opened)
       local state = assert(view.open(review, assert(review:index_of("added.txt"))))
       assert.are.equal("split", state.style)

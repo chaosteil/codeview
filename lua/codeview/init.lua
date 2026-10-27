@@ -229,7 +229,8 @@ end
 ---Change the diff style.
 ---
 --- The call keeps the cursor on the same line of the file. The new style also
---- becomes the `diff.style` option.
+--- becomes the style of the next file. The `diff.style` option keeps its
+--- value.
 ---@param style "inline"|"split"? Style to set. The other style by default.
 ---@return "inline"|"split"? style Style after the call. Nil for an invalid name.
 function M.set_style(style)

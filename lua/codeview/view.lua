@@ -3,7 +3,7 @@
 --- The view shows the diff of one changed file of the session in the main
 --- window, next to the sidebar. It reads both sides of the file from the
 --- backend, runs |codeview.diff| on them, and renders the result with the
---- style of the `diff.style` option.
+--- style of the next file. That style starts as the `diff.style` option.
 ---
 --- Two styles show the same diff:
 ---
@@ -12,7 +12,8 @@
 ---
 --- |codeview.view.set_style()| changes the style of the file that is open. It
 --- keeps the diff, so the backend reads the file once for both styles. The
---- line maps keep the cursor on the same line of the file.
+--- line maps keep the cursor on the same line of the file. The new style also
+--- becomes the style of the next file. The configuration does not change.
 ---
 --- The buffers of the view are read-only. The style module owns their content,
 --- their highlights, and their line maps. The view owns the windows, the
@@ -73,6 +74,28 @@ local M = {}
 ---File that the view shows now.
 ---@type codeview.view.State?
 local state = nil
+
+---Style that the next file opens with. |next_style()| reads it.
+---@type codeview.view.Style?
+local chosen = nil
+
+---Configuration table that `chosen` belongs to. A `setup()` call replaces the
+---table, and the style of the next file then takes the option again.
+---@type codeview.Config?
+local chosen_for = nil
+
+---Read the style that the next file opens with.
+---
+--- The first read takes the `diff.style` option. A read after `setup()` takes
+--- the option again.
+---@return codeview.view.Style style
+local function next_style()
+  local cfg = config.get()
+  if chosen == nil or chosen_for ~= cfg then
+    chosen, chosen_for = cfg.diff.style, cfg
+  end
+  return chosen
+end
 
 ---Number of open calls of this Neovim. It names the newest request.
 ---@type integer
@@ -671,7 +694,8 @@ end
 ---
 --- A window alone shows one side of the diff, with filler rows that align to
 --- nothing. The view takes the inline style in the window that stays. The call
---- keeps the `diff.style` option, so the next file opens side by side again.
+--- keeps the style of the next file, so the next file opens side by side
+--- again.
 ---@param view codeview.view.State
 function repair_split(view)
   if state ~= view or view.style ~= "split" or not view.session:is_active() then
@@ -855,7 +879,7 @@ function load(session, index, opts, cb, dropped)
       diff = result,
       -- A document holds one side only, so the side-by-side style has nothing
       -- to put in the other window.
-      style = file.virtual and "inline" or config.get().diff.style,
+      style = file.virtual and "inline" or next_style(),
       map = linemap.new(),
       old_map = nil,
       expanded = {},
@@ -1176,7 +1200,7 @@ end
 ---@return codeview.view.Style style
 function M.style()
   local view = M.current()
-  return view and view.style or config.get().diff.style
+  return view and view.style or next_style()
 end
 
 ---Change the diff style.
@@ -1186,27 +1210,27 @@ end
 --- from the map of the old style and finds its row in the map of the new
 --- style. The cursor moves to the window of that side.
 ---
---- The new style also becomes the `diff.style` option, so the next file opens
---- in the same style.
+--- The new style also becomes the style of the next file, so the next file
+--- opens in the same style. The `diff.style` option keeps its value. A later
+--- `setup()` call sets the style of the next file to the option again.
 ---@param style codeview.view.Style? Style to set. The other style by default.
 ---@return codeview.view.Style? style Style after the call. Nil for an invalid name.
 function M.set_style(style)
-  local cfg = config.get().diff
   if style == nil then
     style = M.style() == "split" and "inline" or "split"
   end
   if style ~= "inline" and style ~= "split" then
     return nil
   end
-  cfg.style = style
+  chosen, chosen_for = style, config.get()
 
   local view = M.current()
   if not view or view.style == style then
     return style
   end
   if view.diff and view.diff.message then
-    -- A document has one side. The option keeps the new value for the next
-    -- file, but this view stays inline.
+    -- A document has one side. The next file takes the new style, but this
+    -- view stays inline.
     notify("the document has no side-by-side style")
     return view.style
   end
