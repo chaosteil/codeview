@@ -344,6 +344,32 @@ describe("codeview.view", function()
     end)
   end)
 
+  describe("the close key", function()
+    it("asks before it closes the session with close.confirm", function()
+      require("codeview.config").setup({ commit_message = false, close = { confirm = true } })
+      local review = open_session()
+      api.nvim_set_current_win(assert(view.open(review, 1)).win)
+
+      local answer, questions = 2, {}
+      local confirm = vim.fn.confirm
+      vim.fn.confirm = function(text) ---@diagnostic disable-line: duplicate-set-field
+        questions[#questions + 1] = text
+        return answer
+      end
+      local ok, err = pcall(function()
+        press("q")
+        assert.is_true(review:is_active())
+        answer = 1
+        press("q")
+      end)
+      vim.fn.confirm = confirm
+      assert.is_true(ok, tostring(err))
+
+      assert.are.same({ "Close the review?", "Close the review?" }, questions)
+      assert.is_false(review:is_active())
+    end)
+  end)
+
   describe("hunks and collapsed sections", function()
     local diff_fixture = fixtures.git_diff()
 

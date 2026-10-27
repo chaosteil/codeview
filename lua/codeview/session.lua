@@ -363,6 +363,20 @@ function M.last()
   return last
 end
 
+---Close a session from a close key.
+---
+--- With the `close.confirm` option the call asks "Close the review?" first.
+--- An answer other than Yes keeps the session open. `:Codeview close` and
+--- |codeview.close()| do not use this call, so they never ask.
+---@param session codeview.Session
+---@return boolean closed
+function M.confirm_close(session)
+  if config.get().close.confirm and vim.fn.confirm("Close the review?", "&Yes\n&No", 2, "Question") ~= 1 then
+    return false
+  end
+  return session:close()
+end
+
 ---Read the session that runs.
 ---@return codeview.Session? session
 function M.current()

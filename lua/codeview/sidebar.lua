@@ -441,7 +441,7 @@ local function keymaps(sidebar)
     view.refresh(nil, function() end)
   end, "read the review again")
   add(keys.close, function()
-    sidebar.session:close()
+    session_mod.confirm_close(sidebar.session)
   end, "close the session")
   return maps
 end

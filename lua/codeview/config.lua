@@ -19,6 +19,7 @@ local M = {}
 ---@field diff codeview.Config.Diff Diff view options.
 ---@field sidebar codeview.Config.Sidebar Changed-files sidebar options.
 ---@field overview codeview.Config.Overview Comment overview sidebar options.
+---@field close codeview.Config.Close Options of the close key.
 ---@field comments codeview.Config.Comments Comment editor and storage options.
 ---@field export codeview.Config.Export Export options.
 ---@field github codeview.Config.GitHub Pull request options.
@@ -57,6 +58,9 @@ local M = {}
 ---@field position "left"|"right" Side of the tab page for the comment overview.
 ---@field width integer Width of the comment overview in columns.
 ---@field auto_open boolean Open the overview when a session starts.
+
+---@class codeview.Config.Close
+---@field confirm boolean Ask before the close key of the diff and of the sidebar closes the session.
 
 ---@class codeview.Config.Comments
 ---@field dir string Directory for the session files. One subdirectory per repo.
@@ -122,6 +126,9 @@ M.defaults = {
     position = "right",
     width = 48,
     auto_open = false,
+  },
+  close = {
+    confirm = false,
   },
   comments = {
     -- The plugin writes the comment files, so they live under the data
@@ -313,6 +320,9 @@ function M.validate(opts)
     vim.validate("overview.position", opts.overview.position, one_of({ "left", "right" }))
     vim.validate("overview.width", opts.overview.width, positive_integer, "positive integer")
     vim.validate("overview.auto_open", opts.overview.auto_open, "boolean")
+
+    vim.validate("close", opts.close, "table")
+    vim.validate("close.confirm", opts.close.confirm, "boolean")
 
     vim.validate("comments", opts.comments, "table")
     vim.validate("comments.dir", opts.comments.dir, "string")

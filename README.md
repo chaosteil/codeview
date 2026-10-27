@@ -109,6 +109,9 @@ On a jj repository the argument is a revset, for example
 :Codeview submit [event]   " send the comments to the pull request
 ```
 
+Set `close = { confirm = true }` to make the `q` key ask before it closes the
+review.
+
 ## Agent hand-off
 
 The `rex-codeview` agent skill hands the work of a coding agent to you for

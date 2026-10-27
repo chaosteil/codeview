@@ -154,7 +154,7 @@ names, write the revision as a range, for example `:Codeview close^..close`.
     sidebar gets its expanded directories again. The plugin keeps the record
     in memory only, so it does not survive a restart of Neovim. Without a
     closed session, or while a session runs, the command gives a warning.
-    See |codeview.reopen()|.
+    See |codeview.reopen()| and |codeview-close-confirm|.
 
                                                               *:Codeview-back*
 :Codeview back
@@ -1501,7 +1501,8 @@ codeview.session()
 
                                                             *codeview.close()*
 codeview.close()
-    Close the session that runs. Return false when no session runs.
+    Close the session that runs. Return false when no session runs. The call
+    never asks a question, also with the `close.confirm` option.
 
                                                            *codeview.reopen()*
 codeview.reopen({cb})
@@ -1845,6 +1846,9 @@ Defaults: >lua
         width = 48,
         auto_open = false,           -- open the overview with the session
       },
+      close = {
+        confirm = false,             -- ask before the close key closes
+      },
       comments = {
         dir = stdpath("data") .. "/codeview/review",
         display = "virtual",         -- "virtual" | "float"
@@ -1915,6 +1919,14 @@ Set a keymap to false to disable it. A list holds more than one key for one
 action, and a list from you replaces the default list. setup() rejects an
 unknown key, and reports the name of the key. |codeview-keymaps| lists every
 action with its surface.
+
+                                                      *codeview-close-confirm*
+Set `close.confirm` to true to make the close key ask "Close the review?"
+before it closes the session. The question comes from the close key of the
+diff view and of the sidebar. An answer other than Yes keeps the session
+open. `:Codeview close` and |codeview.close()| never ask. The close key of
+the overview closes only the overview, so it does not ask either. After a
+close, |:Codeview-reopen| opens the session again.
 
                                                         *codeview-backend*
 The `backend` option selects the version control system. With "auto" the

@@ -282,7 +282,7 @@ local function set_keymaps(session, buf)
     M.refresh(nil, function() end)
   end, "read the review again")
   add(keys.close, function()
-    session:close()
+    require("codeview.session").confirm_close(session)
   end, "close the session")
 
   -- The comment keys need the visual mode too. The module owns them.
