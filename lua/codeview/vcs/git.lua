@@ -210,7 +210,8 @@ end
 
 ---True when git rejected a revision name.
 ---
---- The text of git is stable, because `GIT_ENV` sets the C locale.
+--- The text of git is stable, because `GIT_ENV` sets the C locale. `git show`
+--- refuses a revision that starts with `-` with the text of a misplaced option.
 ---@param result codeview.ExecResult
 ---@return boolean
 local function looks_like_bad_revision(result)
@@ -220,6 +221,7 @@ local function looks_like_bad_revision(result)
     or text:find("bad revision", 1, true) ~= nil
     or text:find("ambiguous argument", 1, true) ~= nil
     or text:find("not a valid object name", 1, true) ~= nil
+    or text:find("must come before non-option arguments", 1, true) ~= nil
 end
 
 ---Resolve one revision to a full commit id.
@@ -245,7 +247,8 @@ function Repo:resolve_rev(rev, cb)
     return id, nil
   end
 
-  return call(self, { "rev-parse", "--verify", "--quiet", rev .. "^{commit}" }, handle, nil, cb)
+  -- `--end-of-options` keeps a revision that starts with `-` out of the options.
+  return call(self, { "rev-parse", "--verify", "--quiet", "--end-of-options", rev .. "^{commit}" }, handle, nil, cb)
 end
 
 ---@param spec string|codeview.vcs.Range|codeview.vcs.RangeSpec
@@ -296,7 +299,7 @@ function Repo:resolve_range(spec, cb)
       return { from = fields[2], to = fields[1], spec = text }, nil
     end
     -- `--` keeps a revision name that is also a path out of the pathspec.
-    return call(self, { "rev-list", "--parents", "-n", "1", parsed.to, "--" }, handle, nil, cb)
+    return call(self, { "rev-list", "--parents", "-n", "1", "--end-of-options", parsed.to, "--" }, handle, nil, cb)
   end
 
   if parsed.kind == "explicit" then
@@ -319,22 +322,40 @@ function Repo:resolve_range(spec, cb)
 
   local from_rev = parsed.from --[[@as string]]
 
-  ---Resolve both sides in one call.
-  ---@param result codeview.ExecResult
-  local function handle_pair(result)
-    if result.code ~= 0 then
-      return nil, failed(errors.codes.BAD_REVISION, "unknown revision in " .. text, result)
+  ---Resolve both sides. `rev-parse --verify` takes one revision per call.
+  ---@param pair_cb? fun(range: codeview.vcs.Range?, err: codeview.Error?)
+  ---@return codeview.vcs.Range? range
+  ---@return codeview.Error? err
+  local function resolve_pair(pair_cb)
+    if not pair_cb then
+      local from, from_err = self:resolve_rev(from_rev)
+      if not from then
+        return nil, from_err
+      end
+      local to, to_err = self:resolve_rev(parsed.to)
+      if not to then
+        return nil, to_err
+      end
+      return { from = from, to = to, spec = text }, nil
     end
-    local ids = exec.lines(result.stdout)
-    if #ids < 2 then
-      return nil, failed(errors.codes.BAD_REVISION, "unknown revision in " .. text, result)
-    end
-    return { from = ids[1], to = ids[2], spec = text }, nil
+    self:resolve_rev(from_rev, function(from, from_err)
+      if not from then
+        pair_cb(nil, from_err)
+        return
+      end
+      self:resolve_rev(parsed.to, function(to, to_err)
+        if not to then
+          pair_cb(nil, to_err)
+          return
+        end
+        pair_cb({ from = from, to = to, spec = text }, nil)
+      end)
+    end)
+    return nil, nil
   end
-  local pair_args = { "rev-parse", from_rev .. "^{commit}", parsed.to .. "^{commit}" }
 
   if parsed.kind == "range" then
-    return call(self, pair_args, handle_pair, nil, cb)
+    return resolve_pair(cb)
   end
 
   -- Triple dot: the base is the merge base of the two sides.
@@ -352,7 +373,7 @@ function Repo:resolve_range(spec, cb)
   end
 
   if not cb then
-    local range, range_err = call(self, pair_args, handle_pair)
+    local range, range_err = resolve_pair()
     if not range then
       return nil, range_err
     end
@@ -361,7 +382,7 @@ function Repo:resolve_range(spec, cb)
     end)
   end
 
-  call(self, pair_args, handle_pair, nil, function(range, range_err)
+  resolve_pair(function(range, range_err)
     if not range then
       cb(nil, range_err)
       return
@@ -489,6 +510,8 @@ function Repo:log(opts, cb)
   if opts.limit then
     vim.list_extend(args, { "-n", tostring(opts.limit) })
   end
+  -- `--end-of-options` keeps a revision that starts with `-` out of the options.
+  args[#args + 1] = "--end-of-options"
 
   local range = opts.range
   if range then
@@ -588,12 +611,12 @@ function Repo:changed_files(range, cb)
   local args, parse
   if range.from then
     -- `--` keeps a revision name that is also a path out of the pathspec.
-    args = { "diff", "--no-color", "--name-status", "-M", "-z", range.from, range.to, "--" }
+    args = { "diff", "--no-color", "--name-status", "-M", "-z", "--end-of-options", range.from, range.to, "--" }
     parse = parse_name_status
   else
     -- `diff-tree --root` compares a non-root commit against its parent.
     -- List the whole tree instead, so that the base stays the empty state.
-    args = { "ls-tree", "-r", "-z", "--name-only", range.to }
+    args = { "ls-tree", "-r", "-z", "--name-only", "--end-of-options", range.to }
     parse = parse_tree
   end
 
@@ -657,7 +680,8 @@ function Repo:file_content(rev, path, cb)
   end
 
   -- `text = false` keeps the bytes of the file, with the line endings it has.
-  return call(self, { "show", rev .. ":" .. path }, handle, { text = false }, cb)
+  -- `--end-of-options` keeps a revision that starts with `-` out of the options.
+  return call(self, { "show", "--end-of-options", rev .. ":" .. path }, handle, { text = false }, cb)
 end
 
 return M

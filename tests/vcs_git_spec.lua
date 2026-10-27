@@ -82,6 +82,73 @@ describe("codeview.vcs.git", function()
     end)
   end)
 
+  describe("a revision that starts with a dash", function()
+    -- git reads `--output=<file>` as an option, and the option writes the
+    -- file. The backend must give the text to git as a revision.
+    local target = vim.fs.joinpath(fixture.dir, "written-by-git")
+    local option = "--output=" .. target
+
+    after_each(function()
+      assert.are.equal(0, vim.fn.filereadable(target), "git wrote " .. target)
+    end)
+
+    it("rejects it in resolve_rev", function()
+      local id, err = repo:resolve_rev(option)
+      assert.is_nil(id)
+      assert.are.equal("bad_revision", err.code)
+    end)
+
+    it("rejects it as one commit", function()
+      local range, err = repo:resolve_range(option)
+      assert.is_nil(range)
+      assert.are.equal("bad_revision", err.code)
+    end)
+
+    it("rejects it as the base of a range", function()
+      local range, err = repo:resolve_range(option .. "..HEAD")
+      assert.is_nil(range)
+      assert.are.equal("bad_revision", err.code)
+    end)
+
+    it("rejects it as the head of a range", function()
+      local range, err = repo:resolve_range("HEAD.." .. option)
+      assert.is_nil(range)
+      assert.are.equal("bad_revision", err.code)
+    end)
+
+    it("rejects it in a three dot range", function()
+      local range, err = repo:resolve_range(option .. "...HEAD")
+      assert.is_nil(range)
+      assert.are.equal("bad_revision", err.code)
+    end)
+
+    it("rejects it in the log", function()
+      local commits, err = repo:log({ revs = { option } })
+      assert.is_nil(commits)
+      assert.are.equal("bad_revision", err.code)
+
+      commits, err = repo:log({ range = { from = option, to = "HEAD" } })
+      assert.is_nil(commits)
+      assert.are.equal("bad_revision", err.code)
+    end)
+
+    it("rejects it in changed_files", function()
+      local files, err = repo:changed_files({ from = option, to = "HEAD" })
+      assert.is_nil(files)
+      assert.are.equal("bad_revision", err.code)
+
+      files, err = repo:changed_files({ to = option })
+      assert.is_nil(files)
+      assert.are.equal("bad_revision", err.code)
+    end)
+
+    it("rejects it in file_content", function()
+      local content, err = repo:file_content(option, "a.txt")
+      assert.is_nil(content)
+      assert.are.equal("bad_revision", err.code)
+    end)
+  end)
+
   describe("a foreign message locale", function()
     ---True when git has a German translation on this machine.
     ---@return boolean
