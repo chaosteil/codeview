@@ -52,10 +52,6 @@ M.marks = {
 local Sidebar = {}
 Sidebar.__index = Sidebar
 
----Sidebar that runs now.
----@type codeview.Sidebar?
-local current = nil
-
 --- Lines ------------------------------------------------------------------
 
 ---Status mark of one status.
@@ -424,19 +420,11 @@ function Sidebar:prev_file(cb)
 end
 
 ---Close the sidebar. The session stays open.
+---
+--- The close deletes the autocmds and the event handlers of the sidebar. See
+--- |codeview.panel.singleton()|.
 ---@return boolean closed
 function Sidebar:close()
-  for _, id in ipairs(self.autocmds) do
-    pcall(api.nvim_del_autocmd, id)
-  end
-  self.autocmds = {}
-  for _, id in ipairs(self.subscriptions or {}) do
-    require("codeview.events").off(id)
-  end
-  self.subscriptions = {}
-  if current == self then
-    current = nil
-  end
   return self.panel:close()
 end
 
@@ -535,10 +523,40 @@ local function watch(sidebar)
       end
     end
   )
-  sidebar.session:on_close(function()
-    sidebar:close()
-  end)
 end
+
+---Build a new sidebar for a session.
+---@param session codeview.Session
+---@param on_close fun(panel: codeview.Panel) Handler of the lifecycle.
+---@return codeview.Sidebar
+local function make(session, on_close)
+  highlight.setup()
+  local cfg = config.get().sidebar
+  local sidebar = setmetatable({
+    session = session,
+    current = nil,
+    expanded = {},
+    tree = tree.build({}),
+    autocmds = {},
+    subscriptions = {},
+  }, Sidebar)
+  sidebar.panel = panel.new({
+    title = "files",
+    filetype = "codeview-files",
+    position = cfg.position,
+    width = cfg.width,
+    render = function()
+      return render_lines(sidebar)
+    end,
+    keymaps = keymaps(sidebar),
+    on_close = on_close,
+  })
+  watch(sidebar)
+  return sidebar
+end
+
+---Lifecycle of the sidebar.
+local life = panel.singleton({ make = make })
 
 ---Open the changed-files sidebar.
 ---
@@ -548,90 +566,40 @@ end
 ---@return codeview.Sidebar? sidebar Nil when no session runs.
 ---@return codeview.Error? err
 function M.open(opts)
-  opts = opts or {}
-  local session = opts.session or session_mod.current()
-  if not session or not session:is_active() then
-    return nil, errors.new(errors.codes.INVALID_ARG, "no review session")
-  end
-
-  if current and current.session ~= session then
-    current:close()
-  end
-
-  if not current then
-    highlight.setup()
-    local cfg = config.get().sidebar
-    local sidebar = setmetatable({
-      session = session,
-      current = nil,
-      expanded = {},
-      tree = tree.build({}),
-      autocmds = {},
-      subscriptions = {},
-    }, Sidebar)
-    sidebar.panel = panel.new({
-      title = "files",
-      filetype = "codeview-files",
-      position = cfg.position,
-      width = cfg.width,
-      render = function()
-        return render_lines(sidebar)
-      end,
-      keymaps = keymaps(sidebar),
-    })
-    current = sidebar
-    watch(sidebar)
-  end
-
-  local sidebar = current --[[@as codeview.Sidebar]]
-  local win = sidebar.panel:open({ focus = opts.focus })
-  session:add_window(win)
-  local buf = sidebar.panel:buffer()
-  if buf then
-    session:add_buffer(buf)
-  end
-  return sidebar, nil
+  local sidebar, err = life.open(opts)
+  return sidebar, --[[@as codeview.Sidebar?]]
+    err
 end
 
 ---Read the sidebar that runs.
 ---@return codeview.Sidebar? sidebar
 function M.get()
-  return current
+  return life.get() --[[@as codeview.Sidebar?]]
 end
 
 ---Report whether the sidebar window is open.
 ---@return boolean
 function M.is_open()
-  return current ~= nil and current:is_open()
+  return life.is_open()
 end
 
 ---Close the sidebar. The session stays open.
 ---@return boolean closed False when no sidebar is open.
 function M.close()
-  if not current then
-    return false
-  end
-  return current:close()
+  return life.close()
 end
 
 ---Render the sidebar again.
 ---@return boolean rendered False when no sidebar is open.
 function M.refresh()
-  if not current then
-    return false
-  end
-  return current:render()
+  return life.refresh()
 end
 
 ---Close the sidebar when it is open, and open it when it is closed.
 ---@param opts? { session?: codeview.Session, focus?: boolean }
 ---@return boolean open State after the call.
 function M.toggle(opts)
-  if M.is_open() then
-    M.close()
-    return false
-  end
-  return M.open(opts) ~= nil
+  return life.toggle(opts)
 end
 
 return M

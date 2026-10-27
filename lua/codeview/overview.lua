@@ -37,7 +37,6 @@ local message = require("codeview.message")
 local events = require("codeview.events")
 local highlight = require("codeview.highlight")
 local panel = require("codeview.panel")
-local session_mod = require("codeview.session")
 local store_mod = require("codeview.store")
 local tree = require("codeview.tree")
 local util = require("codeview.util")
@@ -71,10 +70,6 @@ local M = {}
 ---@field private subscriptions integer[] Event handlers that close with the overview.
 local Overview = {}
 Overview.__index = Overview
-
----Overview that runs now.
----@type codeview.Overview?
-local current = nil
 
 --- Comments ---------------------------------------------------------------
 
@@ -784,19 +779,11 @@ function Overview:copy()
 end
 
 ---Close the overview. The session stays open.
+---
+--- The close deletes the autocmds and the event handlers of the overview. See
+--- |codeview.panel.singleton()|.
 ---@return boolean closed
 function Overview:close()
-  for _, id in ipairs(self.autocmds) do
-    pcall(api.nvim_del_autocmd, id)
-  end
-  self.autocmds = {}
-  for _, id in ipairs(self.subscriptions) do
-    events.off(id)
-  end
-  self.subscriptions = {}
-  if current == self then
-    current = nil
-  end
   return self.panel:close()
 end
 
@@ -895,10 +882,44 @@ local function watch(overview)
       overview:render()
     end
   end)
-  overview.session:on_close(function()
-    overview:close()
-  end)
 end
+
+---Build a new overview for a session.
+---@param session codeview.Session
+---@param on_close fun(panel: codeview.Panel) Handler of the lifecycle.
+---@return codeview.Overview
+local function make(session, on_close)
+  highlight.setup()
+  local cfg = config.get().overview
+  local overview = setmetatable({
+    session = session,
+    current = nil,
+    expanded = {},
+    tree = tree.build({}),
+    autocmds = {},
+    subscriptions = {},
+  }, Overview)
+  overview.panel = panel.new({
+    title = "comments",
+    filetype = "codeview-comments",
+    position = cfg.position,
+    width = cfg.width,
+    render = function()
+      return render_lines(overview)
+    end,
+    keymaps = keymaps(overview),
+    on_close = on_close,
+  })
+  local state = view.current()
+  if state and state.session == session then
+    overview.current = state.path
+  end
+  watch(overview)
+  return overview
+end
+
+---Lifecycle of the overview.
+local life = panel.singleton({ make = make })
 
 ---Open the comment overview.
 ---
@@ -908,94 +929,40 @@ end
 ---@return codeview.Overview? overview Nil when no session runs.
 ---@return codeview.Error? err
 function M.open(opts)
-  opts = opts or {}
-  local session = opts.session or session_mod.current()
-  if not session or not session:is_active() then
-    return nil, errors.new(errors.codes.INVALID_ARG, "no review session")
-  end
-
-  if current and current.session ~= session then
-    current:close()
-  end
-
-  if not current then
-    highlight.setup()
-    local cfg = config.get().overview
-    local overview = setmetatable({
-      session = session,
-      current = nil,
-      expanded = {},
-      tree = tree.build({}),
-      autocmds = {},
-      subscriptions = {},
-    }, Overview)
-    overview.panel = panel.new({
-      title = "comments",
-      filetype = "codeview-comments",
-      position = cfg.position,
-      width = cfg.width,
-      render = function()
-        return render_lines(overview)
-      end,
-      keymaps = keymaps(overview),
-    })
-    local state = view.current()
-    if state and state.session == session then
-      overview.current = state.path
-    end
-    current = overview
-    watch(overview)
-  end
-
-  local overview = current --[[@as codeview.Overview]]
-  local win = overview.panel:open({ focus = opts.focus })
-  session:add_window(win)
-  local buf = overview.panel:buffer()
-  if buf then
-    session:add_buffer(buf)
-  end
-  return overview, nil
+  local overview, err = life.open(opts)
+  return overview, --[[@as codeview.Overview?]]
+    err
 end
 
 ---Read the overview that runs.
 ---@return codeview.Overview? overview
 function M.get()
-  return current
+  return life.get() --[[@as codeview.Overview?]]
 end
 
 ---Report whether the overview window is open.
 ---@return boolean
 function M.is_open()
-  return current ~= nil and current:is_open()
+  return life.is_open()
 end
 
 ---Close the overview. The session stays open.
 ---@return boolean closed False when no overview is open.
 function M.close()
-  if not current then
-    return false
-  end
-  return current:close()
+  return life.close()
 end
 
 ---Render the overview again.
 ---@return boolean rendered False when no overview is open.
 function M.refresh()
-  if not current then
-    return false
-  end
-  return current:render()
+  return life.refresh()
 end
 
 ---Close the overview when it is open, and open it when it is closed.
 ---@param opts? { session?: codeview.Session, focus?: boolean }
 ---@return boolean open State after the call.
 function M.toggle(opts)
-  if M.is_open() then
-    M.close()
-    return false
-  end
-  return M.open(opts) ~= nil
+  return life.toggle(opts)
 end
 
 return M

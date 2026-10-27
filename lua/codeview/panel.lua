@@ -14,6 +14,9 @@
 --- cursor with |codeview.Panel:cursor_data()|.
 ---
 --- The changed-files sidebar and the comment overview both use this module.
+--- |codeview.panel.singleton()| gives both of them the same lifecycle: one
+--- panel at a time, the handlers of its events, and the close with the
+--- session.
 ---
 --- Cleanup is exact. |codeview.Panel:close()| deletes the autocmd group, the
 --- window, and the buffer of the panel. A window that the user closes, or a
@@ -460,6 +463,175 @@ function Panel:set_cursor(lnum)
   local row = math.min(math.max(lnum, 1), #self.rendered)
   pcall(api.nvim_win_set_cursor, self.win --[[@as integer]], { row, 0 })
   return true
+end
+
+--- Lifecycle --------------------------------------------------------------------
+
+---@class codeview.panel.Owner
+---@field session codeview.Session Session that the panel shows.
+---@field panel codeview.Panel Window of the owner.
+---@field autocmds integer[] Autocmds that close with the panel.
+---@field subscriptions integer[] Handlers of |codeview.events| that close with the panel.
+
+---@class codeview.panel.SingletonOpts
+---@field make fun(session: codeview.Session, on_close: fun(panel: codeview.Panel)): codeview.panel.Owner Build the owner of a new panel. It passes `on_close` to |codeview.panel.new()|.
+
+---@class codeview.panel.OpenOpts
+---@field session codeview.Session? Session of the panel. The session that runs by default.
+---@field focus boolean? True puts the cursor in the panel.
+
+---@class codeview.panel.Singleton
+---@field open fun(opts?: codeview.panel.OpenOpts): codeview.panel.Owner?, codeview.Error?
+---@field get fun(): codeview.panel.Owner?
+---@field is_open fun(): boolean
+---@field close fun(): boolean
+---@field refresh fun(): boolean
+---@field toggle fun(opts?: codeview.panel.OpenOpts): boolean
+
+---Lifecycle of a panel kind that the plugin shows once.
+---
+--- The helper keeps the owner that runs. An open for another session closes
+--- that owner first. The owner closes with its session, and the session drops
+--- the window, the buffer, and the close handler of the owner again. A close
+--- of the panel window, for example with `:q`, deletes the autocmds and the
+--- event handlers of the owner, and it clears the owner that runs.
+---@param opts codeview.panel.SingletonOpts
+---@return codeview.panel.Singleton
+function M.singleton(opts)
+  vim.validate("opts", opts, "table")
+  vim.validate("opts.make", opts.make, "callable")
+
+  ---@type codeview.panel.Singleton
+  local life = {}
+
+  ---Owner that runs now.
+  ---@type codeview.panel.Owner?
+  local current = nil
+
+  ---Keep the window and the buffer of the owner that runs, as the session
+  ---holds them.
+  ---@type fun(win: integer, buf: integer?)
+  local track = function() end
+
+  ---Build the owner of a new panel.
+  ---@param session codeview.Session
+  ---@return codeview.panel.Owner owner
+  ---@return fun(win: integer, buf: integer?) track Keep the handles that the session holds.
+  local function build(session)
+    ---@type codeview.panel.Owner
+    local owner
+    ---@type integer?, integer?
+    local win, buf
+
+    ---Close the panel with the session.
+    local function stop()
+      owner.panel:close()
+    end
+
+    ---Drop every handle of the owner. The panel runs this after its close.
+    local function release()
+      for _, id in ipairs(owner.autocmds) do
+        pcall(api.nvim_del_autocmd, id)
+      end
+      owner.autocmds = {}
+      local events = require("codeview.events")
+      for _, id in ipairs(owner.subscriptions) do
+        events.off(id)
+      end
+      owner.subscriptions = {}
+      session:off_close(stop)
+      if win then
+        session:remove_window(win)
+      end
+      if buf then
+        session:remove_buffer(buf)
+      end
+      if current == owner then
+        current = nil
+      end
+    end
+
+    owner = opts.make(session, release)
+    session:on_close(stop)
+    return owner, function(new_win, new_buf)
+      win, buf = new_win, new_buf
+    end
+  end
+
+  ---Open the panel.
+  ---
+  --- Without a session the call takes the session that runs.
+  ---@param open_opts? codeview.panel.OpenOpts
+  ---@return codeview.panel.Owner? owner Nil when no session runs.
+  ---@return codeview.Error? err
+  function life.open(open_opts)
+    open_opts = open_opts or {}
+    local session = open_opts.session or require("codeview.session").current()
+    if not session or not session:is_active() then
+      local errors = require("codeview.error")
+      return nil, errors.new(errors.codes.INVALID_ARG, "no review session")
+    end
+
+    if current and current.session ~= session then
+      life.close()
+    end
+    if not current then
+      current, track = build(session)
+    end
+
+    local owner = current --[[@as codeview.panel.Owner]]
+    local win = owner.panel:open({ focus = open_opts.focus })
+    session:add_window(win)
+    local buf = owner.panel:buffer()
+    if buf then
+      session:add_buffer(buf)
+    end
+    track(win, buf)
+    return owner, nil
+  end
+
+  ---Read the owner that runs.
+  ---@return codeview.panel.Owner? owner
+  function life.get()
+    return current
+  end
+
+  ---Report whether the panel window is open.
+  ---@return boolean
+  function life.is_open()
+    return current ~= nil and current.panel:is_open()
+  end
+
+  ---Close the panel. The session stays open.
+  ---@return boolean closed False when no panel is open.
+  function life.close()
+    if not current then
+      return false
+    end
+    return current.panel:close()
+  end
+
+  ---Render the panel again.
+  ---@return boolean rendered False when no panel is open.
+  function life.refresh()
+    if not current then
+      return false
+    end
+    return current.panel:render()
+  end
+
+  ---Close the panel when it is open, and open it when it is closed.
+  ---@param open_opts? codeview.panel.OpenOpts
+  ---@return boolean open State after the call.
+  function life.toggle(open_opts)
+    if life.is_open() then
+      life.close()
+      return false
+    end
+    return life.open(open_opts) ~= nil
+  end
+
+  return life
 end
 
 return M

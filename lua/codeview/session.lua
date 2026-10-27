@@ -747,6 +747,22 @@ function Session:on_close(fn)
   self.callbacks[#self.callbacks + 1] = fn
 end
 
+---Drop a handler of the close event.
+---
+--- An object that closes before the session calls this, so that the list of
+--- handlers does not grow with each open of the object.
+---@param fn fun(session: codeview.Session) Handler that |Session:on_close()| took.
+---@return boolean removed False when the session does not hold the handler.
+function Session:off_close(fn)
+  for index, handler in ipairs(self.callbacks) do
+    if handler == fn then
+      table.remove(self.callbacks, index)
+      return true
+    end
+  end
+  return false
+end
+
 ---Close the session.
 ---
 --- The call runs the close handlers, deletes the autocmd group, closes the
@@ -762,10 +778,13 @@ function Session:close()
     current = nil
   end
 
-  for index = #self.callbacks, 1, -1 do
-    pcall(self.callbacks[index], self)
-  end
+  -- A handler can drop another handler while the loop runs. The loop
+  -- therefore walks a list that no handler changes.
+  local callbacks = self.callbacks
   self.callbacks = {}
+  for index = #callbacks, 1, -1 do
+    pcall(callbacks[index], self)
+  end
 
   if self.group then
     pcall(api.nvim_del_augroup_by_id, self.group)
