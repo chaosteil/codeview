@@ -145,6 +145,76 @@ describe("codeview limits", function()
     end)
   end)
 
+  describe("max_bytes", function()
+    ---Text of one line of a number of bytes, with its line break.
+    ---@param bytes integer
+    ---@return string
+    local function long_line(bytes)
+      return string.rep("x", bytes - 1) .. "\n"
+    end
+
+    it("compares a diff below the limit", function()
+      config.setup({ diff = { max_bytes = 100 } })
+      local result = diff.compute(long_line(40), long_line(50))
+      assert.is_false(result.limited)
+      assert.are.equal(90, result.byte_count)
+      assert.are.equal(1, #result.hunks)
+    end)
+
+    it("stops a diff above the limit with few lines", function()
+      config.setup({ diff = { max_bytes = 100 } })
+      local result = diff.compute(long_line(60), long_line(70))
+      assert.is_true(result.limited)
+      assert.are.equal(2, result.line_count)
+      assert.are.equal(130, result.byte_count)
+      assert.are.equal(100, result.max_bytes)
+      assert.are.equal(0, result.max_lines)
+      assert.are.same({}, result.hunks)
+      assert.are.same({}, result.old_lines)
+      assert.are.same({}, result.new_lines)
+    end)
+
+    it("has a default of 2000000 bytes", function()
+      assert.are.equal(2000000, config.get().diff.max_bytes)
+    end)
+
+    it("removes the limit with 0", function()
+      config.setup({ diff = { max_bytes = 0 } })
+      assert.is_false(diff.compute(long_line(60), long_line(70)).limited)
+    end)
+
+    it("removes the limit with the option of the call", function()
+      config.setup({ diff = { max_bytes = 100 } })
+      assert.is_false(diff.compute(long_line(60), long_line(70), { max_bytes = 0 }).limited)
+    end)
+
+    it("removes the limit with a line limit of 0 in the call", function()
+      -- The load key of the view reads the diff again with max_lines = 0.
+      config.setup({ diff = { max_bytes = 100 } })
+      assert.is_false(diff.compute(long_line(60), long_line(70), { max_lines = 0 }).limited)
+      assert.is_true(diff.compute(long_line(60), long_line(70), { max_lines = 0, max_bytes = 100 }).limited)
+    end)
+
+    it("names the count and the limit in the message", function()
+      config.setup({ diff = { max_bytes = 100 } })
+      local result = diff.compute(long_line(60), long_line(70))
+      assert.are.equal("The diff holds 130 bytes. The limit diff.max_bytes is 100.", diff.limit_message(result))
+    end)
+
+    it("names the option when the key is off", function()
+      config.setup({ diff = { max_bytes = 100 }, keymaps = { load_diff = false } })
+      local build = inline.build(diff.compute(long_line(60), long_line(70)))
+      assert.are.equal("The diff holds 130 bytes. The limit diff.max_bytes is 100.", build.lines[1])
+      assert.are.equal("Set diff.max_bytes higher to show it.", build.lines[2])
+    end)
+
+    it("rejects a negative limit", function()
+      local merged, err = config.setup({ diff = { max_bytes = -1 } })
+      assert.is_nil(merged)
+      assert.is_truthy(tostring(err):find("max_bytes", 1, true))
+    end)
+  end)
+
   describe("the render of a limited diff", function()
     it("shows the limit and the key in the inline style", function()
       config.setup({ diff = { max_lines = 10 } })
@@ -251,6 +321,23 @@ describe("codeview limits", function()
         keys[map.lhs] = true
       end
       assert.is_true(keys["<CR>"])
+    end)
+
+    it("renders a diff above the byte limit after the load call", function()
+      config.setup({ diff = { max_bytes = 10 } })
+      local review = open_session()
+      local state = assert(view.open(review, assert(review:index_of("long.txt"))))
+      assert.is_true(state.diff.limited)
+      assert.is_truthy(lines_of(state.buf)[1]:find("The limit diff.max_bytes is 10", 1, true))
+
+      local done = false
+      assert.is_true(view.load_diff(function()
+        done = true
+      end))
+      vim.wait(10000, function()
+        return done
+      end, 5)
+      assert.is_false(assert(view.current()).diff.limited)
     end)
 
     it("keeps the limit out of a small file", function()

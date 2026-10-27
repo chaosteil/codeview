@@ -36,6 +36,7 @@ local M = {}
 ---@field style "inline"|"split" Default diff style. "inline" is a unified diff, "split" is side by side.
 ---@field context integer Number of unchanged lines kept around each hunk.
 ---@field max_lines integer Highest number of lines of the two sides together. A larger diff needs the load key. 0 removes the limit.
+---@field max_bytes integer Highest number of bytes of the two sides together. A larger diff needs the load key. 0 removes the limit.
 ---@field word_diff boolean Highlight the changed words inside a modified line.
 ---@field syntax boolean Highlight the code of the diff in the colors of its language. The diff colors then stay in the background.
 
@@ -101,6 +102,7 @@ M.defaults = {
     style = "inline",
     context = 3,
     max_lines = 20000,
+    max_bytes = 2000000,
     word_diff = true,
     syntax = true,
   },
@@ -294,6 +296,7 @@ function M.validate(opts)
     vim.validate("diff.style", opts.diff.style, one_of({ "inline", "split" }))
     vim.validate("diff.context", opts.diff.context, positive_integer, "positive integer")
     vim.validate("diff.max_lines", opts.diff.max_lines, whole_number, "positive integer, or 0")
+    vim.validate("diff.max_bytes", opts.diff.max_bytes, whole_number, "positive integer, or 0")
     vim.validate("diff.word_diff", opts.diff.word_diff, "boolean")
     vim.validate("diff.syntax", opts.diff.syntax, "boolean")
 

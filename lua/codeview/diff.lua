@@ -27,9 +27,10 @@
 ---
 --- Two limits keep a large file fast. |codeview.diff.algorithm()| selects the
 --- algorithm from the size of the two sides. `max_lines` stops the comparison
---- of a file that holds more lines than the reader wants to see. The result
---- then holds no hunk and the field `limited`, and the renderer shows a note.
---- A large file takes neither the histogram algorithm nor the alignment.
+--- of a file that holds more lines than the reader wants to see. `max_bytes`
+--- does the same for a file with few but long lines. The result then holds
+--- no hunk and the field `limited`, and the renderer shows a note. A large
+--- file takes neither the histogram algorithm nor the alignment.
 
 local config = require("codeview.config")
 local errors = require("codeview.error")
@@ -55,9 +56,11 @@ local M = {}
 ---@field new_lines string[] Lines of the new side, without the line breaks.
 ---@field hunks codeview.diff.Hunk[] Hunks, in file order.
 ---@field binary boolean True when one side holds a NUL byte.
----@field limited boolean True when the two sides hold more lines than `max_lines`.
+---@field limited boolean True when the two sides hold more lines than `max_lines`, or more bytes than `max_bytes`.
 ---@field line_count integer Number of lines of the two sides together.
----@field max_lines integer Limit that applied. 0 when no limit applied.
+---@field max_lines integer Line limit that applied. 0 when the line limit did not apply.
+---@field byte_count integer? Number of bytes of the two sides together.
+---@field max_bytes integer? Byte limit that applied. 0 or nil when the byte limit did not apply.
 ---@field context integer Context length for the renderer.
 ---@field message boolean? True for the commit message document, which holds no diff.
 
@@ -67,6 +70,7 @@ local M = {}
 ---@field indent_heuristic boolean? True moves a change to the line that the indent suggests. False by default.
 ---@field linematch integer? Highest number of lines of a hunk that |vim.diff()| aligns by similarity. 0 turns the alignment off. |codeview.diff.linematch()| by default.
 ---@field max_lines integer? Highest number of lines of the two sides together. 0 removes the limit. The `diff.max_lines` option by default.
+---@field max_bytes integer? Highest number of bytes of the two sides together. 0 removes the limit. The `diff.max_bytes` option by default, and 0 when the call sets `max_lines` to 0.
 
 ---Highest number of lines of one side for the histogram algorithm.
 ---@type integer
@@ -171,6 +175,9 @@ function M.compute(old_text, new_text, opts)
   local cfg = config.get().diff
   local context = opts.context or cfg.context
   local max_lines = opts.max_lines or cfg.max_lines
+  -- A caller that removes the line limit wants the whole file, so the byte
+  -- limit goes too. The load key of the view works this way.
+  local max_bytes = opts.max_bytes or (opts.max_lines == 0 and 0 or cfg.max_bytes)
   local binary = M.is_binary(old_text) or M.is_binary(new_text)
 
   local old_lines = binary and {} or M.split(old_text)
@@ -190,6 +197,8 @@ function M.compute(old_text, new_text, opts)
     limited = false,
     line_count = #old_lines + #new_lines,
     max_lines = 0,
+    byte_count = #(old_text or "") + #(new_text or ""),
+    max_bytes = 0,
     context = context,
   }
   if binary then
@@ -202,6 +211,12 @@ function M.compute(old_text, new_text, opts)
   if max_lines > 0 and out.line_count > max_lines then
     out.limited = true
     out.max_lines = max_lines
+    out.old_lines, out.new_lines = {}, {}
+    return out
+  end
+  if max_bytes > 0 and out.byte_count > max_bytes then
+    out.limited = true
+    out.max_bytes = max_bytes
     out.old_lines, out.new_lines = {}, {}
     return out
   end
@@ -356,6 +371,9 @@ end
 ---@param diff codeview.diff.File
 ---@return string message
 function M.limit_message(diff)
+  if (diff.max_bytes or 0) > 0 then
+    return string.format("The diff holds %d bytes. The limit diff.max_bytes is %d.", diff.byte_count, diff.max_bytes)
+  end
   return string.format("The diff holds %d lines. The limit diff.max_lines is %d.", diff.line_count, diff.max_lines)
 end
 
