@@ -135,12 +135,36 @@ local states = render.registry("codeview.split")
 --- One row holds the old line, the new line, or both. A change with a
 --- different line count on the two sides gives a row without a line on the
 --- shorter side.
+---
+--- A side without a final line break gets a note row after its last line,
+--- like the diff of git. The other side of that row stays empty.
+---@param diff codeview.diff.File
 ---@param blocks codeview.layout.Block[]
 ---@return codeview.split.Row[] rows
-local function rows_of(blocks)
+local function rows_of(diff, blocks)
   ---@type codeview.split.Row[]
   local rows = {}
   local seen = {}
+
+  ---Add the note row of a missing final line break, when a side needs it.
+  ---@param old integer? Old line of the row above.
+  ---@param new integer? New line of the row above.
+  ---@param hunk integer? Hunk of the row above.
+  ---@param gap integer? Collapsed section of the row above.
+  local function note(old, new, hunk, gap)
+    local old_note, new_note = render.eol_notes(diff, old, new)
+    if old_note or new_note then
+      rows[#rows + 1] = {
+        kind = "message",
+        hunk = hunk,
+        gap = gap,
+        text = {
+          old = old_note and render.notes.no_newline or "",
+          new = new_note and render.notes.no_newline or "",
+        },
+      }
+    end
+  end
 
   for _, block in ipairs(blocks) do
     if block.group and not seen[block.group] then
@@ -163,12 +187,14 @@ local function rows_of(blocks)
           new = block.new + step,
           hunk = block.hunk_index,
         }
+        note(block.old + step, block.new + step, block.hunk_index, nil)
       end
     elseif block.kind == "gap" then
       local gap = block.gap --[[@as codeview.layout.Gap]]
       if gap.expanded then
         for step = 0, gap.count - 1 do
           rows[#rows + 1] = { kind = "context", old = gap.old + step, new = gap.new + step, gap = gap.id }
+          note(gap.old + step, gap.new + step, nil, gap.id)
         end
         gap.row = nil
       else
@@ -188,6 +214,12 @@ local function rows_of(blocks)
         end
         rows[#rows + 1] = { kind = kind, old = old_line, new = new_line, hunk = hunk.index }
       end
+      note(
+        hunk.old_count > 0 and hunk.old_first + hunk.old_count - 1 or nil,
+        hunk.new_count > 0 and hunk.new_first + hunk.new_count - 1 or nil,
+        hunk.index,
+        nil
+      )
     end
   end
   return rows
@@ -202,7 +234,7 @@ end
 ---@return codeview.linemap.Row record
 local function cell_of(row, side, diff, gaps)
   if row.kind == "header" or row.kind == "message" then
-    return (row.text or {})[side] or "", { kind = row.kind, hunk = row.hunk }
+    return (row.text or {})[side] or "", { kind = row.kind, hunk = row.hunk, gap = row.gap }
   end
   if row.kind == "context" then
     local text = diff.new_lines[row.new] or diff.old_lines[row.old] or ""
@@ -269,7 +301,7 @@ function M.build(diff, opts)
     build.gaps = gaps
     -- The row of a collapsed section counts the aligned rows. Both sides hold
     -- the same rows, so the number fits both buffers.
-    build.rows = rows_of(blocks)
+    build.rows = rows_of(diff, blocks)
   end
 
   for lnum, row in ipairs(build.rows) do

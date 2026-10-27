@@ -183,6 +183,12 @@ function M.build(diff, opts)
         hunk = block.hunk_index,
         gap = gap and gap.id or nil,
       })
+      -- The last line of the file is the same on both sides, so one note
+      -- serves both.
+      local old_note, new_note = render.eol_notes(diff, old_line, new_line)
+      if old_note or new_note then
+        emit(render.notes.no_newline, { kind = "message", hunk = block.hunk_index, gap = gap and gap.id or nil })
+      end
     end
   end
 
@@ -214,6 +220,9 @@ function M.build(diff, opts)
           hunk = hunk.index,
         })
       end
+      if hunk.old_count > 0 and render.eol_notes(diff, hunk.old_first + hunk.old_count - 1, nil) then
+        emit(render.notes.no_newline, { kind = "message", hunk = hunk.index })
+      end
       for step = 0, hunk.new_count - 1 do
         local line = hunk.new_first + step
         add_rows[step + 1] = emit(M.markers.add .. (diff.new_lines[line] or ""), {
@@ -221,6 +230,9 @@ function M.build(diff, opts)
           new = line,
           hunk = hunk.index,
         })
+      end
+      if hunk.new_count > 0 and select(2, render.eol_notes(diff, nil, hunk.new_first + hunk.new_count - 1)) then
+        emit(render.notes.no_newline, { kind = "message", hunk = hunk.index })
       end
       if word_diff and render.pairs(hunk) then
         for step = 1, hunk.old_count do

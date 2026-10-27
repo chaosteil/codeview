@@ -26,6 +26,8 @@ M.notes = {
   binary = "The file is binary. It has no text diff.",
   empty = "The file is empty.",
   unchanged = "The file has no changes.",
+  line_endings = "The file changes only its line endings (CRLF and LF).",
+  no_newline = "\\ No newline at end of file",
 }
 
 --- Notes -----------------------------------------------------------------------
@@ -46,11 +48,29 @@ function M.notes_of(diff)
   if diff.limited then
     return layout.limit_lines(diff)
   end
+  if diff.line_endings then
+    return { M.notes.line_endings }
+  end
   if #diff.hunks == 0 then
     local empty = #diff.old_lines == 0 and #diff.new_lines == 0
     return { empty and M.notes.empty or M.notes.unchanged }
   end
   return nil
+end
+
+---Sides that need the note of a missing final newline after one row.
+---
+--- Git shows "\ No newline at end of file" after the last line of a side
+--- without a final line break. The note follows the row that holds that line.
+---@param diff codeview.diff.File
+---@param old integer? Old line of the row. Nil when the row holds none.
+---@param new integer? New line of the row. Nil when the row holds none.
+---@return boolean old_note True when the old side needs the note.
+---@return boolean new_note True when the new side needs the note.
+function M.eol_notes(diff, old, new)
+  local old_note = diff.old_eol == false and old ~= nil and old == #diff.old_lines
+  local new_note = diff.new_eol == false and new ~= nil and new == #diff.new_lines
+  return old_note, new_note
 end
 
 --- Word marks ------------------------------------------------------------------

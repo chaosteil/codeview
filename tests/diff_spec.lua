@@ -118,6 +118,39 @@ describe("codeview.diff", function()
       end
     end)
 
+    it("reports a side without a final line break", function()
+      local result = diff.compute("a\nb", "a\nb\n")
+      assert.is_false(result.old_eol)
+      assert.is_true(result.new_eol)
+      assert.are.same({ "a", "b" }, result.old_lines)
+      assert.are.same({ "a", "b" }, result.new_lines)
+      -- Git shows the last line as changed, with a note on the old side.
+      assert.are.equal(1, #result.hunks)
+      assert.is_false(result.line_endings)
+    end)
+
+    it("counts an empty side as a side with a final line break", function()
+      local result = diff.compute("", "a")
+      assert.is_true(result.old_eol)
+      assert.is_false(result.new_eol)
+    end)
+
+    it("reports a change of the line endings only", function()
+      local result = diff.compute("a\r\nb\r\n", "a\nb\n")
+      assert.is_true(result.line_endings)
+      assert.are.same({}, result.hunks)
+      assert.is_false(diff.is_empty(result))
+      assert.is_true(diff.only_line_endings("a\nb\n", "a\r\nb\r\n"))
+      assert.is_false(diff.only_line_endings("a\nb\n", "a\nb\n"))
+      assert.is_false(diff.only_line_endings("a\r\nb\r\n", "a\nc\n"))
+    end)
+
+    it("compares the lines of a file with CRLF and a real change", function()
+      local result = diff.compute("a\r\nb\r\n", "a\r\nc\r\n")
+      assert.is_false(result.line_endings)
+      assert.are.equal(1, #result.hunks)
+    end)
+
     it("runs the histogram algorithm without the indent heuristic by default", function()
       local seen
       local real = vim.diff

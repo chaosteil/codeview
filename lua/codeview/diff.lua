@@ -14,6 +14,16 @@
 --- A file with a NUL byte on one side is binary. The result then holds no
 --- hunks, and the renderer shows a note.
 ---
+--- The lines of a side hold no line break, so two sides that differ only in
+--- the breaks need two more fields, like the diff of git:
+---
+--- - `old_eol` and `new_eol` say whether a side ends with a line break. The
+---   renderer shows "\ No newline at end of file" after the last line of a
+---   side without one.
+--- - `line_endings` says that the two sides differ only in CRLF against LF.
+---   The result then holds no hunk, and the renderer shows a note instead of
+---   a change of every line.
+---
 --- The display runs the histogram algorithm, which reads better. `algorithm`
 --- and `indent_heuristic` select the settings of git instead. |codeview.submit|
 --- needs them, because GitHub accepts only the lines of the diff of git.
@@ -62,6 +72,9 @@ local M = {}
 ---@field byte_count integer? Number of bytes of the two sides together.
 ---@field max_bytes integer? Byte limit that applied. 0 or nil when the byte limit did not apply.
 ---@field message boolean? True for the commit message document, which holds no diff.
+---@field old_eol boolean? False when the old side does not end with a line break. Nil or true otherwise.
+---@field new_eol boolean? False when the new side does not end with a line break. Nil or true otherwise.
+---@field line_endings boolean? True when the two sides differ only in their line endings. The diff then holds no hunk.
 
 ---@class codeview.diff.Opts
 ---@field algorithm string? Algorithm of |vim.diff()|. |codeview.diff.algorithm()| by default.
@@ -94,6 +107,31 @@ function M.split(content)
     lines[#lines] = nil
   end
   return lines
+end
+
+---Report whether content ends with a line break.
+---
+--- Content without a line, and a missing side, count as a content with one,
+--- because they hold no last line to mark.
+---@param content string? Content of a file.
+---@return boolean
+function M.ends_with_newline(content)
+  return not content or content == "" or content:sub(-1) == "\n"
+end
+
+---Report whether two contents differ only in their line endings.
+---@param old_text string? Content of the old side.
+---@param new_text string? Content of the new side.
+---@return boolean
+function M.only_line_endings(old_text, new_text)
+  old_text, new_text = old_text or "", new_text or ""
+  if old_text == new_text then
+    return false
+  end
+  if not old_text:find("\r", 1, true) and not new_text:find("\r", 1, true) then
+    return false
+  end
+  return old_text:gsub("\r\n", "\n") == new_text:gsub("\r\n", "\n")
 end
 
 ---Report whether content is binary.
@@ -196,6 +234,9 @@ function M.compute(old_text, new_text, opts)
     max_lines = 0,
     byte_count = #(old_text or "") + #(new_text or ""),
     max_bytes = 0,
+    old_eol = M.ends_with_newline(old_text),
+    new_eol = M.ends_with_newline(new_text),
+    line_endings = false,
   }
   if binary then
     return out
@@ -214,6 +255,13 @@ function M.compute(old_text, new_text, opts)
     out.limited = true
     out.max_bytes = max_bytes
     out.old_lines, out.new_lines = {}, {}
+    return out
+  end
+
+  -- A change of CRLF to LF changes every line. The note of the renderer says
+  -- more than a hunk that removes and adds the whole file.
+  if M.only_line_endings(old_text, new_text) then
+    out.line_endings = true
     return out
   end
 
@@ -360,7 +408,7 @@ end
 ---@param diff codeview.diff.File
 ---@return boolean
 function M.is_empty(diff)
-  return not diff.binary and not diff.limited and #diff.hunks == 0
+  return not diff.binary and not diff.limited and not diff.line_endings and #diff.hunks == 0
 end
 
 ---Text that says why a diff shows no line.
