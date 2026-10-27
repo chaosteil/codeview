@@ -369,7 +369,7 @@ show the result of that comparison:
     inline    one unified diff in one buffer
     split     two aligned buffers, the old side left, the new side right
 
-The `diff.style` option names the style of the next file. |codeview-diff-style|
+The `diff.style` option names the style of the first file. |codeview-diff-style|
 describes the switch between the two styles.
 
 The buffers are read-only. Their filetype is `codeview-diff`. The buffer
@@ -519,16 +519,18 @@ window the numbers of the new file. Both styles hide the same unchanged
 sections, and `za`, `zR`, and `zM` work in both.
 
 The two windows show one diff together. If you close one of them, the view
-takes the inline style in the window that stays. The `diff.style` option keeps
-its value, so the next file opens side by side again.
+takes the inline style in the window that stays. The style of the next file
+stays side by side, so the next file opens side by side again.
 
                                                           *codeview-diff-style*
 Press `<leader>ct` in the diff view or in the sidebar to switch the style. The
 switch keeps the diff, so the backend reads no file again, and it keeps the
 cursor on the same line of the file. A cursor on a removed line moves to the
 left window. A cursor on a hunk header, or on the row of a collapsed section,
-stays on that header or on that row. The new style also becomes the
-`diff.style` option, so the next file opens in the same style.
+stays on that header or on that row. The new style also becomes the style of
+the next file, so the next file opens in the same style. The `diff.style`
+option keeps its value. A later setup() call sets the style of the next file
+back to the option.
 
 To start every review in the side-by-side style, set the option: >lua
 
@@ -653,12 +655,18 @@ that leaves the range gets a message, and its window closes.
 `:Codeview refresh` and `require("codeview").refresh()` do the same from any
 window.
 
+The refresh key, `:Codeview refresh`, the back key, `:Codeview back`, and
+`<CR>` in the sidebar run without a block. The editor stays usable while the
+backend reads the repository, and the views show the new state when the read
+ends. `require("codeview").refresh()` blocks, and returns after the read.
+
                                                        *codeview-auto-refresh*
 An open review also follows the repository by itself. codeview watches the
 state directories of the repository: `.jj/repo/op_heads/heads` on jj, and the
 git directory with `refs/heads` on git. Every operation writes there.
 
-After such a write, codeview resolves the range of the review again. New
+After such a write, codeview resolves the range of the review again, without
+a block of the editor. New
 commit ids mean that the range moved, so the plugin reads the files and the
 commits again. In a colocated jj repository the check first imports the git
 refs with `jj git import`, so a `git commit` reaches the review too. The sidebar, the comment overview, and the open diff show the
@@ -906,7 +914,9 @@ in the row. The style toggle does read there, because nothing else names it.
 
 The row is a window of one line, and not a float, so it covers no line of a
 diff and no statusline. It opens with the session and closes with it. It
-follows the `keymaps` option, so it names the keys that you set.
+follows the `keymaps` option, so it names the keys that you set. The row
+changes when the cursor enters another window or buffer. A cursor move inside
+a window does not draw it again.
 
 Set `hints.enabled` to false to leave the row out. Set `hints.actions` to name
 the actions of one surface yourself. The surfaces are "sidebar", "view", and
@@ -939,13 +949,13 @@ comments below it: >
 
       ▾ lua/codeview 1
       │ ▾ store.lua 1
-      │ │ ✓ L5 new 4f1c0a2 rename this function
+      │ │ ✓ L5 new 4f1c0a2b rename this function
       ▾ call.lua 2
-      │ ▌ L1 new 4f1c0a2 the first note
-      │ ▌ L2-3 old 4f1c0a2 two lines
+      │ ▌ L1 new 4f1c0a2b the first note
+      │ ▌ L2-3 old 4f1c0a2b two lines
 <
 One comment line holds the sign of the state, the line range, the side, the
-short commit, and the first line of the body. A body that is wider than the
+short commit with 8 characters, and the first line of the body. A body that is wider than the
 panel ends with an ellipsis. The sign comes from the `comments.sign` option
 for an open comment, and from the `comments.resolved_sign` option for a
 resolved comment.
@@ -967,7 +977,8 @@ The overview buffer holds these maps. |codeview-config| names the keys: >
     q           close the overview
 <
 `q` closes the overview only. The session stays open, and the changed-files
-sidebar stays open.
+sidebar stays open. A `:q` in the overview does the same. |codeview.overview()|
+then gives nil, and the closed overview follows no event of the comments.
 
                                                     *codeview-overview-export*
 `<leader>cx` shows the markdown of the export in a scratch buffer. The buffer
@@ -1370,6 +1381,27 @@ A submit sends the event CodeViewReviewSubmitted. See
 ==============================================================================
 13. LUA API                                                       *codeview-api*
 
+                                                         *codeview-api-stable*
+These calls are stable: |codeview.setup()|, |codeview.open()|,
+|codeview.review()|, |codeview.open_pr()|, |codeview.close()|,
+|codeview.session()|, |codeview.comments()|, |codeview.export()|,
+|codeview.export_text()|, |codeview.submit()|, and |codeview.refresh()|. Their
+names, arguments, and results stay the same within version 0.x.
+
+Every other call of the `codeview` module is unstable before version 1.0. It
+can change in any release before 1.0. Its doc comment in
+`lua/codeview/init.lua` says so. Some calls return internal tables, for
+example a session or a view state. Read only the fields that this file names.
+
+                                                        *codeview-modules*
+The modules under `codeview.*`, for example `codeview.view` or
+`codeview.anchor`, are internal. Call them at your own risk: they can change
+in any release. The comment code lives in `codeview.comments`, with the
+anchors in `codeview.anchor` and the extmarks in `codeview.marks`. The map of
+an anchor to a position of the GitHub diff lives in `codeview.position`. Every
+message of the plugin goes through `codeview.notify`, which reads the
+`log_level` option.
+
                                                              *codeview.open()*
 codeview.open({spec}, {opts}, {cb})
     Open a review session for {spec}. {spec} is revision text such as "HEAD"
@@ -1462,7 +1494,8 @@ codeview.close()
 
                                                           *codeview.sidebar()*
 codeview.sidebar()
-    Return the sidebar that runs, or nil.
+    Return the sidebar that runs, or nil. A sidebar that you close with `:q`
+    or with a toggle gives nil too.
 
                                                      *codeview.open_sidebar()*
 codeview.open_sidebar({opts})
@@ -1481,7 +1514,8 @@ codeview.toggle_sidebar({opts})
 
                                                          *codeview.overview()*
 codeview.overview()
-    Return the comment overview that runs, or nil.
+    Return the comment overview that runs, or nil. An overview that you close
+    with `:q` or with a toggle gives nil too.
 
                                                     *codeview.open_overview()*
 codeview.open_overview({opts})
@@ -1565,7 +1599,9 @@ codeview.style()
 codeview.set_style({style})
     Set the diff style to "inline" or "split". Without {style} the call takes
     the other style. The call returns the style after it, or nil for an
-    unknown name.
+    unknown name. The style also becomes the style of the next file. The call
+    does not change the `diff.style` option, and a later setup() call sets the
+    style of the next file back to the option.
 
                                                      *codeview.toggle_style()*
 codeview.toggle_style()
@@ -1724,11 +1760,32 @@ A session answers these calls: >lua
     session:summary()        -- range, file count, and commit count
     session:changed_files()  -- list of changed files
     session:file(index)      -- one changed file
+    session:counts()         -- file count and commit count, as text
     session:index_of(path)   -- position of a path in the list
+    session:position_of(entry, index) -- position of an entry after a refresh
     session:refresh(opts, cb) -- resolve the range again and read the data
     session:reload(cb)       -- read a review of the working copy again
+    session:on_close(fn)     -- call fn when the session closes
+    session:off_close(fn)    -- drop a handler of on_close()
     session:close()          -- close the session
 <
+`session:refresh()` takes these options: >lua
+
+    {
+      snapshot = true,  -- false keeps the working copy out of the repository
+      range = nil,      -- range that the caller resolved, to skip the resolve
+    }
+<
+With `range`, the refresh reads that range and does not resolve the text of
+the review a second time. The watcher passes the range of its check.
+
+`session:position_of()` finds an entry of the file list after a refresh. The
+path answers first. A commit document keeps its position, because a snapshot
+of the working copy gives it a new path. The call returns nil when the range
+does not hold the entry any more.
+
+`session:close()` runs the close handlers from a copy of the list, so a
+handler can call `session:off_close()` on another handler.
 ==============================================================================
 14. CONFIGURATION                                              *codeview-config*
 
