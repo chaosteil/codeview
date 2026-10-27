@@ -19,6 +19,32 @@
 --- returns at once and calls `cb(value, err)` on the main loop.
 ---
 --- No method throws. Errors come back as |codeview.Error| values.
+---
+--- The contract ~
+---
+--- Both backends give the same answer for the same input. These rules apply:
+---
+--- - Text input goes to the revision language of the backend. git reads the
+---   string `a..b` as two revisions. jj reads it as a revset. The rules below
+---   apply to the table forms of |codeview.vcs.RangeSpec| and
+---   |codeview.vcs.Range|.
+--- - `kind = "single"` is one commit against its first parent.
+--- - `kind = "range"` (`a..b`) is a diff of two trees. `from` is the base, and
+---   it is exclusive. The commits of the range are the ancestors of `to` that
+---   are not ancestors of `from`.
+--- - `kind = "triple"` (`a...b`) takes the merge base of `from` and `to` as the
+---   base. Two sides with more than one merge base get one of them.
+--- - `kind = "explicit"`, and a range table without `from`, have no base.
+--- - A nil `from` is the state before the first commit. A commit without a
+---   parent gives a nil `from`. The jj backend never returns the id of its
+---   root commit, and a list of parents never holds it.
+--- - Two histories without a common commit have no merge base. git then gives
+---   a `bad_revision` error. jj gives a nil `from`, because its root commit is
+---   common to all histories.
+--- - `LogOpts.revs` names commits. The log lists them and all their ancestors,
+---   like `git log <rev>`. jj reads them as `::(revs)` without the root commit.
+--- - `Commit.subject` is the first line of the message. `Commit.body` is the
+---   rest, without the blank lines at its start and the white space at its end.
 
 local config = require("codeview.config")
 local errors = require("codeview.error")
@@ -30,7 +56,7 @@ local M = {}
 ---@field short_id string Abbreviated id for the user interface. The jj backend uses the change id.
 ---@field change_id string? Change id, for a backend that has one.
 ---@field subject string First line of the commit message.
----@field body string Rest of the commit message, without the subject.
+---@field body string Rest of the commit message, without the subject and the blank lines after it.
 ---@field author string Name of the author.
 ---@field author_email string Mail address of the author.
 ---@field date string Author date, in ISO 8601 format.
@@ -72,7 +98,7 @@ local M = {}
 
 ---@class codeview.vcs.LogOpts
 ---@field range codeview.vcs.Range? Only the commits of this range.
----@field revs string[]? Revision arguments, when there is no range.
+---@field revs string[]? Commits to list with all their ancestors, when there is no range.
 ---@field limit integer? Maximum number of commits.
 ---@field paths string[]? Only the commits that touch these paths.
 
