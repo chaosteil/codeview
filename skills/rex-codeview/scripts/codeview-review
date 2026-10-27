@@ -12,7 +12,7 @@
 # "wait" blocks until the pane ends, or until DURATION (for example 9m) ends.
 # Exit status:
 #   0  the review is done, the markdown is on stdout, the handle is removed
-#   1  the review did not open (no export file)
+#   1  the review did not open (no export file), the handle is removed
 #   2  the review is still open, run "wait" again
 set -euo pipefail
 
@@ -39,6 +39,10 @@ cmd_open() {
   fi
   [ $# -eq 1 ] || usage
   local rev=$1
+  # Neovim and git read a revision that starts with "-" as an option.
+  case $rev in
+  -*) die "REVISION must not start with -: $rev" ;;
+  esac
 
   [ -n "${REX_BLOCK:-}" ] || die "REX_BLOCK is not set, so this shell is not in a Rex pane"
   need rex
@@ -52,10 +56,15 @@ cmd_open() {
   label="codeview-${handle##*.}"
   printf '%s\n' "$label" >"$handle/label"
 
-  rex split -b "$REX_BLOCK" ${REX_SESSION:+-s "$REX_SESSION"} --split=right \
+  # Neovim reads the handle from the environment, so the path needs no quoting.
+  if ! rex split -b "$REX_BLOCK" ${REX_SESSION:+-s "$REX_SESSION"} --split=right \
     -c "$dir" --label "$label" -- \
-    nvim -c "lua require('codeview').review(vim.fn.readfile('$handle/rev')[1], { export_file = '$handle/review.md' })" \
-    >/dev/null
+    env CODEVIEW_REVIEW_HANDLE="$handle" \
+    nvim -c "lua local h = vim.env.CODEVIEW_REVIEW_HANDLE; require('codeview').review(vim.fn.readfile(h .. '/rev')[1], { export_file = h .. '/review.md' })" \
+    >/dev/null; then
+    rm -rf "$handle"
+    die "rex split failed"
+  fi
 
   echo "$handle"
 }
@@ -83,6 +92,7 @@ cmd_wait() {
     rm -rf "$handle"
     exit 0
   fi
+  rm -rf "$handle"
   echo "codeview-review: the review did not open (no export file)" >&2
   exit 1
 }

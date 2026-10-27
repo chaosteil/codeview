@@ -29,7 +29,8 @@ not work. Tell the user to do the review by hand:
 
 ## Pick the revision
 
-Give the range of your own work, and no other commits.
+Give the range of your own work, and no other commits. The revision must not
+start with `-`. The script refuses such a revision.
 
 - jj: for example `trunk()..@-` when `@` is empty, or the stack that you
   built. On jj, `@` holds the working copy, so the review can show it.
@@ -63,5 +64,5 @@ Do not open a second review for the same handle.
 - `0`: The review is done. The markdown is on stdout. The script removed the
   handle.
 - `1`: The review did not open, for example because of a bad revision. The
-  message is on stderr.
+  message is on stderr. The script removed the handle.
 - `2`: The review is still open. Run `wait` again.
