@@ -197,16 +197,20 @@ function M.close()
 end
 
 ---Run `:Codeview back`.
+---
+--- The command takes the async form, like the back key, so a reload of the
+--- review does not block the editor. See |codeview.view.back()|.
 function M.back()
-  require("codeview.view").back()
+  require("codeview.view").back(nil, function() end)
 end
 
 ---Run `:Codeview refresh`.
 ---
---- The command reads the review again from the repository. See
+--- The command reads the review again from the repository. It takes the async
+--- form, like the refresh key, so the read does not block the editor. See
 --- |codeview.view.refresh()|.
 function M.refresh()
-  require("codeview.view").refresh()
+  require("codeview.view").refresh(nil, function() end)
 end
 
 ---Run `:Codeview files`.
