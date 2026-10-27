@@ -790,18 +790,19 @@ describe("codeview.vcs.jj with a configured binary", function()
   local config = require("codeview.config")
   local exec = require("codeview.exec")
   local jj = require("codeview.vcs.jj")
-  -- The detect call reads the `.jj` directory only. It runs no command, so an
-  -- empty marker directory is enough for this block.
+  -- The recorder answers every call, the root call of the detection too. A
+  -- plain directory is therefore enough for this block.
   local dir = vim.fn.tempname()
-  vim.fn.mkdir(vim.fs.joinpath(dir, ".jj"), "p")
+  vim.fn.mkdir(dir, "p")
 
   ---Record every command line, and answer it without a call to jj.
+  ---@param stdout string Output of every call.
   ---@return string[][] calls
-  local function record()
+  local function record(stdout)
     local calls = {}
     exec.capture = function(cmd, _opts, cb) ---@diagnostic disable-line: duplicate-set-field
       calls[#calls + 1] = cmd
-      local result = { command = cmd, code = 0, signal = 0, stdout = "", stderr = "" }
+      local result = { command = cmd, code = 0, signal = 0, stdout = stdout, stderr = "" }
       if cb then
         vim.schedule(function()
           cb(result, nil)
@@ -815,7 +816,7 @@ describe("codeview.vcs.jj with a configured binary", function()
 
   it("puts the configured name in front of every command", function()
     local real = exec.capture
-    local calls = record()
+    local calls = record(dir .. "\n")
     config.setup({ jj = { binary = "my-jj" } })
 
     local repo = jj.detect(dir)
@@ -827,7 +828,11 @@ describe("codeview.vcs.jj with a configured binary", function()
     config.reset()
 
     assert.is_truthy(repo)
+    assert.are.equal(dir, repo.root)
+    -- The detection asks jj for the root of the workspace.
+    assert.are.same({ "workspace", "root" }, vim.list_slice(calls[1], #calls[1] - 1))
     assert.are.equal("my-jj", calls[1][1])
+    assert.are.equal("my-jj", calls[2][1])
   end)
 
   it("looks for the configured name in $PATH", function()

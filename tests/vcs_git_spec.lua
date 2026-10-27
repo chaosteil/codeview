@@ -29,6 +29,18 @@ describe("codeview.vcs.git", function()
     assert.are.equal(fixture.ids.edit, id)
   end)
 
+  it("rejects the revset form, because git has no revsets", function()
+    local range, err = repo:resolve_range({ kind = "revset", to = "HEAD", spec = "HEAD" })
+    assert.is_nil(range)
+    assert.are.equal("invalid_arg", err.code)
+  end)
+
+  it("rejects a range form without a base", function()
+    local range, err = repo:resolve_range({ kind = "range", to = "HEAD", spec = "HEAD" })
+    assert.is_nil(range)
+    assert.are.equal("invalid_arg", err.code)
+  end)
+
   it("syncs nothing", function()
     local ok, err = repo:sync()
     assert.is_nil(err)

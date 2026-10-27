@@ -3,10 +3,10 @@
 --- It implements the interface of |codeview.vcs|. Every call runs one git
 --- command through |codeview.exec|. Errors come back as values.
 
-local exec = require("codeview.exec")
 local errors = require("codeview.error")
 local config = require("codeview.config")
 local util = require("codeview.util")
+local common = require("codeview.vcs.common")
 local fs = vim.fs
 local uv = vim.uv
 
@@ -109,23 +109,7 @@ end
 local function call(repo, args, handle, opts, cb)
   local cmd = git_cmd(repo, args)
   opts = vim.tbl_extend("keep", git_opts(opts), { cwd = repo.root })
-
-  if cb then
-    exec.capture(cmd, opts, function(result, err)
-      if not result then
-        cb(nil, err)
-        return
-      end
-      cb(handle(result))
-    end)
-    return nil, nil
-  end
-
-  local result, err = exec.capture(cmd, opts)
-  if not result then
-    return nil, err
-  end
-  return handle(result)
+  return common.call(cmd, opts, handle, cb)
 end
 
 ---Build the error of a failed git call.
@@ -139,24 +123,6 @@ end
 
 --- Detection -----------------------------------------------------------------
 
----Directory to start the search from.
----@param dir? string
----@return string? path
-local function start_dir(dir)
-  local path = dir and fs.normalize(dir) or uv.cwd()
-  if not path then
-    return nil
-  end
-  local stat = uv.fs_stat(path)
-  if not stat then
-    return nil
-  end
-  if stat.type == "directory" then
-    return path
-  end
-  return fs.dirname(path)
-end
-
 ---True when the git executable is in $PATH.
 ---@return boolean
 function M.available()
@@ -169,7 +135,7 @@ end
 ---@return codeview.vcs.GitRepo? repo Nil when the directory is outside a git repository.
 ---@return codeview.Error? err
 function M.detect(dir, cb)
-  local path = start_dir(dir)
+  local path = common.start_dir(dir)
   if not path then
     return done(cb, nil, errors.new(errors.codes.NOT_FOUND, "no such directory: " .. tostring(dir)))
   end
@@ -187,22 +153,7 @@ function M.detect(dir, cb)
     return setmetatable({ backend = M.name, root = fs.normalize(root) }, Repo), nil
   end
 
-  if cb then
-    exec.capture(cmd, { cwd = path, env = GIT_ENV }, function(result, err)
-      if not result then
-        cb(nil, err)
-        return
-      end
-      cb(handle(result))
-    end)
-    return nil, nil
-  end
-
-  local result, err = exec.capture(cmd, { cwd = path, env = GIT_ENV })
-  if not result then
-    return nil, err
-  end
-  return handle(result)
+  return common.call(cmd, { cwd = path, env = GIT_ENV }, handle, cb)
 end
 
 --- Revisions -----------------------------------------------------------------
@@ -229,10 +180,11 @@ end
 ---@return string? id Full commit id.
 ---@return codeview.Error? err
 function Repo:resolve_rev(rev, cb)
-  if type(rev) ~= "string" or vim.trim(rev) == "" then
-    return done(cb, nil, errors.new(errors.codes.INVALID_ARG, "revision must be a non-empty string"))
+  local checked, check_err = common.check_rev(rev)
+  if not checked then
+    return done(cb, nil, check_err)
   end
-  rev = vim.trim(rev)
+  rev = checked
 
   ---@param result codeview.ExecResult
   local function handle(result)
@@ -250,6 +202,11 @@ function Repo:resolve_rev(rev, cb)
   return call(self, { "rev-parse", "--verify", "--quiet", "--end-of-options", rev .. "^{commit}" }, handle, nil, cb)
 end
 
+---Forms of |codeview.vcs.RangeSpec| that the git backend reads. git has no
+---revsets.
+---@type table<string, boolean>
+local KINDS = { single = true, range = true, triple = true, explicit = true }
+
 ---@param spec string|codeview.vcs.Range|codeview.vcs.RangeSpec
 ---@return codeview.vcs.RangeSpec? parsed
 ---@return codeview.Error? err
@@ -257,15 +214,7 @@ local function as_spec(spec)
   if type(spec) == "string" then
     return require("codeview.vcs").parse_range(spec)
   end
-  if type(spec) ~= "table" or type(spec.to) ~= "string" then
-    return nil, errors.new(errors.codes.INVALID_ARG, "range needs a `to` revision")
-  end
-  if spec.kind then
-    ---@cast spec codeview.vcs.RangeSpec
-    return spec, nil
-  end
-  -- A range table. A nil `from` means the state before the first commit.
-  return { kind = spec.from and "range" or "explicit", from = spec.from, to = spec.to, spec = spec.spec }, nil
+  return common.table_spec(spec, KINDS)
 end
 
 ---Resolve a revision argument to a range of commit ids.
@@ -302,21 +251,7 @@ function Repo:resolve_range(spec, cb)
   end
 
   if parsed.kind == "explicit" then
-    if not cb then
-      local id, resolve_err = self:resolve_rev(parsed.to)
-      if not id then
-        return nil, resolve_err
-      end
-      return { from = nil, to = id, spec = text }, nil
-    end
-    self:resolve_rev(parsed.to, function(id, resolve_err)
-      if not id then
-        cb(nil, resolve_err)
-        return
-      end
-      cb({ from = nil, to = id, spec = text }, nil)
-    end)
-    return nil, nil
+    return common.explicit_range(self, parsed.to, text, cb)
   end
 
   local from_rev = parsed.from --[[@as string]]
@@ -534,8 +469,9 @@ function Repo:log(opts, cb)
 
   local range = opts.range
   if range then
-    if type(range.to) ~= "string" then
-      return done(cb, nil, errors.new(errors.codes.INVALID_ARG, "range needs a `to` revision"))
+    local range_err = common.check_range(range)
+    if range_err then
+      return done(cb, nil, range_err)
     end
     args[#args + 1] = range.from and (range.from .. ".." .. range.to) or range.to
   elseif opts.revs and #opts.revs > 0 then
@@ -623,8 +559,9 @@ end
 ---@return codeview.vcs.FileChange[]? files
 ---@return codeview.Error? err
 function Repo:changed_files(range, cb)
-  if type(range) ~= "table" or type(range.to) ~= "string" then
-    return done(cb, nil, errors.new(errors.codes.INVALID_ARG, "range needs a `to` revision"))
+  local range_err = common.check_range(range)
+  if range_err then
+    return done(cb, nil, range_err)
   end
 
   local args, parse
@@ -676,14 +613,16 @@ end
 ---@return string? content
 ---@return codeview.Error? err
 function Repo:file_content(rev, path, cb)
-  if type(path) ~= "string" or path == "" then
-    return done(cb, nil, errors.new(errors.codes.INVALID_ARG, "path must be a non-empty string"))
+  local path_err = common.check_path(path)
+  if path_err then
+    return done(cb, nil, path_err)
   end
   if rev == nil then
     return done(cb, "", nil)
   end
-  if type(rev) ~= "string" or vim.trim(rev) == "" then
-    return done(cb, nil, errors.new(errors.codes.INVALID_ARG, "revision must be a non-empty string"))
+  local _, rev_err = common.check_rev(rev)
+  if rev_err then
+    return done(cb, nil, rev_err)
   end
 
   ---@param result codeview.ExecResult

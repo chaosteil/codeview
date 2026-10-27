@@ -17,6 +17,7 @@ local exec = require("codeview.exec")
 local errors = require("codeview.error")
 local config = require("codeview.config")
 local util = require("codeview.util")
+local common = require("codeview.vcs.common")
 local fs = vim.fs
 local uv = vim.uv
 
@@ -137,23 +138,7 @@ local function call(repo, args, handle, opts, cb)
   opts.snapshot = nil
   local cmd = jj_cmd(repo, args, snapshot)
   opts = vim.tbl_extend("keep", opts, { cwd = repo.root })
-
-  if cb then
-    exec.capture(cmd, opts, function(result, err)
-      if not result then
-        cb(nil, err)
-        return
-      end
-      cb(handle(result))
-    end)
-    return nil, nil
-  end
-
-  local result, err = exec.capture(cmd, opts)
-  if not result then
-    return nil, err
-  end
-  return handle(result)
+  return common.call(cmd, opts, handle, cb)
 end
 
 ---Build the error of a failed jj call.
@@ -216,24 +201,6 @@ end
 
 --- Detection -----------------------------------------------------------------
 
----Directory to start the search from.
----@param dir? string
----@return string? path
-local function start_dir(dir)
-  local path = dir and fs.normalize(dir) or uv.cwd()
-  if not path then
-    return nil
-  end
-  local stat = uv.fs_stat(path)
-  if not stat then
-    return nil
-  end
-  if stat.type == "directory" then
-    return path
-  end
-  return fs.dirname(path)
-end
-
 ---True when the jj executable is in $PATH.
 ---@return boolean
 function M.available()
@@ -242,39 +209,43 @@ end
 
 ---Find the jj repository that holds a directory.
 ---
---- The search walks upwards and takes the first directory that holds a `.jj`
---- directory. A colocated repository holds `.git` next to `.jj`. The handle
---- reports it in `repo.colocated`.
+--- The call asks jj with `jj workspace root`, so it finds the same workspace
+--- as a jj command in that directory. Any failure of jj means that the
+--- directory is outside a jj repository. A colocated repository holds `.git`
+--- next to `.jj`. The handle reports it in `repo.colocated`.
 ---@param dir? string Directory inside the repository. The current directory by default.
 ---@param cb? fun(repo: codeview.vcs.JjRepo?, err: codeview.Error?) Callback for the async form.
 ---@return codeview.vcs.JjRepo? repo Nil when the directory is outside a jj repository.
 ---@return codeview.Error? err
 function M.detect(dir, cb)
-  local path = start_dir(dir)
+  local path = common.start_dir(dir)
   if not path then
     return done(cb, nil, errors.new(errors.codes.NOT_FOUND, "no such directory: " .. tostring(dir)))
   end
 
-  local marker = fs.find(".jj", { upward = true, path = path, type = "directory", limit = 1 })[1]
-  if not marker then
-    return done(cb, nil, errors.new(errors.codes.NOT_A_REPO, "not a jj repository: " .. path))
-  end
+  -- `--ignore-working-copy` keeps the call read-only.
+  local cmd = { M.binary(), "--no-pager", "--color=never", "--ignore-working-copy", "workspace", "root" }
 
-  -- jj reports the root without symbolic links. Match that, so that the same
-  -- repository always gives the same root.
-  local root = fs.dirname(marker)
-  root = fs.normalize(uv.fs_realpath(root) or root)
-
-  local git = uv.fs_stat(fs.joinpath(root, ".git"))
-  return done(
-    cb,
-    setmetatable({
+  ---@param result codeview.ExecResult
+  local function handle(result)
+    if result.code ~= 0 then
+      return nil, failed(errors.codes.NOT_A_REPO, "not a jj repository: " .. path, result)
+    end
+    local root = vim.trim(result.stdout)
+    if root == "" then
+      return nil, failed(errors.codes.NOT_A_REPO, "not a jj repository: " .. path, result)
+    end
+    root = fs.normalize(root)
+    local git = uv.fs_stat(fs.joinpath(root, ".git"))
+    return setmetatable({
       backend = M.name,
       root = root,
       colocated = git ~= nil and git.type == "directory",
     }, Repo),
-    nil
-  )
+      nil
+  end
+
+  return common.call(cmd, { cwd = path }, handle, cb)
 end
 
 --- Revisions -----------------------------------------------------------------
@@ -314,10 +285,11 @@ end
 ---@return string? id Full commit id.
 ---@return codeview.Error? err
 function Repo:resolve_rev(rev, cb)
-  if type(rev) ~= "string" or vim.trim(rev) == "" then
-    return done(cb, nil, errors.new(errors.codes.INVALID_ARG, "revision must be a non-empty string"))
+  local checked, check_err = common.check_rev(rev)
+  if not checked then
+    return done(cb, nil, check_err)
   end
-  rev = vim.trim(rev)
+  rev = checked
   return resolve_one(
     self,
     group(rev),
@@ -326,6 +298,10 @@ function Repo:resolve_rev(rev, cb)
     cb
   )
 end
+
+---Forms of |codeview.vcs.RangeSpec| that the jj backend reads.
+---@type table<string, boolean>
+local KINDS = { single = true, range = true, triple = true, explicit = true, revset = true }
 
 ---@param spec string|codeview.vcs.Range|codeview.vcs.RangeSpec
 ---@return codeview.vcs.RangeSpec? parsed
@@ -340,15 +316,7 @@ local function as_spec(spec)
     -- split the text.
     return { kind = "revset", to = text, spec = text }, nil
   end
-  if type(spec) ~= "table" or type(spec.to) ~= "string" then
-    return nil, errors.new(errors.codes.INVALID_ARG, "range needs a `to` revision")
-  end
-  if spec.kind then
-    ---@cast spec codeview.vcs.RangeSpec
-    return spec, nil
-  end
-  -- A range table. A nil `from` means the state before the first commit.
-  return { kind = spec.from and "range" or "explicit", from = spec.from, to = spec.to, spec = spec.spec }, nil
+  return common.table_spec(spec, KINDS)
 end
 
 ---Read the base of a revset from the parents of its roots.
@@ -572,21 +540,7 @@ function Repo:resolve_range(spec, cb)
   end
 
   if parsed.kind == "explicit" then
-    if not cb then
-      local id, resolve_err = self:resolve_rev(parsed.to)
-      if not id then
-        return nil, resolve_err
-      end
-      return { from = nil, to = id, spec = text }, nil
-    end
-    self:resolve_rev(parsed.to, function(id, resolve_err)
-      if not id then
-        cb(nil, resolve_err)
-        return
-      end
-      cb({ from = nil, to = id, spec = text }, nil)
-    end)
-    return nil, nil
+    return common.explicit_range(self, parsed.to, text, cb)
   end
 
   local from_rev = parsed.from --[[@as string]]
@@ -780,8 +734,9 @@ end
 local function log_revset(opts)
   local range = opts.range
   if range then
-    if type(range.to) ~= "string" then
-      return nil, errors.new(errors.codes.INVALID_ARG, "range needs a `to` revision")
+    local range_err = common.check_range(range)
+    if range_err then
+      return nil, range_err
     end
     local expr = range.from and (group(range.from) .. ".." .. group(range.to)) or ("::" .. group(range.to))
     return group(expr) .. " ~ root()", nil
@@ -880,8 +835,9 @@ end
 ---@return codeview.vcs.FileChange[]? files
 ---@return codeview.Error? err
 function Repo:changed_files(range, cb)
-  if type(range) ~= "table" or type(range.to) ~= "string" then
-    return done(cb, nil, errors.new(errors.codes.INVALID_ARG, "range needs a `to` revision"))
+  local range_err = common.check_range(range)
+  if range_err then
+    return done(cb, nil, range_err)
   end
 
   local from = range.from and group(range.from) or "root()"
@@ -962,14 +918,16 @@ end
 ---@return string? content
 ---@return codeview.Error? err
 function Repo:file_content(rev, path, cb)
-  if type(path) ~= "string" or path == "" then
-    return done(cb, nil, errors.new(errors.codes.INVALID_ARG, "path must be a non-empty string"))
+  local path_err = common.check_path(path)
+  if path_err then
+    return done(cb, nil, path_err)
   end
   if rev == nil then
     return done(cb, "", nil)
   end
-  if type(rev) ~= "string" or vim.trim(rev) == "" then
-    return done(cb, nil, errors.new(errors.codes.INVALID_ARG, "revision must be a non-empty string"))
+  local _, rev_err = common.check_rev(rev)
+  if rev_err then
+    return done(cb, nil, rev_err)
   end
 
   ---@param result codeview.ExecResult
