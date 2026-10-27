@@ -262,6 +262,61 @@ describe("codeview.export", function()
       local text = assert(export.render())
       assert.is_truthy(text:find("## gone.txt (outside the range)", 1, true))
     end)
+
+    it("fences a body that holds a heading line", function()
+      add_comment({ file = "call.lua", start_line = 1, end_line = 1, body = "intro\n## x\nend" })
+      local text = assert(export.render())
+      assert.is_truthy(text:find("\n```markdown\nintro\n## x\nend\n```\n", 1, true), text)
+    end)
+
+    it("makes the fence longer than the backticks of the body", function()
+      add_comment({ file = "call.lua", start_line = 1, end_line = 1, body = "# title\n```lua\nlocal a\n```" })
+      local text = assert(export.render())
+      assert.is_truthy(text:find("\n````markdown\n# title\n```lua\nlocal a\n```\n````\n", 1, true), text)
+    end)
+  end)
+
+  describe("a renamed file", function()
+    local renamed = fixtures.git_diff()
+
+    it("names the old path in an old-side comment", function()
+      local review, err = session_mod.open(renamed.ids.base .. ".." .. renamed.ids.change, { dir = renamed.dir })
+      assert.is_nil(err)
+      opened = assert(review)
+      local store = assert(comments.store(review))
+      assert(store:add({
+        file = "new/name.txt",
+        start_line = 1,
+        end_line = 1,
+        side = "old",
+        commit = renamed.ids.base,
+        body = "on the old side",
+      }))
+      assert(store:add({
+        file = "new/name.txt",
+        start_line = 2,
+        end_line = 2,
+        side = "new",
+        commit = renamed.ids.change,
+        body = "on the new side",
+      }))
+
+      local data = assert(export.data(review))
+      assert.are.equal("new/name.txt", data.files[1].path)
+      assert.are.equal("old/name.txt", data.files[1].old_path)
+
+      local text = assert(export.render({ session = review }))
+      assert.is_truthy(
+        text:find("### L1 · old · `old/name.txt` · " .. short(renamed.ids.base) .. "\n", 1, true),
+        text
+      )
+      assert.is_truthy(text:find("### L2 · new · " .. short(renamed.ids.change) .. "\n", 1, true), text)
+    end)
+
+    it("removes the fixture", function()
+      renamed.cleanup()
+      assert.are.equal(0, vim.fn.isdirectory(renamed.dir))
+    end)
   end)
 
   describe("the template option", function()

@@ -29,6 +29,10 @@
 ---     two lines
 --- <
 ---
+--- A body that holds a markdown heading goes into a fenced block, so that its
+--- lines cannot start a new section of the export. An old-side comment on a
+--- renamed file names the old path, because its lines come from that file.
+---
 --- The `export.prompt` option replaces the text under the title.
 ---
 --- Every comment holds its line range, its side, and the commit that the lines
@@ -69,6 +73,7 @@ local M = {}
 
 ---@class codeview.export.File
 ---@field path string Path of the file, relative to the repository root.
+---@field old_path string? Path in the old revision, for a renamed file. Nil when it is the same path.
 ---@field status codeview.vcs.Status Status of the file in the range.
 ---@field changed boolean True while the range changes the file.
 ---@field comments codeview.store.Comment[] Comments of the file, by line.
@@ -165,6 +170,7 @@ function M.data(session)
       taken[file.path] = true
       files[#files + 1] = {
         path = file.path,
+        old_path = file.old_path,
         status = file.status or "unknown",
         changed = true,
         comments = by_file[file.path],
@@ -215,11 +221,33 @@ local function lines_text(comment)
   return string.format("L%d-%d", comment.start_line, comment.end_line)
 end
 
----Header line of one comment: the lines, the side, the commit, and the state.
----@param comment codeview.store.Comment
+---Markdown code span of a text.
+---
+--- The fence is one backtick longer than the longest run of backticks in the
+--- text, so a backtick in a path cannot end the span.
+---@param text string
 ---@return string
-local function locator(comment)
+local function code(text)
+  local longest = 0
+  for run in text:gmatch("`+") do
+    longest = math.max(longest, #run)
+  end
+  local fence = string.rep("`", longest + 1)
+  local pad = longest > 0 and " " or ""
+  return fence .. pad .. text .. pad .. fence
+end
+
+---Header line of one comment: the lines, the side, the commit, and the state.
+---
+--- An old-side comment on a renamed file also names the old path.
+---@param comment codeview.store.Comment
+---@param file codeview.export.File File of the comment.
+---@return string
+local function locator(comment, file)
   local parts = { lines_text(comment), comment.side }
+  if comment.side == "old" and file.old_path then
+    parts[#parts + 1] = code(file.old_path)
+  end
   local rev = M.short(comment.commit)
   if rev ~= "" then
     parts[#parts + 1] = rev
@@ -228,6 +256,42 @@ local function locator(comment)
     parts[#parts + 1] = "resolved"
   end
   return table.concat(parts, " · ")
+end
+
+---True when a line of a body reads as a markdown heading.
+---
+--- The check covers a `#` heading, and the `=` or `-` line under a setext
+--- heading.
+---@param line string
+---@return boolean
+local function is_heading(line)
+  return line:match("^ ? ? ?#+%s") ~= nil
+    or line:match("^ ? ? ?#+$") ~= nil
+    or line:match("^ ? ? ?=+%s*$") ~= nil
+    or line:match("^ ? ? ?%-+%s*$") ~= nil
+end
+
+---Lines of the body of a comment, for the export.
+---
+--- A body with a heading line goes into a fenced block. The fence is longer
+--- than every run of backticks in the body, so no line of the body ends it.
+--- Every other body stays as it is.
+---@param body string?
+---@return string[] lines
+local function body_lines(body)
+  local lines = vim.split(body or "", "\n", { plain = true })
+  if not vim.iter(lines):any(is_heading) then
+    return lines
+  end
+  local longest = 2
+  for run in (body or ""):gmatch("`+") do
+    longest = math.max(longest, #run)
+  end
+  local fence = string.rep("`", longest + 1)
+  local out = { fence .. "markdown" }
+  vim.list_extend(out, lines)
+  out[#out + 1] = fence
+  return out
 end
 
 ---Count line of the header.
@@ -274,11 +338,9 @@ function M.markdown(data)
     out[#out + 1] = "## " .. name .. (file.changed and "" or " (outside the range)")
     for _, comment in ipairs(file.comments) do
       out[#out + 1] = ""
-      out[#out + 1] = "### " .. locator(comment)
+      out[#out + 1] = "### " .. locator(comment, file)
       out[#out + 1] = ""
-      for _, line in ipairs(vim.split(comment.body or "", "\n", { plain = true })) do
-        out[#out + 1] = line
-      end
+      vim.list_extend(out, body_lines(comment.body))
     end
   end
 
