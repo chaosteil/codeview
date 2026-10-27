@@ -61,9 +61,9 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- Every message goes through one wrapper that reads `log_level`. The default
-  WARN hides the INFO reports, for example of a submit or an export. Set
-  `log_level = vim.log.levels.INFO` to see them.
+- Every message goes through one wrapper that reads the `log_level` option.
+  The default INFO keeps every report of before. Set
+  `log_level = vim.log.levels.WARN` to see warnings and errors only.
 - The comment overview shows commit ids with 8 characters, not 7.
 - The session file holds the new field `remote_id`. A file of an older
   release still reads.

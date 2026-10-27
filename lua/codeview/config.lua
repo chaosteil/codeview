@@ -208,7 +208,7 @@ M.defaults = {
     editor_cancel = { "q", "<Esc><Esc>" },
     close = "q",
   },
-  log_level = vim.log.levels.WARN,
+  log_level = vim.log.levels.INFO,
 }
 
 ---Active configuration. It holds the defaults until `setup()` runs.

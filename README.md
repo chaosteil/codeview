@@ -60,9 +60,9 @@ To set options, set the opts:
 
 `:help codeview-config` shows every option and its default value.
 
-By default codeview shows warnings and errors only. Set
-`log_level = vim.log.levels.INFO` to also see the reports of a successful
-action, for example of a submit or an export.
+Set `log_level = vim.log.levels.WARN` to see warnings and errors only. The
+default INFO also shows the reports of a successful action, for example of a
+submit or an export.
 
 ## Quick start
 
