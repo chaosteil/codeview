@@ -17,6 +17,12 @@
 --- The review range is `base...head`, so it starts at the merge base of the
 --- two refs. That is the range that GitHub shows in the "Files changed" tab.
 ---
+--- The fetch takes the git remote whose address names the repository of the
+--- pull request. SSH, HTTPS, and scp addresses all match, with or without
+--- `.git`, on github.com and on a GitHub Enterprise host. See
+--- |codeview.pr.pick_remote()|. The fetched head must be the head commit that
+--- GitHub reports, or the open stops.
+---
 --- The session key of the comment store is `pr-<number>-<head commit>`. A new
 --- push to the pull request gives a new head commit, so it opens its own
 --- comment file and the comments of the older push stay where they are.
@@ -82,8 +88,16 @@ M.fields = {
 ---@class codeview.pr.Refs
 ---@field head string Local ref that holds the head of the pull request.
 ---@field base string Local ref that holds the tip of the base branch.
----@field remote string Git remote that the refs come from.
+---@field remote string Git remote that the refs come from. An address when no remote names the repository.
 ---@field warning string? Line about a step that did not run as planned.
+
+---@class codeview.pr.Remote
+---@field name string Name of the git remote.
+---@field url string Address of the remote, as the git configuration holds it.
+
+---Names of the remotes that gh prefers, in the order of gh.
+---@type string[]
+M.remote_order = { "upstream", "github", "origin" }
 
 ---Environment of every git call of this module.
 ---
@@ -286,7 +300,113 @@ function M.label(info)
   return string.format("PR #%d %s", info.number, title)
 end
 
----Pick the git remote that holds the pull request.
+---Read the host and the repository of the address of a git remote.
+---
+--- The call reads the HTTPS form, the SSH form, the git form, and the scp form
+--- `[user@]host:owner/name`. A trailing `.git` and a trailing slash drop out.
+---@param url string? Address of a git remote.
+---@return string? host Lowercase host. Nil when the address has another form, for example a local path.
+---@return string? repo Repository as `owner/name`. Nil with the host.
+function M.parse_remote_url(url)
+  url = vim.trim(tostring(url or ""))
+  local host, path
+  local rest = url:match("^%a[%w+.-]*://(.+)$")
+  if rest then
+    host, path = rest:match("^([^/]+)/(.+)$")
+  else
+    host, path = url:match("^([^/:]+):(.+)$")
+  end
+  if not host or not path then
+    return nil, nil
+  end
+  host = host:gsub("^.*@", ""):gsub(":%d*$", ""):lower()
+  path = path:gsub("/+$", ""):gsub("%.git$", "")
+  local owner, name = path:match("([^/]+)/([^/]+)$")
+  if host == "" or not owner then
+    return nil, nil
+  end
+  return host, owner .. "/" .. name
+end
+
+---First remote of a list, in the order of gh.
+---@param list codeview.pr.Remote[]
+---@return codeview.pr.Remote? remote Nil for an empty list.
+local function preferred(list)
+  for _, name in ipairs(M.remote_order) do
+    for _, remote in ipairs(list) do
+      if remote.name == name then
+        return remote
+      end
+    end
+  end
+  return list[1]
+end
+
+---Pick the remote whose address names the repository of a pull request.
+---
+--- A remote on the host of the pull request comes first. A remote with the
+--- same `owner/name` on another host comes next, for example an SSH host
+--- alias. Between two such remotes the order of gh decides: upstream, github,
+--- origin, then the first one.
+---@param remotes codeview.pr.Remote[] Remotes of the repository.
+---@param info codeview.pr.Info Metadata of the pull request.
+---@return string? name Nil when no address names the repository.
+function M.pick_remote(remotes, info)
+  local repo = (info.repo or ""):lower()
+  if repo == "" then
+    return nil
+  end
+  local host = gh.host(info.url)
+  local same_host, same_repo = {}, {}
+  for _, remote in ipairs(remotes or {}) do
+    local remote_host, remote_repo = M.parse_remote_url(remote.url)
+    if remote_repo and remote_repo:lower() == repo then
+      if remote_host == host then
+        same_host[#same_host + 1] = remote
+      end
+      same_repo[#same_repo + 1] = remote
+    end
+  end
+  local found = preferred(same_host) or preferred(same_repo)
+  return found and found.name or nil
+end
+
+---List the git remotes of a repository with their addresses.
+---@param root string Absolute path of the repository root.
+---@param cb? fun(remotes: codeview.pr.Remote[]?, err: codeview.Error?)
+---@return codeview.pr.Remote[]? remotes In the order of the git configuration.
+---@return codeview.Error? err
+function M.remotes(root, cb)
+  ---@param result codeview.ExecResult
+  ---@return codeview.pr.Remote[]?, codeview.Error?
+  local function handle(result)
+    -- Exit code 1 with no output means that no key matches: no remote.
+    if result.code ~= 0 and not (result.code == 1 and vim.trim(result.stdout or "") == "") then
+      return nil,
+        errors.new(errors.codes.COMMAND_FAILED, "cannot list the git remotes", {
+          command = result.command,
+          stderr = result.stderr,
+        })
+    end
+    local out, seen = {}, {}
+    for _, line in ipairs(exec.lines(result.stdout)) do
+      local key, url = line:match("^(%S+)%s+(.*)$")
+      local name = key and key:match("^remote%.(.+)%.url$")
+      if name and not seen[name] then
+        seen[name] = true
+        out[#out + 1] = { name = name, url = vim.trim(url) }
+      end
+    end
+    return out, nil
+  end
+
+  return git(root, { "config", "--get-regexp", "^remote\\..*\\.url$" }, handle, cb)
+end
+
+---Pick the git remote that holds the pull request, by name.
+---
+--- An empty name takes the remote that gh prefers: upstream, github, origin,
+--- then the first remote.
 ---@param root string Absolute path of the repository root.
 ---@param wanted string? Name from the configuration. An empty text picks one.
 ---@param cb? fun(name: string?, err: codeview.Error?)
@@ -295,33 +415,82 @@ end
 function M.remote(root, wanted, cb)
   wanted = vim.trim(wanted or "")
 
-  ---@param result codeview.ExecResult
+  ---@param remotes codeview.pr.Remote[]?
+  ---@param err codeview.Error?
   ---@return string?, codeview.Error?
-  local function handle(result)
-    if result.code ~= 0 then
-      return nil,
-        errors.new(errors.codes.COMMAND_FAILED, "cannot list the git remotes", {
-          command = result.command,
-          stderr = result.stderr,
-        })
+  local function handle(remotes, err)
+    if not remotes then
+      return nil, err
     end
-    local names = exec.lines(result.stdout)
-    if #names == 0 then
+    if #remotes == 0 then
       return nil, errors.new(errors.codes.NOT_FOUND, "the repository has no git remote")
     end
     if wanted ~= "" then
-      if not vim.tbl_contains(names, wanted) then
-        return nil, errors.new(errors.codes.NOT_FOUND, "the repository has no remote named " .. wanted)
+      for _, remote in ipairs(remotes) do
+        if remote.name == wanted then
+          return wanted, nil
+        end
       end
-      return wanted, nil
+      return nil, errors.new(errors.codes.NOT_FOUND, "the repository has no remote named " .. wanted)
     end
-    if vim.tbl_contains(names, "origin") then
-      return "origin", nil
-    end
-    return names[1], nil
+    return preferred(remotes).name, nil
   end
 
-  return git(root, { "remote" }, handle, cb)
+  if not cb then
+    return handle(M.remotes(root))
+  end
+  M.remotes(root, function(remotes, err)
+    cb(handle(remotes, err))
+  end)
+  return nil, nil
+end
+
+---Pick the source of the fetch of one pull request.
+---
+--- A name from the configuration wins. Without it the call takes the remote
+--- whose address names the repository of the pull request. When no address
+--- names it and the user named the repository, the fetch reads the HTTPS
+--- address of the repository. Else the call picks a remote by name, like
+--- |codeview.pr.remote()|.
+---@param root string Absolute path of the repository root.
+---@param info codeview.pr.Info Metadata of the pull request.
+---@param wanted string Name of the git remote. Empty picks one.
+---@param repo string Repository that the user named, as `owner/name`. Empty when the user named none.
+---@param cb? fun(source: string?, err: codeview.Error?)
+---@return string? source Name of a remote, or an address.
+---@return codeview.Error? err
+local function source_of(root, info, wanted, repo, cb)
+  if wanted ~= "" then
+    return M.remote(root, wanted, cb)
+  end
+
+  ---@param remotes codeview.pr.Remote[]?
+  ---@param err codeview.Error?
+  ---@return string?, codeview.Error?
+  local function handle(remotes, err)
+    if not remotes then
+      return nil, err
+    end
+    local name = M.pick_remote(remotes, info)
+    if name then
+      return name, nil
+    end
+    if repo ~= "" and info.repo ~= "" then
+      return string.format("https://%s/%s.git", gh.host(info.url), info.repo), nil
+    end
+    if #remotes == 0 then
+      return nil, errors.new(errors.codes.NOT_FOUND, "the repository has no git remote")
+    end
+    return preferred(remotes).name, nil
+  end
+
+  if not cb then
+    return handle(M.remotes(root))
+  end
+  M.remotes(root, function(remotes, err)
+    cb(handle(remotes, err))
+  end)
+  return nil, nil
 end
 
 ---Bring the commits of one pull request into the repository.
@@ -336,7 +505,7 @@ end
 --- branch in `warning`.
 ---@param root string Absolute path of the repository root.
 ---@param info codeview.pr.Info Metadata of the pull request.
----@param opts? { remote?: string } Name of the git remote. The configuration value by default.
+---@param opts? { remote?: string, repo?: string } `remote` is the name of the git remote, the configuration value by default. `repo` is the `owner/name` that the user named.
 ---@param cb? fun(refs: codeview.pr.Refs?, err: codeview.Error?) Callback for the async form.
 ---@return codeview.pr.Refs? refs
 ---@return codeview.Error? err
@@ -353,7 +522,8 @@ function M.fetch(root, info, opts, cb)
   end
 
   local refs = M.refs(info.number)
-  local wanted = opts.remote or config.get().github.remote
+  local wanted = vim.trim(opts.remote or config.get().github.remote or "")
+  local repo = vim.trim(opts.repo or "")
 
   ---Arguments of one fetch.
   ---@param name string Name of the git remote.
@@ -396,6 +566,32 @@ function M.fetch(root, info, opts, cb)
         refs.remote = name
         return true, nil
       end, step_cb, M.fetch_timeout)
+    end
+
+    ---Check that the fetched head is the head commit that GitHub reports.
+    ---
+    --- A push between the read of the metadata and the fetch gives another
+    --- commit. The review then shows lines that the comments of GitHub do not
+    --- know, so the open stops.
+    ---@type codeview.pr.Step
+    local function check_step(step_cb)
+      return git(root, { "rev-parse", "--verify", "--quiet", refs.head .. "^{commit}" }, function(result)
+        local fetched = vim.trim(result.stdout or ""):lower()
+        if result.code ~= 0 or fetched ~= info.head_sha:lower() then
+          return nil,
+            errors.new(
+              errors.codes.COMMAND_FAILED,
+              string.format(
+                "pull request %d changed during the open: GitHub reports head %s, the fetch gave %s. Open it again",
+                info.number,
+                info.head_sha:sub(1, 8),
+                fetched ~= "" and fetched:sub(1, 8) or "no commit"
+              ),
+              { command = result.command, stderr = result.stderr }
+            )
+        end
+        return true, nil
+      end, step_cb)
     end
 
     ---Fetch the tip of the base branch. A failure waits for the fallback.
@@ -441,11 +637,11 @@ function M.fetch(root, info, opts, cb)
       end, step_cb)
     end
 
-    return { head_step, base_step, fallback_step }
+    return { head_step, check_step, base_step, fallback_step }
   end
 
   if not cb then
-    local name, err = M.remote(root, wanted)
+    local name, err = source_of(root, info, wanted, repo)
     if not name then
       return nil, err
     end
@@ -456,7 +652,7 @@ function M.fetch(root, info, opts, cb)
     return refs, nil
   end
 
-  M.remote(root, wanted, function(name, err)
+  source_of(root, info, wanted, repo, function(name, err)
     if not name then
       cb(nil, err)
       return
@@ -582,7 +778,7 @@ function M.open(number, opts, cb)
     return M.view(number, { dir = opts.dir, repo = opts.repo }, step_cb)
   end, "info")
   step(function(step_cb)
-    return M.fetch(state.repo.root, state.info, { remote = opts.remote }, step_cb)
+    return M.fetch(state.repo.root, state.info, { remote = opts.remote, repo = opts.repo }, step_cb)
   end, "refs")
   step(function(step_cb)
     return M.range(state.repo, state.info, step_cb)

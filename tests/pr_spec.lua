@@ -279,6 +279,30 @@ describe("codeview.pr", function()
       assert.are.equal(errors.codes.NOT_FOUND, err.code)
     end)
 
+    it("stops when the fetched head is not the head of GitHub", function()
+      local info = assert(pr.view(12, { dir = fixture.dir }))
+      info.head_sha = fixture.ids.main_two
+      local refs, err = pr.fetch(fixture.root, info)
+      assert.is_nil(refs)
+      assert.are.equal(errors.codes.COMMAND_FAILED, err.code)
+      assert.is_truthy(err.message:find("changed during the open", 1, true), err.message)
+    end)
+
+    it("opens no session when the fetched head is not the head of GitHub", function()
+      answer = function(cmd)
+        if cmd[2] == "pr" then
+          local data = vim.json.decode(pr_view())
+          data.headRefOid = fixture.ids.pr_one
+          return { stdout = vim.json.encode(data) }
+        end
+        return default_answer(cmd)
+      end
+      local opened, err = open(12)
+      assert.is_nil(opened)
+      assert.is_truthy(err.message:find("changed during the open", 1, true), err.message)
+      assert.is_nil(session.current())
+    end)
+
     it("runs the configured git binary", function()
       local info = assert(pr.view(12, { dir = fixture.dir }))
       assert(require("codeview.config").setup({
@@ -305,6 +329,101 @@ describe("codeview.pr", function()
       for _, cmd in ipairs(calls) do
         assert.are.equal("codeview-no-such-git", cmd[1])
       end
+    end)
+  end)
+
+  describe("remotes", function()
+    ---Clone the bare repository of the fixture into a new directory.
+    ---@return string root
+    local function clone()
+      local origin = vim.fs.joinpath(vim.fs.dirname(fixture.dir), "origin.git")
+      local dir = fixtures.tempdir("codeview-pr-clone")
+      local res = vim.system({ "git", "clone", "--quiet", origin, dir }, { text = true, env = fixture.env }):wait(20000)
+      assert.are.equal(0, res.code, res.stderr)
+      return vim.fs.normalize(dir)
+    end
+
+    ---Run a git command in a clone.
+    ---@param root string
+    ---@param args string[]
+    local function git_in(root, args)
+      local res =
+        vim.system(vim.list_extend({ "git", "-C", root }, args), { text = true, env = fixture.env }):wait(20000)
+      assert.are.equal(0, res.code, res.stderr)
+    end
+
+    it("reads every form of a remote address", function()
+      local cases = {
+        { "https://github.com/ada/demo.git", "github.com", "ada/demo" },
+        { "https://github.com/ada/demo", "github.com", "ada/demo" },
+        { "https://github.com/ada/demo/", "github.com", "ada/demo" },
+        { "https://token@GitHub.com/ada/demo.git", "github.com", "ada/demo" },
+        { "git@github.com:ada/demo.git", "github.com", "ada/demo" },
+        { "git@github.com:ada/demo", "github.com", "ada/demo" },
+        { "ssh://git@github.com/ada/demo.git", "github.com", "ada/demo" },
+        { "ssh://git@github.acme.com:2222/team/app.git", "github.acme.com", "team/app" },
+        { "git://github.com/ada/demo.git", "github.com", "ada/demo" },
+      }
+      for _, case in ipairs(cases) do
+        local host, repo = pr.parse_remote_url(case[1])
+        assert.are.equal(case[2], host, case[1])
+        assert.are.equal(case[3], repo, case[1])
+      end
+      assert.is_nil(pr.parse_remote_url("/tmp/origin.git"))
+      assert.is_nil(pr.parse_remote_url(""))
+    end)
+
+    it("picks the remote of the repository of the pull request", function()
+      local info = { repo = "ada/demo", url = "https://github.com/ada/demo/pull/12" }
+      local fork = {
+        { name = "origin", url = "git@github.com:grace/demo.git" },
+        { name = "base", url = "https://github.com/ada/demo.git" },
+      }
+      assert.are.equal("base", pr.pick_remote(fork, info))
+      assert.is_nil(pr.pick_remote({ { name = "origin", url = "git@github.com:grace/demo.git" } }, info))
+    end)
+
+    it("prefers the host of the pull request and then the order of gh", function()
+      local info = { repo = "team/app", url = "https://github.acme.com/team/app/pull/7" }
+      local remotes = {
+        { name = "mirror", url = "https://github.com/team/app.git" },
+        { name = "origin", url = "git@github.acme.com:team/app.git" },
+        { name = "upstream", url = "ssh://git@github.acme.com/team/app" },
+      }
+      assert.are.equal("upstream", pr.pick_remote(remotes, info))
+      assert.are.equal("mirror", pr.pick_remote({ remotes[1] }, info))
+    end)
+
+    it("fetches from the remote whose address names the repository", function()
+      local root = clone()
+      local origin = vim.fs.joinpath(vim.fs.dirname(fixture.dir), "origin.git")
+      -- The two addresses lead to a local path, so that the test needs no
+      -- network. The fork path does not exist, so a fetch from it fails.
+      git_in(root, { "config", "url." .. origin .. ".insteadOf", "https://github.com/ada/demo.git" })
+      git_in(root, { "config", "url./codeview-no-such-fork.insteadOf", "https://github.com/grace/demo.git" })
+      git_in(root, { "remote", "set-url", "origin", "https://github.com/grace/demo.git" })
+      git_in(root, { "remote", "add", "base", "https://github.com/ada/demo.git" })
+
+      local info = assert(pr.view(12, { dir = fixture.dir }))
+      local refs, err = pr.fetch(root, info)
+      vim.fn.delete(root, "rf")
+      assert.is_nil(err)
+      assert.are.equal("base", refs.remote)
+    end)
+
+    it("fetches a named repository that no remote holds from its address", function()
+      local root = clone()
+      local origin = vim.fs.joinpath(vim.fs.dirname(fixture.dir), "origin.git")
+      git_in(root, { "config", "url." .. origin .. ".insteadOf", "https://github.com/other/x.git" })
+      git_in(root, { "remote", "set-url", "origin", "/codeview-no-such-origin" })
+
+      local info = assert(pr.view(12, { dir = fixture.dir }))
+      info.repo = "other/x"
+      info.url = "https://github.com/other/x/pull/12"
+      local refs, err = pr.fetch(root, info, { repo = "other/x" })
+      vim.fn.delete(root, "rf")
+      assert.is_nil(err)
+      assert.are.equal("https://github.com/other/x.git", refs.remote)
     end)
   end)
 
