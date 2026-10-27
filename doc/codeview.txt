@@ -987,7 +987,7 @@ The default template is plain markdown: >markdown
     - commits: 2
     - comments: 3 on 2 files, 1 resolved
 
-    ## call.lua
+    ## `call.lua`
 
     ### L1 · new · ec056be0
 

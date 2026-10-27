@@ -585,7 +585,7 @@ describe("codeview.overview", function()
       assert.are.equal("markdown", vim.bo[buf].filetype)
       assert.is_false(vim.bo[buf].modifiable)
       local text = table.concat(api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
-      assert.is_truthy(text:find("## call.lua", 1, true), text)
+      assert.is_truthy(text:find("## `call.lua`", 1, true), text)
       assert.is_truthy(text:find("please rename", 1, true), text)
       -- The buffer takes the focus, and the register holds the same text.
       assert.are_not.equal(bar.panel:window(), api.nvim_get_current_win())

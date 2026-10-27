@@ -18,7 +18,7 @@
 ---     - commits: 2
 ---     - comments: 3 on 2 files, 1 resolved
 ---
----     ## call.lua
+---     ## `call.lua`
 ---
 ---     ### L1 · new · ec056be0
 ---
@@ -28,6 +28,9 @@
 ---
 ---     two lines
 --- <
+---
+--- The path of a file heading is a code span, so a path with markdown in it,
+--- for example `pkg/__init__.py`, keeps its characters.
 ---
 --- A body that holds a markdown heading goes into a fenced block, so that its
 --- lines cannot start a new section of the export. An old-side comment on a
@@ -328,7 +331,13 @@ function M.markdown(data)
 
   for _, file in ipairs(data.files) do
     out[#out + 1] = ""
-    local name = require("codeview.message").display(file.path, data.session)
+    local message = require("codeview.message")
+    local name = message.display(file.path, data.session)
+    if not message.is(file.path) then
+      -- A path can hold markdown, for example the underscores of
+      -- `pkg/__init__.py`. A code span keeps it as it is.
+      name = code(name)
+    end
     out[#out + 1] = "## " .. name .. (file.changed and "" or " (outside the range)")
     for _, comment in ipairs(file.comments) do
       out[#out + 1] = ""

@@ -179,7 +179,7 @@ describe("codeview.export", function()
         "- commits: 1",
         "- comments: 3 on 2 files, 1 resolved",
         "",
-        "## call.lua",
+        "## `call.lua`",
         "",
         "### L1 · new · " .. short(fixture.ids.change),
         "",
@@ -189,7 +189,7 @@ describe("codeview.export", function()
         "",
         "two lines",
         "",
-        "## tail.txt",
+        "## `tail.txt`",
         "",
         "### L40 · new · " .. short(fixture.ids.change),
         "",
@@ -260,7 +260,14 @@ describe("codeview.export", function()
     it("marks a file that the range does not change", function()
       add_comment({ file = "gone.txt", start_line = 1, end_line = 1 })
       local text = assert(export.render())
-      assert.is_truthy(text:find("## gone.txt (outside the range)", 1, true))
+      assert.is_truthy(text:find("## `gone.txt` (outside the range)", 1, true))
+    end)
+
+    it("keeps the markdown of a path in a code span", function()
+      add_comment({ file = "pkg/__init__.py", start_line = 1, end_line = 1, body = "a note" })
+      local text = assert(export.render())
+      assert.is_truthy(text:find("\n## `pkg/__init__.py` (outside the range)\n", 1, true), text)
+      assert.is_nil(text:find("## pkg/__init__.py", 1, true), text)
     end)
 
     it("fences a body that holds a heading line", function()
