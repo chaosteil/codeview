@@ -4,7 +4,8 @@
 --- work.
 ---
 --- These calls are stable: `setup`, `open`, `review`, `open_pr`, `close`,
---- `session`, `comments`, `export`, `export_text`, `submit`, and `refresh`.
+--- `reopen`, `session`, `comments`, `export`, `export_text`, `submit`, and
+--- `refresh`.
 --- Their names, arguments, and results stay the same within version 0.x.
 --- Every other call is unstable. It can change before version 1.0, and its
 --- doc comment says so. Some calls return internal tables, for example a
@@ -122,6 +123,18 @@ end
 ---@return boolean closed False when no session runs.
 function M.close()
   return require("codeview.session").close()
+end
+
+---Open the session that closed last again.
+---
+--- The call opens the same range or pull request, then the same file on the
+--- same line, in the same diff style, with the sidebar and the overview as
+--- they were. It returns at once. Without a closed session, or while a
+--- session runs, it gives a warning. The command `:Codeview reopen` calls
+--- this function.
+---@param cb? fun(session: codeview.Session?, err: codeview.Error?) Runs after the restore.
+function M.reopen(cb)
+  require("codeview.command").reopen(cb)
 end
 
 ---Read the changed-files sidebar.

@@ -102,6 +102,122 @@ function M.review(spec, opts, on_open)
   session.open(spec, { dir = opts.dir, export_file = opts.export_file }, on_open or M.opened)
 end
 
+---Make the panels of a reopened session match the record.
+---
+--- The `auto_open` options can open a panel that was closed, or keep closed a
+--- panel that was open. The call opens and closes the panels as the record
+--- says, and gives the sidebar its expanded directories again.
+---@param review codeview.Session
+---@param record codeview.session.Last
+local function restore_panels(review, record)
+  if record.sidebar and not sidebar.is_open() then
+    local _, err = sidebar.open({ session = review })
+    if err then
+      report(err)
+    end
+  elseif not record.sidebar and sidebar.is_open() then
+    sidebar.close()
+  end
+  local bar = sidebar.get()
+  if record.expanded and bar and bar.session == review then
+    bar.expanded = vim.deepcopy(record.expanded)
+    bar:render()
+  end
+
+  if record.overview and not overview.is_open() then
+    local _, err = overview.open({ session = review })
+    if err then
+      report(err)
+    end
+  elseif not record.overview and overview.is_open() then
+    overview.close()
+  end
+end
+
+---Bring back the file, the line, the style, and the panels of a record.
+---@param review codeview.Session Session that opened again.
+---@param record codeview.session.Last
+---@param finish fun() Runs after the restore.
+local function restore(review, record, finish)
+  local view = require("codeview.view")
+  if not record.path then
+    restore_panels(review, record)
+    finish()
+    return
+  end
+  local index = review:index_of(record.path)
+  if not index then
+    notify.info("the range does not change " .. record.path .. " any more")
+    restore_panels(review, record)
+    finish()
+    return
+  end
+  view.open(review, index, {}, function(state, err)
+    if not state then
+      report(err --[[@as codeview.Error]])
+    else
+      if record.style and view.style() ~= record.style then
+        view.set_style(record.style)
+      end
+      if record.line then
+        view.go_to_line(record.line, "new")
+      end
+    end
+    restore_panels(review, record)
+    finish()
+  end)
+end
+
+---Run `:Codeview reopen`.
+---
+--- The command opens the session that closed last again, in the async form.
+--- It then opens the file of that session on the same line, sets the diff
+--- style, and opens the sidebar and the overview as they were. See
+--- |codeview.session.last()|.
+---
+--- Without a record, or while a session runs, the command gives a warning
+--- and does nothing.
+---@param cb? fun(session: codeview.Session?, err: codeview.Error?) Runs after the restore.
+function M.reopen(cb)
+  local record = session.last()
+  if not record then
+    notify.warn("no closed session")
+    return
+  end
+  if session.is_active() then
+    notify.warn("a session is open, close it first")
+    return
+  end
+
+  ---@param review codeview.Session?
+  ---@param err codeview.Error?
+  local function on_open(review, err)
+    M.opened(review, err)
+    if not review then
+      if cb then
+        cb(nil, err)
+      end
+      return
+    end
+    restore(review, record --[[@as codeview.session.Last]], function()
+      if cb then
+        cb(review, nil)
+      end
+    end)
+  end
+
+  if record.pr then
+    local opts = record.pr.opts
+    require("codeview.pr").open(
+      record.pr.number,
+      { dir = opts.dir or record.dir, repo = opts.repo, remote = opts.remote },
+      on_open
+    )
+    return
+  end
+  session.open(record.input, { dir = record.dir, export_file = record.export_file }, on_open)
+end
+
 ---Read the arguments of `:Codeview`.
 ---
 --- The text goes to the backend as it is. Each backend reads the revision
@@ -305,6 +421,12 @@ M.subcommands = {
   },
   files = { run = M.files, desc = "Open or close the changed-files sidebar" },
   refresh = { run = M.refresh, desc = "Read the review again from the repository" },
+  reopen = {
+    run = function()
+      M.reopen()
+    end,
+    desc = "Open the session that closed last again, on the same file and line",
+  },
   submit = {
     run = M.submit,
     args = { "comment", "approve", "request-changes" },

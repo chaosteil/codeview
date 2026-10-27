@@ -100,6 +100,7 @@ On a jj repository the argument is a revset, for example
 :Codeview                  " pick one commit from the log
 :Codeview!                 " pick two commits for a range
 :Codeview close            " close the session
+:Codeview reopen           " open the last closed session again
 :Codeview files            " open or close the changed-files sidebar
 :Codeview comments         " open or close the comment overview
 :Codeview back             " back to the review from a file

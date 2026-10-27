@@ -146,6 +146,16 @@ names, write the revision as a range, for example `:Codeview close^..close`.
     Close the review session. The command closes the windows and the buffers
     of the session.
 
+                                                            *:Codeview-reopen*
+:Codeview reopen
+    Open the session that closed last again. The command opens the same range
+    or pull request, then the same file on the same line, in the same diff
+    style. The sidebar and the overview open or close as they were, and the
+    sidebar gets its expanded directories again. The plugin keeps the record
+    in memory only, so it does not survive a restart of Neovim. Without a
+    closed session, or while a session runs, the command gives a warning.
+    See |codeview.reopen()|.
+
                                                               *:Codeview-back*
 :Codeview back
     Go back to the review from a file of the working copy. The window takes
@@ -1384,9 +1394,10 @@ A submit sends the event CodeViewReviewSubmitted. See
                                                          *codeview-api-stable*
 These calls are stable: |codeview.setup()|, |codeview.open()|,
 |codeview.review()|, |codeview.open_pr()|, |codeview.close()|,
-|codeview.session()|, |codeview.comments()|, |codeview.export()|,
-|codeview.export_text()|, |codeview.submit()|, and |codeview.refresh()|. Their
-names, arguments, and results stay the same within version 0.x.
+|codeview.reopen()|, |codeview.session()|, |codeview.comments()|,
+|codeview.export()|, |codeview.export_text()|, |codeview.submit()|, and
+|codeview.refresh()|. Their names, arguments, and results stay the same
+within version 0.x.
 
 Every other call of the `codeview` module is unstable before version 1.0. It
 can change in any release before 1.0. Its doc comment in
@@ -1491,6 +1502,13 @@ codeview.session()
                                                             *codeview.close()*
 codeview.close()
     Close the session that runs. Return false when no session runs.
+
+                                                           *codeview.reopen()*
+codeview.reopen({cb})
+    Open the session that closed last again, with the same file, line, diff
+    style, sidebar, and overview. The call returns at once. {cb} gets
+    `session, err` after the restore. Without a closed session, or while a
+    session runs, the call gives a warning. See |:Codeview-reopen|.
 
                                                           *codeview.sidebar()*
 codeview.sidebar()
