@@ -28,12 +28,14 @@
 ---    diff holds its sign.
 ---
 --- `side` is LEFT for the old side of the diff and RIGHT for the new side.
+--- |codeview.position.from_api()| maps these fields to the lines of an anchor.
 
 local config = require("codeview.config")
 local errors = require("codeview.error")
 local events = require("codeview.events")
 local gh = require("codeview.gh")
 local highlight = require("codeview.highlight")
+local mapper = require("codeview.position")
 local util = require("codeview.util")
 
 local api = vim.api
@@ -74,11 +76,11 @@ local stores = {}
 ---@type integer
 M.hunk_context = 3
 
----Side of the diff of a GitHub `side` field.
+---Side of the diff of a GitHub `side` field. See |codeview.position.side()|.
 ---@param text string? LEFT or RIGHT.
 ---@return codeview.linemap.Side side
 function M.side(text)
-  return tostring(text or ""):upper() == "LEFT" and "old" or "new"
+  return mapper.side(text)
 end
 
 ---Text of the lines of one side of a diff hunk.
@@ -198,40 +200,29 @@ function M.anchor(entry)
   end
   local side = M.side(entry.side)
 
-  local last = tonumber(entry.line)
-  local first = tonumber(entry.start_line)
-  local start_side = entry.start_side
-  local outdated = false
-  if not last then
-    last = tonumber(entry.original_line) or M.hunk_line(entry.diff_hunk, side)
-    first = tonumber(entry.original_start_line)
-    outdated = true
-  end
-  if not last then
+  -- An outdated comment has no `line`. The lines of the older version take
+  -- its place, so the overview can name them.
+  local outdated = tonumber(entry.line) == nil
+  local lines = mapper.from_api({
+    side = entry.side,
+    line = outdated and (tonumber(entry.original_line) or M.hunk_line(entry.diff_hunk, side)) or entry.line,
+    start_line = outdated and entry.original_start_line or entry.start_line,
+    start_side = entry.start_side,
+  })
+  if not lines then
     return nil
   end
-  -- A start on the other side holds a line number of that side. One anchor
-  -- holds the lines of one side, so the range keeps its last line only.
-  if first and start_side and M.side(start_side) ~= side then
-    first = nil
-  end
 
-  first = first or last
-  if first > last then
-    first, last = last, first
-  end
-  local start_line = math.max(math.floor(first), 1)
-  local end_line = math.max(math.floor(last), 1)
   ---@type codeview.remote.Anchor
   local anchor = {
-    start_line = start_line,
-    end_line = end_line,
+    start_line = lines.start_line,
+    end_line = lines.end_line,
     side = side,
     outdated = outdated,
     anchored = not outdated,
   }
   if outdated then
-    local hunk = M.hunk_lines(entry.diff_hunk, side, end_line - start_line + 1)
+    local hunk = M.hunk_lines(entry.diff_hunk, side, lines.end_line - lines.start_line + 1)
     anchor.hunk = #hunk > 0 and hunk or nil
   end
   return anchor

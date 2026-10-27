@@ -132,6 +132,40 @@ describe("codeview.submit position mapping", function()
     assert.are.equal(1, submit.block_of(coverage, "new", 5))
   end)
 
+  it("maps every position back to the lines of its comment", function()
+    local mapper = require("codeview.position")
+    local map = map_of(fixtures.numbered(40), fixtures.numbered(40, { [20] = " changed" }))
+    for _, fields in ipairs({
+      { start_line = 20, end_line = 20, side = "new" },
+      { start_line = 19, end_line = 21, side = "new" },
+      { start_line = 18, end_line = 20, side = "old" },
+    }) do
+      local position = assert(mapper.to_api(map, anchor(fields)))
+      local back = assert(mapper.from_api(position))
+      assert.are.same(fields, back)
+    end
+  end)
+
+  it("keeps the last line of an API range over two sides", function()
+    local back = assert(require("codeview.position").from_api({
+      side = "RIGHT",
+      line = 12,
+      start_line = 40,
+      start_side = "LEFT",
+    }))
+    assert.are.same({ side = "new", start_line = 12, end_line = 12 }, back)
+    assert.is_nil(require("codeview.position").from_api({ side = "RIGHT" }))
+  end)
+
+  it("keeps the names of the mapping on the submit module", function()
+    local mapper = require("codeview.position")
+    assert.are.equal(mapper.to_api, submit.position)
+    assert.are.equal(mapper.coverage, submit.coverage)
+    assert.are.equal(mapper.block_of, submit.block_of)
+    assert.are.equal(mapper.api_side, submit.api_side)
+    assert.are.equal(mapper.context, submit.context)
+  end)
+
   it("holds the context of a line that the change adds", function()
     local coverage = select(2, diff_of(fixtures.numbered(20), fixtures.numbered(20) .. "line 21\n"))
     assert.are.same({ { from = 18, to = 21 } }, coverage.new)
