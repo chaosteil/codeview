@@ -2,8 +2,12 @@
 name: rex-codeview
 description: Hand finished code changes to a human for review in codeview
   (Neovim) in a Rex pane beside the agent, wait until they quit, and read
-  their review comments as markdown. Use when work must get a human code
-  review in codeview before it continues.
+  their review comments as markdown. Use when the user wants to review the
+  changes themselves, also when they do not name the skill, for example "I
+  want to review this", "let me review it", or "let me look at the diff".
+  Also use when work must get a human code review before it continues. Do
+  not use when the user asks the agent or a subagent to review the code, for
+  example "review your code" or "/code-review".
 compatibility: Needs Rex (REX_BLOCK set), Neovim with the codeview plugin,
   and git or jj.
 ---
@@ -17,8 +21,26 @@ markdown, and you do what they ask.
 
 ## When to use it
 
-Use this skill when your work must get a human code review before you
+Use this skill when the user wants to read and comment on the changes
+themselves. The user does not have to name the skill. For example:
+
+- "I want to review this."
+- "Let me review it."
+- "Let me look at the diff."
+- "Open it in codeview."
+
+Also use this skill when your work must get a human code review before you
 continue.
+
+Do not use this skill when the user asks you or another agent to do the
+review. For example:
+
+- "Review your code."
+- "Look for bugs in your changes."
+- "Have a subagent review this."
+- "/code-review"
+
+If you cannot tell who must do the review, ask the user.
 
 If `REX_BLOCK` is not set, you do not run in a Rex pane, and the skill does
 not work. Tell the user to do the review by hand:
