@@ -16,8 +16,8 @@ compatibility: Needs Rex (REX_BLOCK set), Neovim with the codeview plugin,
 
 This skill opens codeview in a Rex pane beside you. Rex is a terminal
 multiplexer: it splits your terminal into panes. The user reads your changes
-in codeview, writes comments, and quits Neovim. You then get the comments as
-markdown, and you do what they ask.
+in codeview, writes comments, and closes the review. Neovim then quits. You
+then get the comments as markdown, and you do what they ask.
 
 ## When to use it
 
@@ -70,7 +70,7 @@ The script path is relative to the directory of this skill.
      right.
 2. Run `scripts/codeview-review wait HANDLE`.
    - Claude Code: run it as a background command (`run_in_background`),
-     without a DURATION. You get a notice when the user quits Neovim.
+     without a DURATION. You get a notice when the user closes the review.
    - Other agents: give a DURATION below the time limit of your tool, for
      example `scripts/codeview-review wait HANDLE 9m`. If the exit status is
      2, the review is still open. Run `wait` again.

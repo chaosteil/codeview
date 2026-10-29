@@ -82,6 +82,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The `rex-codeview` skill starts when the user asks to review the changes,
   for example "I want to review this". It does not start when the user asks
   an agent to review the code.
+- The Neovim of the `rex-codeview` skill quits when the review closes, so a
+  close of the review also closes the pane.
 - `:Codeview reopen` and the stable call `codeview.reopen()` open the last
   closed session again, on the same file, line, and diff style.
 - The `close.confirm` option makes the close key ask before it closes the

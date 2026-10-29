@@ -7,7 +7,8 @@
 #
 # "open" splits the Rex block of $REX_BLOCK and starts Neovim with codeview
 # on REVISION in the new pane. codeview keeps the export of the review in
-# HANDLE/review.md. "open" returns at once.
+# HANDLE/review.md. Neovim quits when the review closes. "open" returns at
+# once.
 #
 # "wait" blocks until the pane ends, or until DURATION (for example 9m) ends.
 # Exit status:
@@ -57,10 +58,13 @@ cmd_open() {
   printf '%s\n' "$label" >"$handle/label"
 
   # Neovim reads the handle from the environment, so the path needs no quoting.
+  # This Neovim is only for the review, so it quits when the review closes.
+  # With an unsaved buffer, qall stops and Neovim stays open.
   if ! rex split -b "$REX_BLOCK" ${REX_SESSION:+-s "$REX_SESSION"} --split=right \
     -c "$dir" --label "$label" -- \
     env CODEVIEW_REVIEW_HANDLE="$handle" \
-    nvim -c "lua local h = vim.env.CODEVIEW_REVIEW_HANDLE; require('codeview').review(vim.fn.readfile(h .. '/rev')[1], { export_file = h .. '/review.md' })" \
+    nvim -c "autocmd User CodeViewSessionClosed ++once qall" \
+    -c "lua local h = vim.env.CODEVIEW_REVIEW_HANDLE; require('codeview').review(vim.fn.readfile(h .. '/rev')[1], { export_file = h .. '/review.md' })" \
     >/dev/null; then
     rm -rf "$handle"
     die "rex split failed"
