@@ -25,10 +25,23 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Install Neovim
-        uses: rhysd/action-setup-vim@v1
-        with:
-          neovim: true
-          version: ${{ matrix.neovim }}
+        env:
+          NVIM_VERSION: ${{ matrix.neovim }}
+        run: |
+          set -euo pipefail
+          case "$RUNNER_OS" in
+            Linux) target="linux-x86_64" ;;
+            macOS) target="macos-arm64" ;;
+            *) echo "no Neovim archive for $RUNNER_OS" >&2; exit 1 ;;
+          esac
+          url="https://github.com/neovim/neovim/releases/download/${NVIM_VERSION}/nvim-${target}.tar.gz"
+          # The archive holds one directory, "nvim-<target>". The extract
+          # drops it, so the binary is at "$dir/bin/nvim".
+          dir="$HOME/nvim"
+          mkdir -p "$dir"
+          curl --location --silent --show-error --fail "$url" | tar -xz -C "$dir" --strip-components=1
+          echo "$dir/bin" >> "$GITHUB_PATH"
+          "$dir/bin/nvim" --version
 
       - name: Install jj
         env:
