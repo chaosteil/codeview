@@ -31,6 +31,13 @@ need() {
   command -v "$1" >/dev/null 2>&1 || die "$1 is not on PATH"
 }
 
+# Rex sets REX_BIN_DIR in its panes. Use the rex of that directory, because
+# rex is not always on PATH. Without it, use the rex on PATH.
+rex_bin=rex
+if [ -n "${REX_BIN_DIR:-}" ] && [ -x "$REX_BIN_DIR/rex" ]; then
+  rex_bin=$REX_BIN_DIR/rex
+fi
+
 cmd_open() {
   local dir=$PWD
   if [ "${1:-}" = "-C" ]; then
@@ -46,7 +53,7 @@ cmd_open() {
   esac
 
   [ -n "${REX_BLOCK:-}" ] || die "REX_BLOCK is not set, so this shell is not in a Rex pane"
-  need rex
+  need "$rex_bin"
   need nvim
 
   local handle label
@@ -60,7 +67,7 @@ cmd_open() {
   # Neovim reads the handle from the environment, so the path needs no quoting.
   # This Neovim is only for the review, so it quits when the review closes.
   # With an unsaved buffer, qall stops and Neovim stays open.
-  if ! rex split -b "$REX_BLOCK" ${REX_SESSION:+-s "$REX_SESSION"} --split=right \
+  if ! "$rex_bin" split -b "$REX_BLOCK" ${REX_SESSION:+-s "$REX_SESSION"} --split=right \
     -c "$dir" --label "$label" -- \
     env CODEVIEW_REVIEW_HANDLE="$handle" \
     nvim -c "autocmd User CodeViewSessionClosed ++once qall" \
@@ -79,15 +86,15 @@ cmd_wait() {
   fi
   local handle=$1 duration=${2:-}
   [ -f "$handle/label" ] || die "$handle is not a review handle"
-  need rex
+  need "$rex_bin"
 
   local label
   label=$(cat "$handle/label")
 
   # The exit status is the exit status of Neovim. The checks below decide.
-  rex wait "$label" ${REX_SESSION:+-s "$REX_SESSION"} ${duration:+--for "$duration"} >/dev/null 2>&1 || true
+  "$rex_bin" wait "$label" ${REX_SESSION:+-s "$REX_SESSION"} ${duration:+--for "$duration"} >/dev/null 2>&1 || true
 
-  if rex block inspect "$label" ${REX_SESSION:+-s "$REX_SESSION"} >/dev/null 2>&1; then
+  if "$rex_bin" block inspect "$label" ${REX_SESSION:+-s "$REX_SESSION"} >/dev/null 2>&1; then
     echo "codeview-review: the review is still open" >&2
     exit 2
   fi

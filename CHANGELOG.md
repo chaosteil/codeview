@@ -47,6 +47,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `github.max_comments`.
 - The git backend reads no revision as an option. A revision that starts with
   `-` gives an error. The `rex-codeview` skill script rejects it too.
+- The `rex-codeview` skill script finds rex in `REX_BIN_DIR`, which Rex sets
+  in its panes. Without it, the script uses the rex on PATH.
 - The git and the jj backends give the same answer for the table forms of a
   range, for a root commit, and for the log of named commits.
 - In a colocated jj repository, a `git commit` reaches the review.

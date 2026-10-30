@@ -8,8 +8,8 @@ description: Hand finished code changes to a human for review in codeview
   Also use when work must get a human code review before it continues. Do
   not use when the user asks the agent or a subagent to review the code, for
   example "review your code" or "/code-review".
-compatibility: Needs Rex (REX_BLOCK set), Neovim with the codeview plugin,
-  and git or jj.
+compatibility: Needs Rex (REX_BLOCK set, rex in REX_BIN_DIR or on PATH),
+  Neovim with the codeview plugin, and git or jj.
 ---
 
 # Review in codeview through Rex
