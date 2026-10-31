@@ -345,6 +345,13 @@ function M.delete_comment(opts)
   return require("codeview.comments").remove(opts)
 end
 
+---Clear all saved local comments of the review, after one question.
+---@param opts? { confirm?: boolean } `confirm = false` skips the question.
+---@return boolean cleared False after cancellation, an empty review, or an error.
+function M.clear_comments(opts)
+  return require("codeview.comments").clear(opts)
+end
+
 ---Set the state of the comment under the cursor.
 ---
 --- Unstable: the call can change before version 1.0.

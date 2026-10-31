@@ -770,6 +770,22 @@ function Store:remove(id)
   return comment
 end
 
+---Clear all comments and save the empty session file.
+---
+--- A write failure leaves the comments and the session file unchanged.
+---@return codeview.store.Comment[]? removed Comments that left the store, or nil on failure.
+---@return codeview.Error? err
+function Store:clear()
+  local removed, updated_at = self.comments, self.updated_at
+  self.comments = {}
+  local ok, err = self:save()
+  if not ok then
+    self.comments, self.updated_at = removed, updated_at
+    return nil, err
+  end
+  return removed, nil
+end
+
 ---Write the session file.
 ---
 --- The call makes the directory of the file when it is missing, and writes the
