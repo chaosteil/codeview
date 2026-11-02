@@ -147,9 +147,9 @@ M.fetch_timeout = 120000
 ---@param cb? fun(value: any?, err: codeview.Error?)
 ---@param timeout? integer Milliseconds before the plugin kills the command.
 ---@return any?, codeview.Error?
-local function git(root, args, handle, cb, timeout)
+local function git(root, args, handle, cb, timeout, stdin)
   local cmd = vim.list_extend({ git_backend.binary(), "-C", root, "--no-pager" }, args)
-  local opts = { cwd = root, env = GIT_ENV, timeout = timeout }
+  local opts = { cwd = root, env = GIT_ENV, timeout = timeout, stdin = stdin }
 
   if cb then
     exec.capture(cmd, opts, function(result, err)
@@ -518,6 +518,11 @@ end
 --- The call writes two refs of the plugin and nothing else. It does not check
 --- out a branch, and it does not touch a file of the working copy.
 ---
+--- When `github.fetch` is "auto" and the repository holds the head commit and
+--- the base commit that GitHub reports, the call writes the two refs from them
+--- and runs no fetch. git writes no ref to a commit that it does not hold, so
+--- one `update-ref` transaction answers both questions.
+---
 --- The head and the base come in two calls, because one call writes no ref
 --- when one refspec fails. A base branch that the remote no longer holds is
 --- normal for a merged pull request. In that case the call writes the base
@@ -660,10 +665,44 @@ function M.fetch(root, info, opts, cb)
     return { head_step, check_step, base_step, fallback_step }
   end
 
+  ---Write the two refs from the commits of the repository. The answer is
+  ---true when both refs point at the commits of GitHub, and false when the
+  ---fetch must run.
+  ---@param name string Name of the git remote.
+  ---@param local_cb? fun(written: boolean)
+  ---@return boolean? written
+  local function from_local(name, local_cb)
+    if config.get().github.fetch ~= "auto" or info.head_sha == "" or info.base_sha == "" then
+      if local_cb then
+        local_cb(false)
+        return nil
+      end
+      return false
+    end
+    local stdin = string.format("update %s %s\nupdate %s %s\n", refs.head, info.head_sha, refs.base, info.base_sha)
+    local function handle(result)
+      if result.code ~= 0 then
+        return false, nil
+      end
+      refs.remote = name
+      return true, nil
+    end
+    if not local_cb then
+      return git(root, { "update-ref", "--stdin" }, handle, nil, nil, stdin) == true
+    end
+    git(root, { "update-ref", "--stdin" }, handle, function(written)
+      local_cb(written == true)
+    end, nil, stdin)
+    return nil
+  end
+
   if not cb then
     local name, err = source_of(root, info, wanted, repo)
     if not name then
       return nil, err
+    end
+    if from_local(name) then
+      return refs, nil
     end
     local ok, chain_err = chain(steps_for(name))
     if not ok then
@@ -677,12 +716,18 @@ function M.fetch(root, info, opts, cb)
       cb(nil, err)
       return
     end
-    chain(steps_for(name), function(ok, chain_err)
-      if not ok then
-        cb(nil, chain_err)
+    from_local(name, function(written)
+      if written then
+        cb(refs, nil)
         return
       end
-      cb(refs, nil)
+      chain(steps_for(name), function(ok, chain_err)
+        if not ok then
+          cb(nil, chain_err)
+          return
+        end
+        cb(refs, nil)
+      end)
     end)
   end)
   return nil, nil

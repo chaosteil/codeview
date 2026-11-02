@@ -252,6 +252,9 @@ describe("codeview.pr", function()
     end)
 
     it("keeps the head when the remote no longer holds the base branch", function()
+      -- An earlier test brought the commits in. Only the fetch sees the base
+      -- branch that is gone.
+      assert(require("codeview.config").setup({ commit_message = false, github = { fetch = "always" } }))
       local info = assert(pr.view(12, { dir = fixture.dir }))
       info.base_ref = "gone"
       local refs = assert(pr.fetch(fixture.root, info))
@@ -260,6 +263,55 @@ describe("codeview.pr", function()
       assert.are.equal(fixture.ids.main_two, git({ "rev-parse", refs.base }))
       assert.is_truthy(refs.warning)
       assert.is_truthy(refs.warning:find("gone", 1, true), refs.warning)
+    end)
+
+    ---Run a fetch and keep the git commands that it runs.
+    ---@param info codeview.pr.Info
+    ---@return codeview.pr.Refs? refs
+    ---@return string[] subcommands The first argument after the options of each git call.
+    local function fetch_and_record(info)
+      local subcommands = {}
+      local outer = exec.capture
+      exec.capture = function(cmd, opts, cb) ---@diagnostic disable-line: duplicate-set-field
+        if cmd[1] ~= gh.binary() then
+          subcommands[#subcommands + 1] = cmd[5]
+        end
+        return outer(cmd, opts, cb)
+      end
+      local refs = pr.fetch(fixture.root, info)
+      exec.capture = outer
+      return refs, subcommands
+    end
+
+    it("skips the fetch when the repository holds both commits", function()
+      local info = assert(pr.view(12, { dir = fixture.dir }))
+      assert(pr.fetch(fixture.root, info))
+      git({ "update-ref", "-d", pr.refs(12).head })
+      git({ "update-ref", "-d", pr.refs(12).base })
+
+      local refs, subcommands = fetch_and_record(info)
+      assert(refs)
+      assert.is_false(vim.tbl_contains(subcommands, "fetch"), table.concat(subcommands, " "))
+      assert.are.equal("origin", refs.remote)
+      assert.are.equal(fixture.ids.pr_two, git({ "rev-parse", refs.head }))
+      assert.are.equal(fixture.ids.main_two, git({ "rev-parse", refs.base }))
+    end)
+
+    it("fetches when the repository lacks the head commit", function()
+      local info = assert(pr.view(12, { dir = fixture.dir }))
+      info.head_sha = string.rep("b", 40)
+      local refs, subcommands = fetch_and_record(info)
+      -- The fetch gives the real head, so the head check stops the open.
+      assert.is_nil(refs)
+      assert.is_true(vim.tbl_contains(subcommands, "fetch"), table.concat(subcommands, " "))
+    end)
+
+    it("fetches every time with the always value", function()
+      assert(require("codeview.config").setup({ commit_message = false, github = { fetch = "always" } }))
+      local info = assert(pr.view(12, { dir = fixture.dir }))
+      local refs, subcommands = fetch_and_record(info)
+      assert(refs)
+      assert.is_true(vim.tbl_contains(subcommands, "fetch"), table.concat(subcommands, " "))
     end)
 
     it("reports a base branch that neither the remote nor the repository holds", function()
@@ -280,6 +332,8 @@ describe("codeview.pr", function()
     end)
 
     it("stops when the fetched head is not the head of GitHub", function()
+      -- The repository holds the commit, so only the fetch runs the head check.
+      assert(require("codeview.config").setup({ commit_message = false, github = { fetch = "always" } }))
       local info = assert(pr.view(12, { dir = fixture.dir }))
       info.head_sha = fixture.ids.main_two
       local refs, err = pr.fetch(fixture.root, info)
@@ -289,6 +343,8 @@ describe("codeview.pr", function()
     end)
 
     it("opens no session when the fetched head is not the head of GitHub", function()
+      -- The repository holds the commit, so only the fetch runs the head check.
+      assert(require("codeview.config").setup({ commit_message = false, github = { fetch = "always" } }))
       answer = function(cmd)
         if cmd[2] == "pr" then
           local data = vim.json.decode(pr_view())

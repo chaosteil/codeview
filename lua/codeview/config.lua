@@ -88,6 +88,7 @@ local M = {}
 ---@field comments boolean Read the review comments of the pull request and show them in the diff.
 ---@field max_comments integer Highest number of review comments that one fetch reads.
 ---@field binary string Name or path of the gh executable.
+---@field fetch "auto"|"always" "auto" skips the fetch when the commits are in the repository.
 
 ---Default configuration.
 ---@type codeview.Config
@@ -164,6 +165,7 @@ M.defaults = {
     comments = true,
     max_comments = 500,
     binary = "gh",
+    fetch = "auto",
   },
   keymaps = {
     -- A double click opens the file under the pointer, like a file tree of an
@@ -354,6 +356,7 @@ function M.validate(opts)
     vim.validate("github.comments", opts.github.comments, "boolean")
     vim.validate("github.max_comments", opts.github.max_comments, positive_integer, "positive integer")
     vim.validate("github.binary", opts.github.binary, "string")
+    vim.validate("github.fetch", opts.github.fetch, one_of({ "auto", "always" }))
 
     vim.validate("keymaps", opts.keymaps, "table")
     for action, lhs in pairs(opts.keymaps) do

@@ -1244,6 +1244,15 @@ The head that the fetch gives must be the head commit that GitHub reports. A
 push between the two reads gives another commit, and the open stops with a
 message. Open the pull request again.
 
+                                                       *codeview-github-fetch*
+GitHub reports the head commit and the base commit of the pull request. When
+the repository holds both commits already, the command writes the two refs from
+them and skips the fetch. The review then opens without a wait for the network.
+A tool that fetched the pull request before, for example chaoshub, gives you
+this case. Set `github.fetch` to "always" to fetch every time. Without the
+fetch, the command does not see a base branch that the remote deleted, so it
+shows no warning for it.
+
                                                        *codeview-github-store*
 The session key of the comment file is `pr-{number}-{head commit}`. A new push
 to the pull request gives a new head commit, so the next review starts with an
@@ -1889,6 +1898,7 @@ Defaults: >lua
         comments = true,             -- read the review comments of the PR
         max_comments = 500,          -- highest number of comments of a fetch
         binary = "gh",               -- name or path of the gh executable
+        fetch = "auto",              -- "always" fetches local commits too
       },
       keymaps = {
         open_file = { "<CR>", "<2-LeftMouse>" },
