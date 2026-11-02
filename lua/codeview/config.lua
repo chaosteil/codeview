@@ -68,7 +68,7 @@ local M = {}
 ---@field sign string Sign text for a commented line.
 ---@field resolved_sign string Sign text for a line with a resolved comment.
 ---@field remote_sign string Sign text for a line with a comment from GitHub.
----@field border string Border of the comment editor and of the comment float.
+---@field border string Border of the comment editor, of the comment float, and of the loading view.
 ---@field width integer Width of the comment editor, in columns. The float style only.
 ---@field height integer Height of the comment editor, in lines.
 ---@field editor "inline"|"float" Where the comment editor opens. Inline opens it under the line.

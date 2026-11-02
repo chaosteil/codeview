@@ -516,6 +516,85 @@ describe("codeview.pr", function()
       end
     end)
 
+    it("reports the start of each step and the title to a progress handle", function()
+      local seen, titles = {}, {}
+      local progress = {
+        start = function(_, key)
+          seen[#seen + 1] = key
+        end,
+        set_title = function(_, text)
+          titles[#titles + 1] = text
+        end,
+      }
+      assert(open(12, { progress = progress }))
+      local keys = {}
+      for _, step in ipairs(pr.steps) do
+        keys[#keys + 1] = step.key
+      end
+      assert.are.same(keys, seen)
+      assert.are.same({ "PR #12 Add the feature" }, titles)
+    end)
+
+    it("shows the loading view from the command, and closes it before the review", function()
+      local command = require("codeview.command")
+      local loading = require("codeview.loading")
+      local float_wins = function()
+        local out = {}
+        for _, win in ipairs(vim.api.nvim_list_wins()) do
+          local buf = vim.api.nvim_win_get_buf(win)
+          if vim.bo[buf].filetype == loading.filetype then
+            out[#out + 1] = win
+          end
+        end
+        return out
+      end
+      local finished = false
+      command.run({
+        args = "pr 12",
+        dir = fixture.dir,
+        on_open = function()
+          finished = true
+        end,
+      })
+      assert.are.equal(1, #float_wins(), "the view shows at once")
+      wait_for(function()
+        return finished
+      end, "the pull request did not open")
+      assert.are.same({}, float_wins())
+    end)
+
+    it("keeps the loading view open with the error after a failure", function()
+      answer = function()
+        return { code = 1, stderr = "dial tcp: lookup api.github.com: no such host" }
+      end
+      local command = require("codeview.command")
+      local loading = require("codeview.loading")
+      local notified = {}
+      local real_notify = vim.notify
+      vim.notify = function(msg) ---@diagnostic disable-line: duplicate-set-field
+        notified[#notified + 1] = msg
+      end
+      local finished = false
+      command.run({
+        args = "pr 12",
+        dir = fixture.dir,
+        on_open = function()
+          finished = true
+        end,
+      })
+      wait_for(function()
+        return finished
+      end, "the call did not answer")
+      vim.notify = real_notify
+      assert.are.same({}, notified, "the view is the report")
+      local win = vim.api.nvim_get_current_win()
+      local buf = vim.api.nvim_win_get_buf(win)
+      assert.are.equal(loading.filetype, vim.bo[buf].filetype)
+      local text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
+      assert.is_truthy(text:find("✗ read the pull request", 1, true), text)
+      vim.api.nvim_win_close(win, true)
+    end)
+
     it("reports a missing login and opens no session", function()
       answer = function()
         return { code = 4, stderr = "To get started with GitHub CLI, please run:  gh auth login" }

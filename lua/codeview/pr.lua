@@ -29,6 +29,10 @@
 ---
 --- A pull request needs a git repository. A colocated jj repository has one,
 --- so it works too.
+---
+--- The open call runs the steps of |codeview.pr.steps| in order. A caller can
+--- give a progress handle, for example a |codeview.loading| view, and the
+--- call reports the start of each step to it.
 
 local config = require("codeview.config")
 local errors = require("codeview.error")
@@ -44,6 +48,21 @@ local chain = util.chain
 local done = util.done
 
 local M = {}
+
+---Steps of |codeview.pr.open()|, in the order of the run.
+---@type codeview.loading.Step[]
+M.steps = {
+  { key = "repo", text = "find the repository" },
+  { key = "info", text = "read the pull request" },
+  { key = "refs", text = "fetch the commits" },
+  { key = "range", text = "find the diff range" },
+  { key = "open", text = "open the review" },
+}
+
+---Receiver of the progress of |codeview.pr.open()|.
+---@class codeview.pr.Progress
+---@field start fun(self: codeview.pr.Progress, key: string) A step starts.
+---@field set_title fun(self: codeview.pr.Progress, text: string) The pull request is known.
 
 ---Prefix of the refs that hold a pull request.
 ---@type string
@@ -730,7 +749,7 @@ end
 --- The session shows the title of the pull request in the sidebar header, and
 --- it stores its comments under the key of |codeview.pr.store_key()|.
 ---@param number integer? Number of the pull request.
----@param opts? { dir?: string, repo?: string, remote?: string, comments?: boolean } `repo` is `owner/name`.
+---@param opts? { dir?: string, repo?: string, remote?: string, comments?: boolean, progress?: codeview.pr.Progress } `repo` is `owner/name`.
 ---@param cb? fun(session: codeview.Session?, err: codeview.Error?) Callback for the async form.
 ---@return codeview.Session? session
 ---@return codeview.Error? err
@@ -762,6 +781,9 @@ function M.open(number, opts, cb)
     end
 
     steps[#steps + 1] = function(step_cb)
+      if opts.progress then
+        opts.progress:start(key)
+      end
       if not step_cb then
         return keep(fn())
       end
@@ -779,6 +801,9 @@ function M.open(number, opts, cb)
     return M.view(number, { dir = opts.dir, repo = opts.repo }, step_cb)
   end, "info")
   step(function(step_cb)
+    if opts.progress then
+      opts.progress:set_title(M.label(state.info))
+    end
     return M.fetch(state.repo.root, state.info, { remote = opts.remote, repo = opts.repo }, step_cb)
   end, "refs")
   step(function(step_cb)
@@ -795,6 +820,9 @@ function M.open(number, opts, cb)
   local function build(build_cb)
     local info = state.info --[[@as codeview.pr.Info]]
     local refs = state.refs --[[@as codeview.pr.Refs]]
+    if opts.progress then
+      opts.progress:start("open")
+    end
     if refs.warning then
       notify.warn(refs.warning)
     end

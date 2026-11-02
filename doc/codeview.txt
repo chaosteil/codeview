@@ -1189,6 +1189,19 @@ HTTP 403 on a repository without access, gives the message of GitHub.
 The callback of a GitHub call always runs later, on the main loop. This is
 also true for an error that the call finds before it starts gh.
 
+                                                     *codeview-github-loading*
+The command needs the network before it can show a diff. While it works, a
+float in the middle of the editor shows the pull request and these steps:
+find the repository, read the pull request, fetch the commits, find the diff
+range, and open the review. A spinner turns on the step that runs, and a check
+mark stands on each step that ended. The float closes before the review
+windows open. The float does not take the cursor while the steps run.
+
+If a step fails, the float stays. It marks the step with `✗` and shows the
+error, and the cursor goes into it. Press `q` or `<Esc>` to close it. The
+float is the report of the error, so the command sends no message for it. The
+|hl-CodeViewLoadingDone| and |hl-CodeViewLoadingFailed| groups color the marks.
+
                                                         *codeview-github-refs*
 The working copy does not change. The command fetches two refs of the plugin
 and checks out no branch: >
@@ -1855,7 +1868,8 @@ Defaults: >lua
         sign = "▌",                  -- sign of a commented line
         resolved_sign = "✓",         -- sign of a resolved comment
         remote_sign = "▏",           -- sign of a comment from GitHub
-        border = "rounded",          -- border of the editor and of the float
+        border = "rounded",          -- border of the editor, the float, and
+                                     -- the loading view
         width = 72,                  -- width of the editor, in columns
         height = 10,                 -- height of the editor, in lines
         editor = "inline",           -- "inline" | "float"
@@ -2094,6 +2108,8 @@ again after a colorscheme change.
                                                         *hl-CodeViewDiffTextDelete*
                                                         *hl-CodeViewDiffFiller*
                                                         *hl-CodeViewComment*
+                                                    *hl-CodeViewLoadingDone*
+                                                  *hl-CodeViewLoadingFailed*
 >
     CodeViewTitle          Title        range in the sidebar header
     CodeViewCount          Comment      counts in the sidebar header
@@ -2129,6 +2145,10 @@ again after a colorscheme change.
     CodeViewRemoteHeader   DiagnosticInfo header line of a remote comment
     CodeViewRemoteSign     DiagnosticInfo sign of a remote comment
     CodeViewRemoteOutdated DiagnosticWarn sign of an outdated remote comment
+    CodeViewLoadingDone    DiagnosticOk mark of a step that ended, in the
+                                        loading view
+    CodeViewLoadingFailed  DiagnosticError mark and text of an error, in the
+                                        loading view
 <
 The two word groups take no link. The plugin computes their colors from the
 colorscheme, and so do |hl-CodeViewDiffAdd| and |hl-CodeViewDiffDelete| while

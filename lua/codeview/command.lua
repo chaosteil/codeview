@@ -297,7 +297,23 @@ function M.run(opts)
   end
 
   if parsed.action == "pr" then
-    require("codeview.pr").open(parsed.number, { dir = opts.dir }, opts.on_open or M.opened)
+    local pr = require("codeview.pr")
+    local title = parsed.number and ("PR #" .. parsed.number) or "the pull request of the branch"
+    local view = require("codeview.loading").open({ title = title, steps = pr.steps })
+    pr.open(parsed.number, { dir = opts.dir, progress = view }, function(review, open_err)
+      if not open_err then
+        view:close()
+      elseif view:visible() then
+        -- The view shows the error. A message on top of it can stop Neovim
+        -- at the hit-enter prompt, and then the view does not draw.
+        view:fail(open_err)
+        if opts.on_open then
+          opts.on_open(review, open_err)
+        end
+        return
+      end
+      (opts.on_open or M.opened)(review, open_err)
+    end)
     return
   end
   -- The text goes to the backend, not the parsed form. A jj revset must reach
