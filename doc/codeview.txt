@@ -201,6 +201,36 @@ names, write the revision as a range, for example `:Codeview close^..close`.
     Post with the default text of the review. The command asks no question
     about the text.
 
+                                                               *codeview-quit*
+Neovim quits when a review that the command line of Neovim started ends: >sh
+
+    nvim -c "Codeview pr 128"
+    nvim +"Codeview HEAD"
+<
+The review ends when you close the session, or when you close the picker
+without a pick. For a pull request that does not open, the loading view shows
+the error, and `q` quits Neovim. After another error, Neovim stays open, so
+that you can read the message.
+
+A second `:Codeview` in the same Neovim replaces the review. Neovim quits
+after the last review only. A buffer with changes stops the quit.
+
+The `quit` option sets the default. "startup" quits after a review from the
+command line, and "never" keeps Neovim open. A flag in the argument replaces
+the option for one call:
+
+++quit      Quit Neovim when the review ends, also after a command that you
+            type in Neovim.
+++noquit    Keep Neovim open when the review ends. The flag also stops the
+            quit of the review that runs.
+
+A flag can stand anywhere in the argument. A subcommand takes no flag.
+Examples: >vim
+
+    :Codeview ++quit pr 128
+    :Codeview HEAD ++noquit
+<
+
 ==============================================================================
 5. SESSIONS                                                  *codeview-sessions*
 
@@ -1843,6 +1873,7 @@ Defaults: >lua
       auto_reload = true,            -- read a review of the working copy again
       auto_refresh = true,           -- follow the repository of the review
       commit_message = true,         -- the commit message as the first file
+      quit = "startup",              -- "startup" | "never", see |codeview-quit|
       diff = {
         style = "inline",            -- "inline" | "split"
         context = 3,                 -- unchanged lines around a hunk

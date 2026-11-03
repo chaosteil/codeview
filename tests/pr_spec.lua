@@ -117,7 +117,9 @@ describe("codeview.pr", function()
 
   before_each(function()
     helpers.unload()
-    require("codeview.config").setup({ commit_message = false })
+    -- The specs run in a `-c` command of Neovim, which looks like a start
+    -- from the command line. A quit there ends the test run.
+    require("codeview.config").setup({ commit_message = false, quit = "never" })
     errors = require("codeview.error")
     exec = require("codeview.exec")
     gh = require("codeview.gh")
@@ -649,6 +651,34 @@ describe("codeview.pr", function()
       local text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
       assert.is_truthy(text:find("✗ read the pull request", 1, true), text)
       vim.api.nvim_win_close(win, true)
+    end)
+
+    it("quits Neovim when q closes the error of ++quit", function()
+      answer = function()
+        return { code = 1, stderr = "dial tcp: lookup api.github.com: no such host" }
+      end
+      local command = require("codeview.command")
+      local quits = 0
+      command.quit_nvim = function()
+        quits = quits + 1
+      end
+      local finished = false
+      command.run({
+        args = "pr 12 ++quit",
+        dir = fixture.dir,
+        on_open = function()
+          finished = true
+        end,
+      })
+      wait_for(function()
+        return finished
+      end, "the call did not answer")
+      local buf = vim.api.nvim_get_current_buf()
+      local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+      assert.are.equal("  q quits Neovim", lines[#lines])
+      assert.are.equal(0, quits)
+      vim.api.nvim_feedkeys("q", "x", false)
+      assert.are.equal(1, quits)
     end)
 
     it("reports a missing login and opens no session", function()

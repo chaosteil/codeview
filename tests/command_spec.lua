@@ -36,7 +36,9 @@ describe("codeview.command", function()
 
   before_each(function()
     helpers.unload()
-    require("codeview.config").setup({ commit_message = false })
+    -- The specs run in a `-c` command of Neovim, which looks like a start
+    -- from the command line. A quit there ends the test run.
+    require("codeview.config").setup({ commit_message = false, quit = "never" })
     command = require("codeview.command")
     session = require("codeview.session")
   end)
@@ -119,6 +121,27 @@ describe("codeview.command", function()
       assert.are.equal("subcommand", parsed.action)
       assert.are.equal("refresh", parsed.name)
       assert.is_function(command.subcommands.refresh.run)
+    end)
+
+    it("reads the quit flags anywhere in the argument", function()
+      local parsed = assert(command.parse("++quit pr 12"))
+      assert.are.equal("pr", parsed.action)
+      assert.are.equal(12, parsed.number)
+      assert.is_true(parsed.quit)
+      parsed = assert(command.parse("HEAD~1..HEAD ++noquit"))
+      assert.are.equal("HEAD~1..HEAD", parsed.text)
+      assert.is_false(parsed.quit)
+      assert.are.equal("pick", assert(command.parse("++quit")).action)
+      assert.is_nil(assert(command.parse("HEAD")).quit)
+    end)
+
+    it("rejects an unknown flag and a flag on a subcommand", function()
+      local parsed, err = command.parse("HEAD ++stay")
+      assert.is_nil(parsed)
+      assert.are.equal("invalid_arg", err.code)
+      parsed, err = command.parse("close ++quit")
+      assert.is_nil(parsed)
+      assert.are.equal("invalid_arg", err.code)
     end)
 
     it("takes a subcommand before a revision of the same name", function()
@@ -228,6 +251,117 @@ describe("codeview.command", function()
       local opened = assert(session.current())
       assert.are.equal(fixture.ids.edit, opened.range.to)
       assert.are.equal(opened, assert(sidebar.get()).session)
+    end)
+  end)
+
+  describe("quit", function()
+    local quits
+
+    before_each(function()
+      quits = 0
+      command.quit_nvim = function()
+        quits = quits + 1
+      end
+    end)
+
+    after_each(function()
+      pcall(vim.api.nvim_del_augroup_by_name, command.quit_group)
+    end)
+
+    ---Run the command and wait for its answer.
+    ---@param args string
+    ---@return codeview.Session? session
+    local function run(args)
+      local out, finished = {}, false
+      command.run({
+        args = args,
+        dir = fixture.dir,
+        on_open = function(opened)
+          out.session, finished = opened, true
+        end,
+      })
+      wait_for(function()
+        return finished
+      end)
+      return out.session
+    end
+
+    ---Let the scheduled callbacks run.
+    local function settle()
+      vim.wait(50)
+    end
+
+    it("quits Neovim after the session of ++quit closes", function()
+      assert(run(fixture.ids.edit .. " ++quit"))
+      settle()
+      assert.are.equal(0, quits, "the review runs")
+      session.close()
+      settle()
+      assert.are.equal(1, quits)
+    end)
+
+    it("stays when a second review replaces the first", function()
+      assert(run(fixture.ids.edit .. " ++quit"))
+      assert(run(fixture.ids.init .. ".." .. fixture.branch))
+      settle()
+      assert.are.equal(0, quits)
+      session.close()
+      settle()
+      assert.are.equal(1, quits, "the last review ends")
+    end)
+
+    it("stops the quit of a review that runs after ++noquit", function()
+      assert(run(fixture.ids.edit .. " ++quit"))
+      assert(run(fixture.ids.edit .. " ++noquit"))
+      session.close()
+      settle()
+      assert.are.equal(0, quits)
+    end)
+
+    it("quits after a closed picker", function()
+      local ui_select = vim.ui.select
+      vim.ui.select = function(_, _, on_choice) ---@diagnostic disable-line: duplicate-set-field
+        on_choice(nil, nil)
+      end
+      assert.is_nil(run("++quit"))
+      vim.ui.select = ui_select
+      settle()
+      assert.are.equal(1, quits)
+    end)
+
+    it("stays after an error, so that the message shows", function()
+      capture_notify(function()
+        command.run({ args = "no-such-revision ++quit", dir = fixture.dir })
+      end, 1)
+      settle()
+      assert.are.equal(0, quits)
+    end)
+
+    it("quits after a review from the command line of Neovim, with the startup option", function()
+      require("codeview.config").setup({ commit_message = false, quit = "startup" })
+      command.at_startup = function()
+        return true
+      end
+      assert(run(fixture.ids.edit))
+      session.close()
+      settle()
+      assert.are.equal(1, quits)
+    end)
+
+    it("stays after a review from inside Neovim, or after ++noquit", function()
+      require("codeview.config").setup({ commit_message = false, quit = "startup" })
+      command.at_startup = function()
+        return false
+      end
+      assert(run(fixture.ids.edit))
+      session.close()
+      command.at_startup = function()
+        return true
+      end
+      assert(run(fixture.ids.edit .. " ++noquit"))
+      session.close()
+      settle()
+      assert.are.equal(0, quits)
     end)
   end)
 

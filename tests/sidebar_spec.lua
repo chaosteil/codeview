@@ -131,7 +131,9 @@ describe("codeview.sidebar", function()
 
   before_each(function()
     helpers.unload()
-    require("codeview.config").setup({ commit_message = false })
+    -- The specs run in a `-c` command of Neovim, which looks like a start
+    -- from the command line. A quit there ends the test run.
+    require("codeview.config").setup({ commit_message = false, quit = "never" })
     config = require("codeview.config")
     panel = require("codeview.panel")
     session_mod = require("codeview.session")

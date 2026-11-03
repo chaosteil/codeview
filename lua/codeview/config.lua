@@ -16,6 +16,7 @@ local M = {}
 ---@field auto_reload boolean Read the review again when you come back from a file and the review holds the working-copy commit.
 ---@field auto_refresh boolean Read the review again when the repository changes while the review is open.
 ---@field commit_message boolean Show the commit message of the range as the first file of the review.
+---@field quit "startup"|"never" "startup" quits Neovim when a review that the command line of Neovim started ends.
 ---@field diff codeview.Config.Diff Diff view options.
 ---@field sidebar codeview.Config.Sidebar Changed-files sidebar options.
 ---@field overview codeview.Config.Overview Comment overview sidebar options.
@@ -103,6 +104,7 @@ M.defaults = {
   auto_reload = true,
   auto_refresh = true,
   commit_message = true,
+  quit = "startup",
   diff = {
     style = "inline",
     context = 3,
@@ -366,6 +368,7 @@ function M.validate(opts)
     vim.validate("auto_reload", opts.auto_reload, "boolean")
     vim.validate("auto_refresh", opts.auto_refresh, "boolean")
     vim.validate("commit_message", opts.commit_message, "boolean")
+    vim.validate("quit", opts.quit, one_of({ "startup", "never" }))
     vim.validate("log_level", opts.log_level, "number")
   end)
   if ok then

@@ -105,9 +105,14 @@ describe("codeview.loading", function()
 
   it("closes once, and ignores the calls after the close", function()
     view = loading.open({ title = "PR #12", steps = steps })
+    local closes = 0
+    view.on_close = function()
+      closes = closes + 1
+    end
     view:start("one")
     view:close()
     view:close()
+    assert.are.equal(1, closes, "the close handler runs once")
     view:start("two")
     view:fail("too late")
     assert.is_nil(view.timer)

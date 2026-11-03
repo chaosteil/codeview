@@ -112,6 +112,10 @@ On a jj repository the argument is a revset, for example
 Set `close = { confirm = true }` to make the `q` key ask before it closes the
 review.
 
+Neovim quits when a review from its command line ends, for example after
+`nvim -c "Codeview pr 128"`. The flags `++quit` and `++noquit` change this for
+one call. See `:help codeview-quit`.
+
 ## Agent hand-off
 
 The `rex-codeview` agent skill hands the work of a coding agent to you for

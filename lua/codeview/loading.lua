@@ -54,6 +54,10 @@ M.done_mark = "✓"
 ---@type string
 M.failed_mark = "✗"
 
+---Default last line of the view after an error.
+---@type string
+M.close_hint = "q closes this window"
+
 ---One step of the open call.
 ---@class codeview.loading.Step
 ---@field key string Name of the step, for |codeview.loading.View:start()|.
@@ -73,6 +77,8 @@ M.failed_mark = "✗"
 ---@field win integer?
 ---@field timer uv.uv_timer_t?
 ---@field closed boolean
+---@field hint string Last line of the view after an error. It names the close key.
+---@field on_close fun()? Handler that runs after the view closes.
 local View = {}
 View.__index = View
 
@@ -144,7 +150,7 @@ function View:lines()
       marks[#marks + 1] = { line = #lines - 1, from = 0, to = #line, hl = "CodeViewLoadingFailed" }
     end
     lines[#lines + 1] = ""
-    lines[#lines + 1] = "q closes this window"
+    lines[#lines + 1] = self.hint
     marks[#marks + 1] = { line = #lines - 1, from = 0, to = 1, hl = "CodeViewHintKey" }
     marks[#marks + 1] = { line = #lines - 1, from = 1, to = #lines[#lines], hl = "CodeViewHint" }
   end
@@ -303,6 +309,9 @@ function View:close()
   if self.buf and api.nvim_buf_is_valid(self.buf) then
     pcall(api.nvim_buf_delete, self.buf, { force = true })
   end
+  if self.on_close then
+    self.on_close()
+  end
 end
 
 ---Open a loading view.
@@ -322,6 +331,7 @@ function M.open(opts)
     states = states,
     frame = 1,
     closed = false,
+    hint = M.close_hint,
   }, View)
 
   local buf = api.nvim_create_buf(false, true)

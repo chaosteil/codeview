@@ -12,6 +12,11 @@
 --- wins over a revision of the same name. Write such a revision as a range,
 --- for example `:Codeview close^..close`.
 ---
+--- A word `++quit` or `++noquit` sets whether Neovim quits when the review
+--- ends. Without a flag the `quit` option decides. By default Neovim quits
+--- after a review that the command line of Neovim started, for example
+--- `nvim -c "Codeview pr 12"`.
+---
 --- The command file in `plugin/` registers the command. It reads
 --- `M.subcommands` for the completion, and it calls this module only when the
 --- command runs.
@@ -37,6 +42,7 @@ local M = {}
 ---@field mode "single"|"range"? Number of picks of a pick action.
 ---@field number integer? Number of the pull request of a pr action. Nil for the pull request of the branch.
 ---@field name string? Name of the subcommand of a subcommand action.
+---@field quit boolean? True after `++quit`, false after `++noquit`. Nil without a flag.
 
 ---@class codeview.command.RunOpts
 ---@field args string? Text after the command name.
@@ -53,6 +59,61 @@ local M = {}
 ---@param err codeview.Error
 local function report(err)
   notify.error(tostring(err))
+end
+
+---Report whether Neovim starts. The commands of `-c` and `+` run before
+---the VimEnter event.
+---@return boolean
+function M.at_startup()
+  return vim.v.vim_did_enter == 0
+end
+
+---Quit Neovim. A buffer with changes stops the quit, and the error shows.
+function M.quit_nvim()
+  local ok, err = pcall(vim.cmd.qall)
+  if not ok then
+    vim.notify("codeview: " .. tostring(err), vim.log.levels.ERROR)
+  end
+end
+
+---Name of the autocommand group of the quit.
+---@type string
+M.quit_group = "codeview.quit"
+
+---Quit Neovim after the last review session closes.
+---
+--- A second open closes the session that runs and sets the new one in the
+--- same call. The check waits for the next loop, so it sees the new session,
+--- and Neovim stays.
+local function quit_after_review()
+  api.nvim_create_autocmd("User", {
+    group = api.nvim_create_augroup(M.quit_group, { clear = true }),
+    pattern = "CodeViewSessionClosed",
+    callback = function()
+      vim.schedule(function()
+        if not session.current() then
+          M.quit_nvim()
+        end
+      end)
+    end,
+  })
+end
+
+---Wrap the handler of an open call, so that Neovim quits when the review
+---ends. Neovim also quits when the user closes the picker. After an error
+---Neovim stays, so that the message shows.
+---@param done fun(session: codeview.Session?, err: codeview.Error?)
+---@return fun(session: codeview.Session?, err: codeview.Error?)
+local function quitting(done)
+  return function(review, err)
+    if review then
+      quit_after_review()
+    end
+    done(review, err)
+    if not review and not err then
+      vim.schedule(M.quit_nvim)
+    end
+  end
 end
 
 ---Handle the answer of an open call.
@@ -218,29 +279,12 @@ function M.reopen(cb)
   session.open(record.input, { dir = record.dir, export_file = record.export_file }, on_open)
 end
 
----Read the arguments of `:Codeview`.
----
---- The text goes to the backend as it is. Each backend reads the revision
---- language that it knows: git reads `a`, `a..b`, and `a...b`, and jj reads a
---- revset. `parsed.range` reports the form in git terms, for a caller that
---- needs it. `parsed.text` holds the argument itself.
----
---- A first word that `M.subcommands` holds names a subcommand. The name wins
---- over a revision of the same name. `parsed.text` then holds the text after
---- the name.
----
---- `pr <number>` reviews a GitHub pull request. `pr` without a number takes
---- the pull request of the current branch.
----@param args string? Text after the command name.
----@param bang boolean? True after `:Codeview!`.
+---Read the arguments of `:Codeview` without the flags.
+---@param text string Trimmed text after the command name.
+---@param bang boolean?
 ---@return codeview.command.Args? parsed
 ---@return codeview.Error? err
-function M.parse(args, bang)
-  if args ~= nil and type(args) ~= "string" then
-    return nil, errors.new(errors.codes.INVALID_ARG, "arguments must be a string, got " .. type(args))
-  end
-
-  local text = vim.trim(args or "")
+local function parse_text(text, bang)
   if text == "" then
     return { action = "pick", mode = bang and "range" or "single" }, nil
   end
@@ -271,6 +315,59 @@ function M.parse(args, bang)
   return { action = "review", text = text, range = range }, nil
 end
 
+---Read the arguments of `:Codeview`.
+---
+--- The text goes to the backend as it is. Each backend reads the revision
+--- language that it knows: git reads `a`, `a..b`, and `a...b`, and jj reads a
+--- revset. `parsed.range` reports the form in git terms, for a caller that
+--- needs it. `parsed.text` holds the argument itself.
+---
+--- A first word that `M.subcommands` holds names a subcommand. The name wins
+--- over a revision of the same name. `parsed.text` then holds the text after
+--- the name.
+---
+--- `pr <number>` reviews a GitHub pull request. `pr` without a number takes
+--- the pull request of the current branch.
+---
+--- The flags `++quit` and `++noquit` can stand anywhere in the text. A
+--- subcommand takes no flag.
+---@param args string? Text after the command name.
+---@param bang boolean? True after `:Codeview!`.
+---@return codeview.command.Args? parsed
+---@return codeview.Error? err
+function M.parse(args, bang)
+  if args ~= nil and type(args) ~= "string" then
+    return nil, errors.new(errors.codes.INVALID_ARG, "arguments must be a string, got " .. type(args))
+  end
+
+  -- A flag is a word that starts with `++`. A revision does not start so. The
+  -- space in front lets the pattern find a flag at the start of the text.
+  local flags = {}
+  local rest = (" " .. (args or "")):gsub("%f[%S]%+%+(%S*)", function(name)
+    flags[#flags + 1] = name
+    return ""
+  end)
+  local text = vim.trim(rest)
+  local quit = nil ---@type boolean?
+  for _, name in ipairs(flags) do
+    if name == "quit" or name == "noquit" then
+      quit = name == "quit"
+    else
+      return nil, errors.new(errors.codes.INVALID_ARG, "unknown flag ++" .. name .. ": use ++quit or ++noquit")
+    end
+  end
+
+  local parsed, err = parse_text(text, bang)
+  if not parsed then
+    return nil, err
+  end
+  if quit ~= nil and parsed.action == "subcommand" then
+    return nil, errors.new(errors.codes.INVALID_ARG, "++quit and ++noquit do not apply to a subcommand")
+  end
+  parsed.quit = quit
+  return parsed, nil
+end
+
 ---Run `:Codeview`.
 ---
 --- The argument table comes from the user command. `dir` and `on_open` are
@@ -291,8 +388,20 @@ function M.run(opts)
     return
   end
 
+  local quit = parsed.quit
+  if quit == nil then
+    quit = config.get().quit == "startup" and M.at_startup()
+  end
+  local done = opts.on_open or M.opened
+  if quit then
+    done = quitting(done)
+  elseif parsed.quit == false then
+    -- `++noquit` also stops the quit of a review that runs.
+    pcall(api.nvim_del_augroup_by_name, M.quit_group)
+  end
+
   if parsed.action == "pick" then
-    picker.pick({ mode = parsed.mode, dir = opts.dir }, opts.on_open or M.opened)
+    picker.pick({ mode = parsed.mode, dir = opts.dir }, done)
     return
   end
 
@@ -306,19 +415,23 @@ function M.run(opts)
       elseif view:visible() then
         -- The view shows the error. A message on top of it can stop Neovim
         -- at the hit-enter prompt, and then the view does not draw.
+        if quit then
+          view.hint = "q quits Neovim"
+          view.on_close = M.quit_nvim
+        end
         view:fail(open_err)
         if opts.on_open then
           opts.on_open(review, open_err)
         end
         return
       end
-      (opts.on_open or M.opened)(review, open_err)
+      done(review, open_err)
     end)
     return
   end
   -- The text goes to the backend, not the parsed form. A jj revset must reach
   -- jj without a split on the dots.
-  M.review(parsed.text --[[@as string]], { dir = opts.dir }, opts.on_open)
+  M.review(parsed.text --[[@as string]], { dir = opts.dir }, done)
 end
 
 ---Run `:Codeview close`.
