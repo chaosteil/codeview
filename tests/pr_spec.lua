@@ -774,8 +774,8 @@ describe("codeview.pr", function()
       end
       assert.is_truthy(head, text)
       local commits = opened.commits
-      assert.are.equal("    " .. message.label(commits[#commits]), lines[head + 2])
-      assert.are.equal("    " .. message.label(commits[1]), lines[head + 3])
+      assert.are.equal("    " .. message.label(commits[1]), lines[head + 2])
+      assert.are.equal("    " .. message.label(commits[#commits]), lines[head + 3])
     end)
 
     it("puts the pull request group first in the sidebar", function()

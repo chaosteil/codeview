@@ -273,7 +273,9 @@ working copy. The diff view and the sidebar make that call for you. See
                                                      *codeview-commit-message*
 The commits of the range come before the files. Every commit is one entry of
 the sidebar, under a group node, and its name holds the short id and the
-subject of the commit. The oldest commit reads first.
+subject of the commit. The newest commit reads first, and the oldest commit
+is at the bottom, as in the log of jj or git. The document of a pull request
+lists its commits in the same order.
 
 An entry opens like a file. The document of a commit holds:
 

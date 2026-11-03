@@ -91,6 +91,11 @@ local function before(a, b)
   if a.virtual and b.virtual and (a.order or 0) ~= (b.order or 0) then
     return (a.order or 0) < (b.order or 0)
   end
+  -- Virtual files of one group keep the order of the list. The commits keep
+  -- the order of the log, not the order of their names.
+  if a.virtual and b.virtual and a.kind == "file" and b.kind == "file" then
+    return (a.index or 0) < (b.index or 0)
+  end
   if a.kind ~= b.kind then
     return a.kind == "dir"
   end

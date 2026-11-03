@@ -165,15 +165,14 @@ end
 
 ---File records of the commits of a session, for the file list.
 ---
---- The commits read from the oldest to the newest, the order that the work
---- happened in.
+--- The newest commit reads first, and the oldest commit is at the bottom, as
+--- in the log of jj or git.
 ---@param commits codeview.vcs.Commit[] Commits of the session, newest first.
 ---@return codeview.vcs.FileChange[]
 function M.entries(commits)
   local out = {}
   local count = #commits
-  for index = count, 1, -1 do
-    local commit = commits[index]
+  for _, commit in ipairs(commits) do
     out[#out + 1] = {
       path = M.path_of(commit.id),
       status = M.status,
@@ -335,10 +334,9 @@ local function pr_lines(info, commits)
   end
   lines[#lines + 1] = string.format("%d %s:", count, count == 1 and "commit" or "commits")
   lines[#lines + 1] = ""
-  -- The commits read from the oldest to the newest, the order that the work
-  -- happened in.
-  for index = count, 1, -1 do
-    lines[#lines + 1] = "    " .. M.label(commits[index])
+  -- The newest commit reads first, as in the sidebar.
+  for _, commit in ipairs(commits) do
+    lines[#lines + 1] = "    " .. M.label(commit)
   end
   return lines
 end

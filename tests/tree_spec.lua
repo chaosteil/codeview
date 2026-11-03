@@ -56,6 +56,17 @@ describe("codeview.tree", function()
       assert.are.equal("Zeta", root.children[1].name)
     end)
 
+    it("keeps the virtual files of one group in the order of the list", function()
+      local function commit(id)
+        return { path = "v://" .. id, virtual = true, label = id, group = "Commits", group_path = "v://c", order = 2 }
+      end
+      local root = tree.build({ commit("zz newest"), commit("aa middle"), commit("mm oldest") })
+      local names = vim.tbl_map(function(node)
+        return node.name
+      end, root.children[1].children)
+      assert.are.same({ "zz newest", "aa middle", "mm oldest" }, names)
+    end)
+
     it("collapses a chain of directories with one child", function()
       local root = tree.build({ { path = "lua/codeview/vcs/git.lua", status = "added" } })
       assert.are.equal(1, #root.children)

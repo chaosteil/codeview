@@ -74,17 +74,17 @@ describe("codeview.message", function()
       assert.is_not_true(session.files[count + 1].virtual)
     end)
 
-    it("reads the commits from the oldest to the newest", function()
+    it("reads the newest commit first and the oldest commit last", function()
       local session = open_session()
-      -- The session holds the commits newest first, so the first entry is the
-      -- oldest commit.
-      local oldest = session.commits[#session.commits]
-      assert.are.equal(message.path_of(oldest.id), session.files[1].path)
+      -- The session holds the commits newest first, as the log does.
+      for index, commit in ipairs(session.commits) do
+        assert.are.equal(message.path_of(commit.id), session.files[index].path)
+      end
     end)
 
     it("names an entry with the short id and the subject", function()
       local session = open_session()
-      local commit = session.commits[#session.commits]
+      local commit = session.commits[1]
       assert.are.equal(commit.short_id .. " " .. commit.subject, session.files[1].label)
     end)
 
