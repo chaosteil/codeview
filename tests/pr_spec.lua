@@ -621,6 +621,17 @@ describe("codeview.pr", function()
       assert.are.same({}, float_wins())
     end)
 
+    it("shows the pull request document in the main window when the review opens", function()
+      local command = require("codeview.command")
+      local view = require("codeview.view")
+      local message = require("codeview.message")
+      command.run({ args = "pr 12", dir = fixture.dir })
+      wait_for(function()
+        return view.current() ~= nil
+      end, "the review did not show an entry")
+      assert.are.equal(message.pr_path(12), view.current().path)
+    end)
+
     it("keeps the loading view open with the error after a failure", function()
       answer = function()
         return { code = 1, stderr = "dial tcp: lookup api.github.com: no such host" }

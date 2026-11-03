@@ -149,6 +149,14 @@ function M.opened(review, err)
   end
   require("codeview.hints").open({ session = review })
   api.nvim_echo({ { "codeview: " .. review:summary() } }, false, {})
+  -- The main window shows the top entry of the sidebar at once: the pull
+  -- request, the first commit, or the first file. A review without an entry
+  -- shows nothing.
+  require("codeview.view").next(review, function(_, view_err)
+    if view_err and view_err.code ~= errors.codes.NOT_FOUND then
+      report(view_err)
+    end
+  end)
 end
 
 ---Open a review the way `:Codeview {rev}` does.
