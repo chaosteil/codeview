@@ -1479,6 +1479,7 @@ codeview.open({spec}, {opts}, {cb})
           dir = nil,      -- directory for the detection, cwd by default
           backend = nil,  -- "auto" | "git" | "jj", the config value by default
           export_file = nil, -- path of a file for the export of the session
+          quit = nil,        -- true quits Neovim when the review ends
         }
 <
     Without {cb} the call blocks and returns `session, err`. With {cb} the
@@ -1499,6 +1500,7 @@ codeview.review({spec}, {opts})
         {
           dir = nil,         -- directory for the detection, cwd by default
           export_file = nil, -- path of a file for the export of the session
+          quit = nil,        -- true quits Neovim when the review ends
         }
 <
     With `export_file`, the session writes its export to that file. The
@@ -1509,10 +1511,15 @@ codeview.review({spec}, {opts})
     The file has the format of |codeview-export|. If a write fails, you get
     a warning, and the review continues.
 
+    With `quit = true`, Neovim quits when the review ends, the same as
+    `++quit` of |codeview-quit|. A second review in the same Neovim does not
+    end it. `quit = false` works as `++noquit`. Without the field, Neovim
+    stays open.
+
     A tool outside Neovim starts a review with an export file: >sh
 
         nvim -c "lua require('codeview').review('main..@',
-          { export_file = '/tmp/review.md' })"
+          { export_file = '/tmp/review.md', quit = true })"
 <
 
                                                           *codeview.open_pr()*

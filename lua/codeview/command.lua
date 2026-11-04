@@ -163,12 +163,22 @@ end
 ---
 --- The call opens the session in the async form, and returns at once. The
 --- answer goes to |codeview.command.opened()|, or to `on_open`.
+---
+--- With `opts.quit = true`, Neovim quits when the review ends, as with
+--- `++quit`. With `opts.quit = false`, the call stops the quit of a review
+--- that runs, as with `++noquit`. Without the field, Neovim stays open.
 ---@param spec string Revision argument.
----@param opts? { dir?: string, export_file?: string }
+---@param opts? { dir?: string, export_file?: string, quit?: boolean }
 ---@param on_open? fun(session: codeview.Session?, err: codeview.Error?) Handler of the answer.
 function M.review(spec, opts, on_open)
   opts = opts or {}
-  session.open(spec, { dir = opts.dir, export_file = opts.export_file }, on_open or M.opened)
+  local done = on_open or M.opened
+  if opts.quit == true then
+    done = quitting(done)
+  elseif opts.quit == false then
+    pcall(api.nvim_del_augroup_by_name, M.quit_group)
+  end
+  session.open(spec, { dir = opts.dir, export_file = opts.export_file }, done)
 end
 
 ---Make the panels of a reopened session match the record.

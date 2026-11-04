@@ -60,6 +60,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A style switch no longer writes the `diff.style` option. A `setup()` call
   sets the style of the next file back to the option.
 - The key hint row no longer draws again on every cursor move.
+- A second review in the pane of the `rex-codeview` skill no longer quits
+  Neovim.
 
 ### Changed
 
@@ -97,6 +99,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `codeview.position`, and `codeview.notify`.
 - `CHANGELOG.md`.
 - A CI test job on macOS, and a fixed stylua version in CI.
+- `codeview.review()` takes `quit = true`. Neovim then quits when the review
+  ends, the same as `++quit`.
 
 ## 0.1.0
 

@@ -363,6 +363,49 @@ describe("codeview.command", function()
       settle()
       assert.are.equal(0, quits)
     end)
+
+    it("quits Neovim after a codeview.review with quit closes", function()
+      require("codeview").review(fixture.ids.edit, { dir = fixture.dir, quit = true })
+      wait_for(function()
+        return session.current() ~= nil
+      end)
+      settle()
+      assert.are.equal(0, quits, "the review runs")
+      session.close()
+      settle()
+      assert.are.equal(1, quits)
+    end)
+
+    it("stays when a second review replaces a codeview.review with quit", function()
+      require("codeview").review(fixture.ids.edit, { dir = fixture.dir, quit = true })
+      wait_for(function()
+        return session.current() ~= nil
+      end)
+      local first = session.current()
+      assert(run(fixture.ids.init .. ".." .. fixture.branch))
+      wait_for(function()
+        return session.current() ~= nil and session.current() ~= first
+      end)
+      settle()
+      assert.are.equal(0, quits)
+      session.close()
+      settle()
+      assert.are.equal(1, quits, "the last review ends")
+    end)
+
+    it("stays after a codeview.review without quit", function()
+      require("codeview.config").setup({ commit_message = false, quit = "startup" })
+      command.at_startup = function()
+        return true
+      end
+      require("codeview").review(fixture.ids.edit, { dir = fixture.dir })
+      wait_for(function()
+        return session.current() ~= nil
+      end)
+      session.close()
+      settle()
+      assert.are.equal(0, quits)
+    end)
   end)
 
   describe("close", function()

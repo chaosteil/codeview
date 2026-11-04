@@ -68,8 +68,10 @@ end
 --- shows the summary of the session. It returns at once. An error goes to the
 --- user as a message. With `opts.export_file`, the session keeps its export
 --- in that file. See |codeview.open()|.
+--- With `opts.quit = true`, Neovim quits when the review ends, as with
+--- `++quit`. See |codeview-quit|.
 ---@param spec string Revision argument, for example "main..@".
----@param opts? { dir?: string, export_file?: string }
+---@param opts? { dir?: string, export_file?: string, quit?: boolean }
 function M.review(spec, opts)
   require("codeview.command").review(spec, opts)
 end

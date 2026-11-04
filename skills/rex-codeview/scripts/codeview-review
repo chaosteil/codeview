@@ -65,13 +65,13 @@ cmd_open() {
   printf '%s\n' "$label" >"$handle/label"
 
   # Neovim reads the handle from the environment, so the path needs no quoting.
-  # This Neovim is only for the review, so it quits when the review closes.
-  # With an unsaved buffer, qall stops and Neovim stays open.
+  # This Neovim is only for the review, so it quits when the review ends.
+  # A second review in the pane does not end it. With an unsaved buffer, the
+  # quit stops and Neovim stays open.
   if ! "$rex_bin" split -b "$REX_BLOCK" ${REX_SESSION:+-s "$REX_SESSION"} --split=right \
     -c "$dir" --label "$label" -- \
     env CODEVIEW_REVIEW_HANDLE="$handle" \
-    nvim -c "autocmd User CodeViewSessionClosed ++once qall" \
-    -c "lua local h = vim.env.CODEVIEW_REVIEW_HANDLE; require('codeview').review(vim.fn.readfile(h .. '/rev')[1], { export_file = h .. '/review.md' })" \
+    nvim -c "lua local h = vim.env.CODEVIEW_REVIEW_HANDLE; require('codeview').review(vim.fn.readfile(h .. '/rev')[1], { export_file = h .. '/review.md', quit = true })" \
     >/dev/null; then
     rm -rf "$handle"
     die "rex split failed"
