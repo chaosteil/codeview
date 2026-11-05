@@ -409,6 +409,10 @@ end
 --- Neovim calls the function of the option for every row of the window. The
 --- window names its buffer in `v:lua`, so one expression serves every diff
 --- window of a style.
+---
+--- A virtual line, for example a comment under a row or the space of the
+--- comment editor, shows spaces in the width of the numbers. Without them,
+--- the number of the row above shows again on each virtual line.
 ---@param number fun(buf: integer, lnum: integer): string Text of one row.
 ---@return string text
 function M.statuscolumn(number)
@@ -419,7 +423,11 @@ function M.statuscolumn(number)
   else
     buf = api.nvim_get_current_buf()
   end
-  return "%#CodeViewDiffNumber#" .. number(buf, vim.v.lnum) .. "%*%s"
+  local text = number(buf, vim.v.lnum)
+  if vim.v.virtnum ~= 0 then
+    text = string.rep(" ", api.nvim_strwidth(text))
+  end
+  return "%#CodeViewDiffNumber#" .. text .. "%*%s"
 end
 
 ---Report whether a window is a panel of codeview.

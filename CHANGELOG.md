@@ -20,6 +20,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The inline comment editor no longer covers the line numbers of the diff.
   A window wider than the space next to the numbers went past the edge of
   the screen, and Neovim moved it to the left.
+- A virtual line in a diff, for example a comment under a row, no longer
+  shows the line numbers of the row above it again.
 - A second open of the comment editor asks "Discard the comment?" before it
   drops typed text.
 - The inline comment editor closes with its diff window. With typed text it

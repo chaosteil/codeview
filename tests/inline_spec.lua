@@ -467,6 +467,36 @@ describe("codeview.inline", function()
       api.nvim_win_close(win, true)
       api.nvim_buf_delete(buf, { force = true })
     end)
+
+    it("shows no line number on a virtual line", function()
+      -- Row 1 is the hunk header. Rows 2 and 3 hold "one" and "two".
+      local file = diff.compute("one\ntwo\nthree\n", "one\ntwo\nthree changed\n")
+      local buf = render(file)
+      local win = api.nvim_get_current_win()
+      api.nvim_win_set_buf(win, buf)
+      inline.attach_window(win)
+      local ns = api.nvim_create_namespace("codeview.test.virtual")
+      api.nvim_buf_set_extmark(buf, ns, 1, 0, { virt_lines = { { { "note" } } } })
+      vim.cmd("redraw")
+
+      ---Text of the first columns of one screen row.
+      ---@param row integer
+      ---@return string
+      local function screen(row)
+        local out = {}
+        for col = 1, 4 do
+          out[col] = vim.fn.screenstring(row, col)
+        end
+        return table.concat(out)
+      end
+
+      assert.are.equal("1 1 ", screen(2))
+      assert.are.equal("    ", screen(3))
+      assert.are.equal("2 2 ", screen(4))
+
+      api.nvim_win_set_buf(win, api.nvim_create_buf(false, true))
+      api.nvim_buf_delete(buf, { force = true })
+    end)
   end)
 
   describe("the highlight groups", function()
