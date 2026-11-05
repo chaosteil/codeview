@@ -842,9 +842,13 @@ the edit key and for the delete key. Press `za` to show the lines again.
                                            *codeview-comments-editor-position*
 The `comments.editor` option selects where the editor opens: >
 
-    inline    under the commented row, in the width of the diff (default)
-    float     in the middle of the screen, with a border
+    inline    under the commented row, next to the line numbers (default)
+    float     in the middle of the screen
 <
+Both styles have a frame, from the `comments.border` option. The frame shows
+the title and the keys that save and discard. With `border = "none"` the
+inline editor shows them in its winbar instead.
+
 The inline editor opens the diff at the commented row. The space comes from
 virtual lines, so the diff keeps its rows, keeps its line map, and stays
 read-only. The lines under the comment move down while you type, and they move

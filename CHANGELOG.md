@@ -17,6 +17,9 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A side without a final line break shows "\ No newline at end of file". A
   change of the line endings only (CRLF and LF) shows one note, not a change
   of every line.
+- The inline comment editor no longer covers the line numbers of the diff.
+  A window wider than the space next to the numbers went past the edge of
+  the screen, and Neovim moved it to the left.
 - A second open of the comment editor asks "Discard the comment?" before it
   drops typed text.
 - The inline comment editor closes with its diff window. With typed text it
@@ -65,6 +68,9 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- The inline comment editor has a frame. It uses the `comments.border`
+  option, the same as the float. The title and the key hint go into the
+  frame. With `border = "none"` they stay in the winbar.
 - The jj backend needs jj 0.45 or later. An older jj does not see a git
   commit on the current branch of a colocated repository.
   `:checkhealth codeview` warns about such a version.

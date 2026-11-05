@@ -228,6 +228,50 @@ describe("codeview.editor", function()
       return diff, host, assert(win)
     end
 
+    ---Count the virtual lines of the spacer in a buffer.
+    ---@param diff integer
+    ---@return integer
+    local function spacer_rows(diff)
+      local marks = api.nvim_buf_get_extmarks(diff, ns, 0, -1, { details = true })
+      return #(marks[1][4].virt_lines or {})
+    end
+
+    it("frames the inline editor and keeps it right of the line numbers", function()
+      vim.wo.number = true
+      vim.cmd("redraw")
+      local host = api.nvim_get_current_win()
+      local diff, win = open_inline()
+      assert.is_number(win)
+      local conf = api.nvim_win_get_config(win)
+      local textoff = vim.fn.getwininfo(host)[1].textoff
+
+      assert.is_true(textoff > 0)
+      assert.are_not.equal("none", conf.border)
+      assert.is_truthy(footer_text(win):find(":w saves", 1, true))
+      assert.are.equal("", vim.wo[win][0].winbar)
+      -- The frame takes one column on each side. A window that goes past the
+      -- edge of the screen moves to the left, onto the line numbers.
+      assert.is_true(textoff + conf.width + 2 < api.nvim_win_get_width(host))
+      -- The spacer holds the frame rows too, so the frame covers no diff row.
+      assert.are.equal(conf.height + 2, spacer_rows(diff))
+      editor.cancel()
+      vim.wo.number = false
+      api.nvim_buf_delete(diff, { force = true })
+    end)
+
+    it("puts the hint into the winbar of an inline editor without a border", function()
+      config.setup({ comments = { border = "none" } })
+      local diff, win = open_inline()
+      assert.is_number(win)
+      local conf = api.nvim_win_get_config(win)
+
+      assert.are.equal("none", conf.border or "none")
+      assert.is_truthy(vim.wo[win][0].winbar:find(":w saves", 1, true))
+      assert.are.equal(conf.height, spacer_rows(diff))
+      editor.cancel()
+      api.nvim_buf_delete(diff, { force = true })
+    end)
+
     it("closes the editor with the window that it sits on", function()
       local cancelled = false
       local diff, host, win = open_in_split(function()

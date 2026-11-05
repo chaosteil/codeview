@@ -292,6 +292,34 @@ local function editor_height()
   return math.max(math.min(cfg.height, vim.o.lines - 6), 3)
 end
 
+---Rows and columns that a border adds to a window.
+---
+--- The "shadow" border draws only on the right side and on the bottom side.
+--- Every other border except "none" draws on all four sides.
+---@param border string
+---@return integer rows
+---@return integer cols
+local function border_size(border)
+  if border == "none" or border == "" then
+    return 0, 0
+  end
+  if border == "shadow" then
+    return 1, 1
+  end
+  return 2, 2
+end
+
+---Width of the columns in front of the text of a window.
+---
+--- The width includes the status column, the number column, the sign column,
+--- and the fold column.
+---@param win integer
+---@return integer
+local function text_offset(win)
+  local info = vim.fn.getwininfo(win)[1]
+  return info and info.textoff or 0
+end
+
 ---Open the space that the inline editor sits in.
 ---
 --- Without the spacer the window covers the lines under the anchor. The
@@ -320,8 +348,13 @@ local function window_config(style, anchor)
   local height = editor_height()
   if style == "inline" and anchor then
     -- The window sits on the virtual lines of the spacer, which start one
-    -- screen row under the anchor row.
-    local width = math.max(api.nvim_win_get_width(anchor.win) - 1, 20)
+    -- screen row under the anchor row. Neovim puts it after the line numbers
+    -- of the diff. The window must fit in the space to the right of them:
+    -- Neovim pushes a float that goes past the edge of the screen to the
+    -- left, and then the float covers the line numbers.
+    local _, cols = border_size(cfg.border)
+    local free = api.nvim_win_get_width(anchor.win) - text_offset(anchor.win)
+    local width = math.max(free - cols - 1, 20)
     return {
       relative = "win",
       win = anchor.win,
@@ -331,7 +364,7 @@ local function window_config(style, anchor)
       width = width,
       height = height,
       style = "minimal",
-      border = "none",
+      border = cfg.border,
       zindex = 45,
     }
   end
@@ -432,9 +465,10 @@ function M.open(opts)
   api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(opts.text or "", "\n", { plain = true }))
   vim.bo[buf].modified = false
 
+  local border_rows = border_size(cfg.border)
   local spacer = nil
   if style == "inline" then
-    spacer = open_spacer(anchor, editor_height())
+    spacer = open_spacer(anchor, editor_height() + border_rows)
   end
 
   local win_config = window_config(style, anchor)
@@ -449,9 +483,10 @@ function M.open(opts)
     parts[#parts + 1] = hints.key_text(send) .. " sends"
   end
   local hint = table.concat(parts, " · ")
-  if style == "float" then
-    -- A border carries the title. The inline style has none, so its hint goes
-    -- into the winbar, where it reads as part of the row.
+  -- A border carries the title and the hint. Without a border, the inline
+  -- style puts them into the winbar, where they read as part of the row.
+  local framed = border_rows > 0
+  if framed then
     win_config.title = " " .. (opts.title or "Comment") .. " "
     win_config.footer = " " .. hint .. " "
     win_config.footer_pos = "right"
@@ -460,6 +495,7 @@ function M.open(opts)
   if not ok then
     -- The border, the title, or the footer is not available. Try without them.
     win_config.title, win_config.footer, win_config.footer_pos = nil, nil, nil
+    framed = false
     win = api.nvim_open_win(buf, true, win_config)
   end
 
@@ -471,6 +507,8 @@ function M.open(opts)
   vim.wo[win][0].cursorline = false
   if style == "inline" then
     vim.wo[win][0].winhighlight = "Normal:NormalFloat"
+  end
+  if style == "inline" and not framed then
     local bar = " " .. (opts.title or "Comment") .. " · " .. hint
     vim.wo[win][0].winbar = "%#Comment#" .. bar:gsub("%%", "%%%%")
   end
