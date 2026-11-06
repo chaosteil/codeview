@@ -90,6 +90,7 @@ local M = {}
 ---@field max_comments integer Highest number of review comments that one fetch reads.
 ---@field binary string Name or path of the gh executable.
 ---@field fetch "auto"|"always" "auto" skips the fetch when the commits are in the repository.
+---@field agent_dir string Root of the pr-agent results of chaoshub. An empty text takes $CHAOSHUB_AGENT_ROOT, then $XDG_STATE_HOME/chaoshub/agent, then ~/.local/state/chaoshub/agent.
 
 ---Default configuration.
 ---@type codeview.Config
@@ -168,6 +169,7 @@ M.defaults = {
     max_comments = 500,
     binary = "gh",
     fetch = "auto",
+    agent_dir = "",
   },
   keymaps = {
     -- A double click opens the file under the pointer, like a file tree of an
@@ -359,6 +361,7 @@ function M.validate(opts)
     vim.validate("github.max_comments", opts.github.max_comments, positive_integer, "positive integer")
     vim.validate("github.binary", opts.github.binary, "string")
     vim.validate("github.fetch", opts.github.fetch, one_of({ "auto", "always" }))
+    vim.validate("github.agent_dir", opts.github.agent_dir, "string")
 
     vim.validate("keymaps", opts.keymaps, "table")
     for action, lhs in pairs(opts.keymaps) do

@@ -891,6 +891,10 @@ function M.open(number, opts, cb)
           host = gh.host(info.url),
         })
       end
+      -- The results of pr-agent are files on the disk, so they read at once.
+      if session then
+        require("codeview.agent").attach(session)
+      end
       return session, err
     end
 

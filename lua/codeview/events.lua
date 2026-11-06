@@ -29,6 +29,7 @@ local M = {}
 ---| "comment_deleted" # A comment left the store.
 ---| "review_submitted" # A submit sent comments to GitHub and marked them as synced.
 ---| "remote_loaded" # The review comments of a pull request arrived.
+---| "agent_loaded" # The pr-agent results of a pull request were read.
 
 ---Name of the |User| autocmd of each event.
 ---@type table<codeview.events.Name, string>
@@ -38,6 +39,7 @@ M.autocmds = {
   comment_deleted = "CodeViewCommentDeleted",
   review_submitted = "CodeViewReviewSubmitted",
   remote_loaded = "CodeViewRemoteLoaded",
+  agent_loaded = "CodeViewAgentLoaded",
 }
 
 ---Every event that changes the comments of a session.
@@ -47,6 +49,10 @@ M.comment = { "comment_added", "comment_changed", "comment_deleted", "review_sub
 ---Every event of the remote comments of a pull request.
 ---@type codeview.events.Name[]
 M.remote = { "remote_loaded" }
+
+---Every event of the pr-agent results of a pull request.
+---@type codeview.events.Name[]
+M.agent = { "agent_loaded" }
 
 ---@class codeview.events.Data
 ---@field id string? Id of the comment.

@@ -1363,6 +1363,40 @@ open, because it needs no network after the fetch of the refs.
 |:Codeview-submit| sends your comments to the pull request. See
 |codeview-submit|.
 
+                                                             *codeview-agent*
+chaoshub runs pr-agent on a pull request and writes the results to JSON
+files. pr-agent writes nothing to GitHub. A review of the pull request reads
+these files. The results are read-only.
+
+The files of a pull request are in `<root>/<owner>/<repo>/<number>/`, one
+file per tool: `review.json`, `improve.json`, `describe.json`, and
+`ask.json`. The root is the first of these:
+
+    1. The `github.agent_dir` option, when it is not empty.
+    2. `$CHAOSHUB_AGENT_ROOT`. chaoshub sets it for a review that it opens.
+    3. `$XDG_STATE_HOME/chaoshub/agent`.
+    4. `~/.local/state/chaoshub/agent`.
+
+Each file holds one JSON object: >
+
+    version       1, the version of the format
+    tool          review, improve, describe, or ask
+    pr            number of the pull request
+    head_sha      head commit of the pull request when the run started
+    model         name of the model
+    started_at    time of the start of the run
+    finished_at   time of the end of the run
+    usage         token counts of the run
+    data          JSON of pr-agent. For ask, a list of questions and
+                  answers, newest first
+<
+A file of another `version` gives one warning, and the review leaves it out.
+
+The results load with the review of the pull request. They load again after
+each refresh of the review, and after each change of the directory: a watcher
+follows the directory, so a run of chaoshub reaches the open review. Each
+read sends the |User| event `CodeViewAgentLoaded`.
+
 ==============================================================================
 12. SUBMIT                                                     *codeview-submit*
 
@@ -1974,6 +2008,8 @@ Defaults: >lua
         max_comments = 500,          -- highest number of comments of a fetch
         binary = "gh",               -- name or path of the gh executable
         fetch = "auto",              -- "always" fetches local commits too
+        agent_dir = "",              -- root of the pr-agent results, "" picks
+                                     -- one, see |codeview-agent|
       },
       keymaps = {
         open_file = { "<CR>", "<2-LeftMouse>" },
