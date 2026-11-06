@@ -6,7 +6,23 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+### Added
+
+- Another tool can send chosen comments of a pull request as one review. It
+  runs `require('codeview.bridge').submit_file('<path>')` in a headless
+  Neovim, with a JSON request and a JSON result. See `:help codeview-bridge`.
+  The help file also gives the session file format as a read interface.
+- `submit.run` takes `ids`, to send only the chosen comments, and
+  `confirm = false`, to ask nothing.
+
 ### Fixed
+
+- A save keeps the sent marks that another Neovim wrote to the session file.
+  Before, an open session wrote its old copy over them, and a later submit
+  sent the comments again. An open session also watches its session file
+  and shows such comments as sent.
+- A submit and a send take a lock file, so two Neovim processes never send
+  the same comments at the same time.
 
 - A comment box has a background on a transparent colorscheme. When
   `Normal` and `NormalFloat` have no background, the tint goes on black for a

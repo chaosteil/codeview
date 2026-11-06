@@ -87,7 +87,9 @@ removes it.
 
 On a jj repository the argument is a revset, for example
 `:Codeview trunk()..@`. For a GitHub pull request, run `:Codeview pr 128`.
-`:Codeview submit` then sends your comments to GitHub.
+`:Codeview submit` then sends your comments to GitHub. Another tool, for
+example chaoshub, can send chosen comments through a headless codeview. See
+`:help codeview-bridge`.
 
 ## Commands
 

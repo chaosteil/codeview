@@ -1517,6 +1517,426 @@ describe("codeview.submit", function()
     end)
   end)
 
+  describe("chosen comments", function()
+    it("sends only the comments with the ids", function()
+      local session = open_session()
+      local store = store_of(session)
+      local first = add(store)
+      add(store, { file = "feature.txt", start_line = 1, end_line = 2, body = "two lines" })
+
+      local plan = assert(plan_of({ session = session, ids = { first.id } }))
+      assert.are.equal(1, #plan.entries)
+      assert.are.equal(first.id, plan.entries[1].comment.id)
+      assert.are.same({}, plan.already_sent)
+
+      local result = assert(run({ session = session, ids = { first.id }, event = "comment", body = "hello" }))
+      assert.are.equal(1, result.posted)
+      assert.are.equal(1, #vim.json.decode(api_calls()[1].opts.stdin).comments)
+      assert.are.equal(1, #store:unsynced())
+    end)
+
+    it("gives an error that names an id that the store does not hold", function()
+      local session = open_session()
+      add(store_of(session))
+
+      local plan, err = plan_of({ session = session, ids = { "nothere" } })
+      assert.is_nil(plan)
+      assert.are.equal(errors.codes.INVALID_ARG, err.code)
+      assert.is_truthy(tostring(err):find("nothere", 1, true), tostring(err))
+    end)
+
+    it("lists a chosen comment that went out already", function()
+      local session = open_session()
+      local store = store_of(session)
+      local sent = add(store)
+      local open = add(store, { file = "feature.txt", start_line = 1, end_line = 2, body = "two lines" })
+      store:mark_synced(sent.id, { review_id = "1" })
+
+      local plan = assert(plan_of({ session = session, ids = { sent.id, open.id } }))
+      assert.are.same({ sent.id }, plan.already_sent)
+      assert.are.equal(1, #plan.entries)
+      assert.are.equal(open.id, plan.entries[1].comment.id)
+
+      local result = assert(run({ session = session, ids = { sent.id }, event = "comment", confirm = false }))
+      assert.are.equal(0, result.posted)
+      assert.are.same({ sent.id }, result.already_sent)
+      assert.are.equal(0, #api_calls())
+    end)
+  end)
+
+  describe("confirm = false", function()
+    it("asks nothing and posts the review", function()
+      local session = open_session()
+      add(store_of(session))
+      ui.select = {}
+      ui.input = nil
+
+      local result = assert(run({ session = session, event = "approve", confirm = false }))
+      assert.are.equal(1, result.posted)
+      assert.are.same({}, ui.prompts)
+      local sent = vim.json.decode(api_calls()[1].opts.stdin)
+      assert.are.equal("APPROVE", sent.event)
+      assert.are.equal("", sent.body)
+    end)
+
+    it("needs an event", function()
+      local session = open_session()
+      add(store_of(session))
+
+      local result, err = run({ session = session, confirm = false })
+      assert.is_nil(result)
+      assert.is_truthy(tostring(err):find("needs an event", 1, true), tostring(err))
+      assert.are.same({}, ui.prompts)
+      assert.are.equal(0, #api_calls())
+    end)
+  end)
+
+  describe("sent marks of the file", function()
+    ---Mark one comment as sent through a second store of the same file.
+    ---@param store codeview.store.Store
+    ---@param id string
+    local function send_elsewhere(store, id)
+      local other = assert(store_mod.load({ repo = fixture.root, range = "pr-12-" .. fixture.ids.pr_two }))
+      assert(other:mark_synced(id, { review_id = "77", remote_id = "88" }))
+      assert(other:save())
+      assert.are.equal(store.path, other.path)
+    end
+
+    it("keeps the mark of a second store on a save of the first", function()
+      local session = open_session()
+      local store = store_of(session)
+      local comment = add(store)
+      assert(store:save())
+      send_elsewhere(store, comment.id)
+
+      assert.is_false(store_mod.is_synced(assert(store:get(comment.id))))
+      add(store, { file = "feature.txt", body = "a second comment" })
+      assert(store:save())
+
+      local reloaded = assert(store_mod.load({ repo = fixture.root, range = "pr-12-" .. fixture.ids.pr_two }))
+      local kept = assert(reloaded:get(comment.id))
+      assert.is_true(store_mod.is_synced(kept))
+      assert.are.equal("77", kept.review_id)
+      assert.are.equal("88", kept.remote_id)
+      assert.are.equal(2, reloaded:count())
+    end)
+
+    it("posts no comment that a second store sent with run", function()
+      local session = open_session()
+      local store = store_of(session)
+      local comment = add(store)
+      assert(store:save())
+      send_elsewhere(store, comment.id)
+
+      local result = assert(run({ session = session, event = "comment", body = "hello" }))
+      assert.are.equal(0, result.posted)
+      assert.are.equal(0, #api_calls())
+      assert.is_true(store_mod.is_synced(assert(store:get(comment.id))))
+    end)
+
+    it("posts no comment that a second store sent with send", function()
+      local session = open_session()
+      local store = store_of(session)
+      local comment = add(store)
+      assert(store:save())
+      send_elsewhere(store, comment.id)
+
+      local result = assert(send({ session = session, id = comment.id }))
+      assert.are.equal(0, result.posted)
+      assert.is_true(result.cancelled)
+      assert.are.equal(0, #api_calls())
+    end)
+
+    it("takes the mark of a second store when the file changes", function()
+      local session = open_session()
+      local comment = assert(comments_mod.create(session, {
+        file = "a.txt",
+        start_line = 2,
+        end_line = 2,
+        side = "new",
+        commit = fixture.ids.pr_two,
+        body = "this line needs a test",
+      }))
+      assert.is_true(comments_mod.watched(session))
+      local store = store_of(session)
+      local seen = 0
+      local subscription = require("codeview.events").on("review_submitted", function(data)
+        if data.session == session.id then
+          seen = seen + 1
+        end
+      end)
+      send_elsewhere(store, comment.id)
+
+      wait_for(function()
+        return store_mod.is_synced(assert(store:get(comment.id)))
+      end, "the watcher did not take the mark")
+      assert.are.equal("88", assert(store:get(comment.id)).remote_id)
+      assert.are.equal(1, seen)
+      require("codeview.events").off(subscription)
+    end)
+  end)
+
+  describe("lock file", function()
+    ---Write a lock file.
+    ---@param store codeview.store.Store
+    ---@param pid integer
+    ---@param time integer
+    ---@return string path
+    local function hold(store, pid, time)
+      local path = submit.lock_path(store)
+      local handle = assert(io.open(path, "wb"))
+      handle:write(string.format("pid: %d\ntime: %d\n", pid, time))
+      handle:close()
+      return path
+    end
+
+    it("names the file next to the session file", function()
+      local session = open_session()
+      local store = store_of(session)
+      assert.are.equal(store.path .. ".lock", submit.lock_path(store))
+      assert.is_truthy(submit.lock_path(store):match("%.md%.lock$"))
+    end)
+
+    it("stops run and send while another Neovim holds the lock", function()
+      local session = open_session()
+      local store = store_of(session)
+      local comment = add(store)
+      assert(store:save())
+      local path = hold(store, vim.uv.os_getpid(), os.time())
+
+      local result, err = run({ session = session, event = "comment", body = "hello" })
+      assert.is_nil(result)
+      assert.are.equal(submit.lock_message, err.message)
+
+      result, err = send({ session = session, id = comment.id })
+      assert.is_nil(result)
+      assert.are.equal(submit.lock_message, err.message)
+
+      assert.are.equal(0, #api_calls())
+      assert.is_truthy(vim.uv.fs_stat(path), "the lock of the other Neovim stays")
+      os.remove(path)
+    end)
+
+    it("replaces a lock of a pid that does not run", function()
+      local session = open_session()
+      local store = store_of(session)
+      add(store)
+      assert(store:save())
+      local path = hold(store, 999999, os.time())
+
+      local result = assert(run({ session = session, event = "comment", body = "hello" }))
+      assert.are.equal(1, result.posted)
+      assert.is_nil(vim.uv.fs_stat(path))
+    end)
+
+    it("replaces a lock older than ten minutes", function()
+      local session = open_session()
+      local store = store_of(session)
+      local comment = add(store)
+      assert(store:save())
+      local path = hold(store, vim.uv.os_getpid(), os.time() - 601)
+
+      local result = assert(send({ session = session, id = comment.id }))
+      assert.are.equal(1, result.posted)
+      assert.is_nil(vim.uv.fs_stat(path))
+    end)
+
+    it("removes the lock after an error", function()
+      local session = open_session()
+      local store = store_of(session)
+      local comment = add(store)
+      assert(store:save())
+      answer = function(cmd, opts)
+        if not vim.tbl_contains(cmd, "--method") then
+          return default_answer(cmd, opts)
+        end
+        return { code = 1, stderr = "HTTP 500: Server Error" }
+      end
+
+      local result = run({ session = session, event = "comment", body = "hello" })
+      assert.is_nil(result)
+      assert.is_nil(vim.uv.fs_stat(submit.lock_path(store)))
+
+      result = send({ session = session, id = comment.id })
+      assert.is_nil(result)
+      assert.is_nil(vim.uv.fs_stat(submit.lock_path(store)))
+    end)
+  end)
+
+  describe("bridge", function()
+    local bridge
+    ---@type integer?
+    local code
+    local real_exit, cwd
+
+    before_each(function()
+      bridge = require("codeview.bridge")
+      code = nil
+      real_exit = bridge.exit
+      bridge.exit = function(value) ---@diagnostic disable-line: duplicate-set-field
+        code = value
+      end
+      -- The bridge opens the pull request of the working directory. A real
+      -- change of the directory would break the runtime path of the tests.
+      cwd = vim.uv.cwd
+      vim.uv.cwd = function() ---@diagnostic disable-line: duplicate-set-field
+        return fixture.dir
+      end
+    end)
+
+    after_each(function()
+      bridge.exit = real_exit
+      vim.uv.cwd = cwd
+    end)
+
+    ---Write comments to the session file, and close the session.
+    ---@param list table[] Fields of the comments.
+    ---@return codeview.store.Comment[] comments
+    local function prepare(list)
+      local session = open_session()
+      local store = store_of(session)
+      local out = {}
+      for _, fields in ipairs(list) do
+        out[#out + 1] = add(store, fields)
+      end
+      assert(store:save())
+      session:close()
+      gh_calls = {}
+      return out
+    end
+
+    ---Run the bridge on one request and read the result file.
+    ---@param fields table Fields of the request.
+    ---@return table result
+    local function submit_file(fields)
+      local dir = vim.fn.tempname()
+      vim.fn.mkdir(dir, "p")
+      local request = vim.tbl_extend("force", {
+        version = 1,
+        repo = "ada/demo",
+        number = 12,
+        head = fixture.ids.pr_two,
+        ids = {},
+        event = "comment",
+        body = "",
+        out = vim.fs.joinpath(dir, "result.json"),
+      }, fields)
+      local path = vim.fs.joinpath(dir, "request.json")
+      local handle = assert(io.open(path, "wb"))
+      handle:write(vim.json.encode(request))
+      handle:close()
+
+      bridge.submit_file(path)
+      wait_for(function()
+        return code ~= nil
+      end, "the bridge did not quit")
+      local result_handle = assert(io.open(request.out, "rb"), "the bridge wrote no result")
+      local result = vim.json.decode(result_handle:read("*a"))
+      result_handle:close()
+      vim.fn.delete(dir, "rf")
+      return result
+    end
+
+    it("posts the chosen comments and writes the result", function()
+      local list = prepare({
+        {},
+        { file = "feature.txt", start_line = 1, end_line = 2, body = "two lines" },
+        { file = require("codeview.message").path_of(fixture.ids.pr_two), body = "the message" },
+      })
+      local result = submit_file({ ids = { list[1].id, list[3].id }, body = "line one\nline two" })
+      assert.are.equal(0, code)
+      assert.is_true(result.ok)
+      assert.are.equal(1, result.posted)
+      assert.are.equal("", result.error)
+      assert.are.same({}, result.already_sent)
+      assert.are.equal(1, #result.skipped)
+      assert.are.equal(list[3].id, result.skipped[1].id)
+      assert.is_truthy(result.skipped[1].reason:find("commit message", 1, true), result.skipped[1].reason)
+      assert.is_truthy(result.url:find("pullrequestreview", 1, true), result.url)
+
+      local sent = vim.json.decode(api_calls()[1].opts.stdin)
+      assert.are.equal("line one\nline two", sent.body)
+      assert.are.equal(1, #sent.comments)
+      assert.is_nil(session_mod.current())
+
+      local reloaded = assert(store_mod.load({ repo = fixture.root, range = "pr-12-" .. fixture.ids.pr_two }))
+      assert.is_true(store_mod.is_synced(assert(reloaded:get(list[1].id))))
+      assert.is_false(store_mod.is_synced(assert(reloaded:get(list[2].id))))
+    end)
+
+    it("posts nothing when every chosen comment went out already", function()
+      local list = prepare({ {} })
+      local first = submit_file({ ids = { list[1].id } })
+      assert.are.equal(1, first.posted)
+      gh_calls = {}
+      code = nil
+
+      local result = submit_file({ ids = { list[1].id } })
+      assert.are.equal(0, code)
+      assert.is_true(result.ok)
+      assert.are.equal(0, result.posted)
+      assert.are.same({ list[1].id }, result.already_sent)
+      assert.are.equal(0, #api_calls())
+    end)
+
+    it("stops when the head of the pull request is another commit", function()
+      local list = prepare({ {} })
+      local result = submit_file({ ids = { list[1].id }, head = fixture.ids.pr_one })
+      assert.are.equal(1, code)
+      assert.is_false(result.ok)
+      assert.is_truthy(result.error:find("another push", 1, true), result.error)
+      assert.are.equal(0, #api_calls())
+      assert.is_nil(session_mod.current())
+    end)
+
+    it("stops while another Neovim holds the lock", function()
+      local list = prepare({ {} })
+      local store = assert(store_mod.load({ repo = fixture.root, range = "pr-12-" .. fixture.ids.pr_two }))
+      local path = submit.lock_path(store)
+      local handle = assert(io.open(path, "wb"))
+      handle:write(string.format("pid: %d\ntime: %d\n", vim.uv.os_getpid(), os.time()))
+      handle:close()
+
+      local result = submit_file({ ids = { list[1].id } })
+      os.remove(path)
+      assert.are.equal(1, code)
+      assert.is_false(result.ok)
+      assert.are.equal(submit.lock_message, result.error)
+      assert.are.equal(0, #api_calls())
+    end)
+
+    it("reports an error of gh", function()
+      local list = prepare({ {} })
+      answer = function(cmd, opts)
+        if not vim.tbl_contains(cmd, "--method") then
+          return default_answer(cmd, opts)
+        end
+        return { code = 1, stderr = "HTTP 422: Validation Failed" }
+      end
+
+      local result = submit_file({ ids = { list[1].id } })
+      assert.are.equal(1, code)
+      assert.is_false(result.ok)
+      assert.are.equal(0, result.posted)
+      assert.is_truthy(result.error:find("422", 1, true), result.error)
+      local reloaded = assert(store_mod.load({ repo = fixture.root, range = "pr-12-" .. fixture.ids.pr_two }))
+      assert.is_false(store_mod.is_synced(reloaded.comments[1]))
+    end)
+
+    it("writes a failed result for a Lua error", function()
+      local list = prepare({ {} })
+      local real_run = submit.run
+      submit.run = function() ---@diagnostic disable-line: duplicate-set-field
+        error("boom")
+      end
+      local result = submit_file({ ids = { list[1].id } })
+      submit.run = real_run
+      assert.are.equal(1, code)
+      assert.is_false(result.ok)
+      assert.is_truthy(result.error:find("boom", 1, true), result.error)
+    end)
+  end)
+
   it("removes the fixture", function()
     fixture.cleanup()
     assert.are.equal(0, vim.fn.isdirectory(fixture.root))

@@ -126,6 +126,7 @@ M.diff_opts = mapper.diff_opts
 ---@field skipped codeview.submit.Skipped[] Comments that stay local.
 ---@field synced integer Number of comments that an earlier submit sent.
 ---@field total integer Number of comments of the session.
+---@field already_sent string[] Ids of the chosen comments that went out already. Empty without `ids`.
 
 ---@class codeview.submit.Opts
 ---@field session codeview.Session? Session to submit. The session that runs by default.
@@ -133,6 +134,8 @@ M.diff_opts = mapper.diff_opts
 ---@field body string? Text of the review. The prompt asks without it.
 ---@field dir string? Directory that gh runs in. The repository root by default.
 ---@field notify boolean? False silences the reports of the call.
+---@field ids string[]? Ids of the comments to send. Every unsent comment by default.
+---@field confirm boolean? False asks nothing: no event picker, no text prompt, and no summary. `event` is then required, and `body` is empty by default. The tool that calls codeview asks the user first.
 
 ---@class codeview.submit.Result
 ---@field posted integer Number of comments that GitHub took.
@@ -141,6 +144,8 @@ M.diff_opts = mapper.diff_opts
 ---@field review table? Review object of the answer of GitHub.
 ---@field url string Address of the review. Empty when GitHub sent none.
 ---@field existing boolean? True when GitHub held the review already, so the call posted nothing.
+---@field already_sent string[]? Ids of the chosen comments that went out already.
+---@field stays_local { id: string, reason: string }[]? Comments that stay local, with the reason.
 
 ---Sessions with a submit or a send that runs, by session id.
 ---@type table<integer, boolean>
@@ -290,6 +295,10 @@ end
 ---
 --- The call reads the diff of every file that holds a comment and maps every
 --- unsynced comment onto it. It does not talk to GitHub.
+---
+--- With `ids`, the plan takes only the comments with these ids. An id that the
+--- store does not hold gives an error. A chosen comment that went out already
+--- stays out, and the plan lists its id in `already_sent`.
 ---@param opts? codeview.submit.Opts
 ---@param cb? fun(plan: codeview.submit.Plan?, err: codeview.Error?) Callback for the async form.
 ---@return codeview.submit.Plan? plan
@@ -304,6 +313,9 @@ function M.plan(opts, cb)
   if not session then
     return done(cb, nil, target_err)
   end
+  -- Another process can have sent comments of this file. Their marks come
+  -- first, so that no such comment goes out again.
+  store:take_marks()
   local event = M.normalize_event(opts.event or "comment")
   if not event then
     return done(
@@ -321,6 +333,31 @@ function M.plan(opts, cb)
     synced = synced + (store_mod.is_synced(comment) and 1 or 0)
   end
 
+  local chosen = store:unsynced()
+  local already_sent = {}
+  if opts.ids ~= nil then
+    if type(opts.ids) ~= "table" then
+      return done(cb, nil, errors.new(errors.codes.INVALID_ARG, "ids must be a list, got " .. type(opts.ids)))
+    end
+    chosen = {}
+    local seen = {}
+    for _, id in ipairs(opts.ids) do
+      local comment = store:get(id)
+      if not comment then
+        return done(cb, nil, errors.new(errors.codes.INVALID_ARG, "no comment with the id " .. tostring(id)))
+      end
+      -- An id that the list holds twice goes out once.
+      if not seen[comment.id] then
+        seen[comment.id] = true
+        if store_mod.is_synced(comment) then
+          already_sent[#already_sent + 1] = comment.id
+        else
+          chosen[#chosen + 1] = comment
+        end
+      end
+    end
+  end
+
   ---@type codeview.submit.Plan
   local plan = {
     session = session,
@@ -335,6 +372,7 @@ function M.plan(opts, cb)
     skipped = {},
     synced = synced,
     total = #store.comments,
+    already_sent = already_sent,
   }
 
   -- A comment on the pull request document is an overall comment. It takes no
@@ -342,7 +380,7 @@ function M.plan(opts, cb)
   -- with an id on GitHub went out before, so only its text changes.
   local message = require("codeview.message")
   local on_lines = {}
-  for _, comment in ipairs(store:unsynced()) do
+  for _, comment in ipairs(chosen) do
     if (comment.remote_id or "") ~= "" then
       plan.edits[#plan.edits + 1] = comment
     elseif message.is_pr(comment.file) then
@@ -887,7 +925,8 @@ end
 ---Ask whether the review goes out.
 ---
 --- The default asks with |vim.ui.select()|, after the summary. Replace the
---- function only in a test. The plugin never posts without a confirmation.
+--- function only in a test. The plugin posts only after the user confirms, in
+--- codeview or in the tool that calls it.
 ---@param plan codeview.submit.Plan
 ---@param cb fun(ok: boolean)
 function M.confirm(plan, cb)
@@ -924,6 +963,90 @@ local function lock(opts)
   return key, nil
 end
 
+---Seconds after which a lock file is stale.
+---@type integer
+M.lock_age = 600
+
+---Text of the error of a held lock file.
+---@type string
+M.lock_message = "another codeview sends these comments now. Try again when it is done"
+
+---Path of the lock file of a comment store.
+---@param store codeview.store.Store
+---@return string path `<key>.md.lock`, next to the session file.
+function M.lock_path(store)
+  return store.path .. ".lock"
+end
+
+---Report whether a lock file is stale.
+---
+--- A lock file holds the pid and the time of the Neovim that sends. A lock
+--- older than |codeview.submit.lock_age| is stale. A lock of a pid that does
+--- not run is stale too. A lock that does not read is stale.
+---@param path string
+---@return boolean stale
+local function stale(path)
+  local handle = io.open(path, "rb")
+  if not handle then
+    return false
+  end
+  local text = handle:read("*a") or ""
+  handle:close()
+  local pid, time = text:match("^pid:%s*(%d+)%s+time:%s*(%d+)")
+  pid, time = tonumber(pid), tonumber(time)
+  if not pid or not time then
+    return true
+  end
+  if os.time() - time > M.lock_age then
+    return true
+  end
+  local ok, err = vim.uv.kill(pid, 0)
+  -- EPERM tells that the process runs as another user.
+  return not ok and not tostring(err):find("EPERM", 1, true)
+end
+
+---Take the lock file of a comment store.
+---
+--- The call makes the file with an exclusive create, so two Neovim processes
+--- never send the same comments at the same time. It replaces a stale lock.
+---@param store codeview.store.Store
+---@return string? path Path of the lock file. Nil for a store without a path.
+---@return codeview.Error? err Set when another process holds the lock.
+function M.take_lock(store)
+  if store.path == "" then
+    return nil, nil
+  end
+  local path = M.lock_path(store)
+  local dir = vim.fs.dirname(path)
+  if vim.fn.isdirectory(dir) == 0 then
+    pcall(vim.fn.mkdir, dir, "p")
+  end
+  for _ = 1, 2 do
+    local fd = vim.uv.fs_open(path, "wx", 420)
+    if fd then
+      vim.uv.fs_write(fd, string.format("pid: %d\ntime: %d\n", vim.uv.os_getpid(), os.time()))
+      vim.uv.fs_close(fd)
+      return path, nil
+    end
+    if not vim.uv.fs_stat(path) then
+      return nil, errors.new(errors.codes.COMMAND_FAILED, "cannot make the lock file " .. path)
+    end
+    if not stale(path) then
+      break
+    end
+    os.remove(path)
+  end
+  return nil, errors.new(errors.codes.INVALID_ARG, M.lock_message)
+end
+
+---Remove a lock file of |codeview.submit.take_lock()|.
+---@param path string?
+local function release(path)
+  if path then
+    os.remove(path)
+  end
+end
+
 ---Report a session file that did not change after a post.
 ---@param err codeview.Error
 ---@param what string Text that names what went to GitHub.
@@ -937,6 +1060,8 @@ end
 ---
 --- The call collects the comments and asks for the event and for the text of
 --- the review. It shows the summary and posts only after the user confirms it.
+--- With `confirm = false` the call asks nothing, because the tool that calls
+--- it asked the user already.
 --- A failed post marks nothing, so every comment stays in the session file.
 ---
 --- Before the post the call looks for the review of an earlier try. When
@@ -952,14 +1077,27 @@ function M.run(opts, cb)
   local loud = opts.notify ~= false
   ---@type integer?
   local key
+  ---@type string?
+  local lock_file
+  ---@type codeview.submit.Plan?
+  local planned
 
   ---@param result codeview.submit.Result?
   ---@param err codeview.Error?
   local function finish(result, err)
+    if result and planned then
+      result.already_sent = planned.already_sent
+      result.stays_local = {}
+      for _, skipped in ipairs(planned.skipped) do
+        result.stays_local[#result.stays_local + 1] = { id = skipped.comment.id, reason = skipped.reason }
+      end
+    end
     if key then
       busy[key] = nil
       key = nil
     end
+    release(lock_file)
+    lock_file = nil
     if err and loud then
       notify.error(M.error_text(err))
     end
@@ -971,11 +1109,26 @@ function M.run(opts, cb)
     end
   end
 
+  if opts.confirm == false and not opts.event then
+    finish(nil, errors.new(errors.codes.INVALID_ARG, "a call with confirm = false needs an event"))
+    return
+  end
+
   local lock_err
   key, lock_err = lock(opts)
   if lock_err then
     finish(nil, lock_err)
     return
+  end
+  -- The lock file stops a send of another Neovim on the same comments. A call
+  -- without a store stops in the plan with its own error.
+  local _, _, held_store = target(opts)
+  if held_store then
+    lock_file, lock_err = M.take_lock(held_store)
+    if lock_err then
+      finish(nil, lock_err)
+      return
+    end
   end
 
   ---Report the comments that stay local.
@@ -1114,6 +1267,7 @@ function M.run(opts, cb)
       finish(nil, err)
       return
     end
+    planned = plan
     if outgoing(plan) == 0 then
       if loud then
         local reason = "no comment to submit"
@@ -1136,6 +1290,10 @@ function M.run(opts, cb)
         return
       end
       plan.body = body
+      if opts.confirm == false then
+        send(plan)
+        return
+      end
       M.confirm(plan, function(ok)
         if not ok then
           if loud then
@@ -1157,6 +1315,10 @@ function M.run(opts, cb)
       plan.event = event
       if type(opts.body) == "string" then
         with_body(opts.body)
+        return
+      end
+      if opts.confirm == false then
+        with_body("")
         return
       end
       if #plan.notes > 0 or #plan.entries == 0 then
@@ -1204,6 +1366,8 @@ function M.send(opts, cb)
   local loud = opts.notify ~= false
   ---@type integer?
   local key
+  ---@type string?
+  local lock_file
 
   ---@param result codeview.submit.Result?
   ---@param err codeview.Error?
@@ -1212,6 +1376,8 @@ function M.send(opts, cb)
       busy[key] = nil
       key = nil
     end
+    release(lock_file)
+    lock_file = nil
     if err and loud then
       notify.error(M.error_text(err))
     end
@@ -1232,22 +1398,30 @@ function M.send(opts, cb)
     finish(nil, errors.new(errors.codes.INVALID_ARG, "the call needs the id of a comment"))
     return
   end
-  local comment = store:get(opts.id)
-  if not comment then
+  if not store:get(opts.id) then
     finish(nil, errors.new(errors.codes.NOT_FOUND, "no comment with the id " .. opts.id))
-    return
-  end
-  if store_mod.is_synced(comment) then
-    if loud then
-      notify.info("the comment went to the pull request already")
-    end
-    finish({ posted = 0, skipped = 0, cancelled = true, review = nil, url = "" }, nil)
     return
   end
   local lock_err
   key, lock_err = lock({ session = session })
   if lock_err then
     finish(nil, lock_err)
+    return
+  end
+  lock_file, lock_err = M.take_lock(store)
+  if lock_err then
+    finish(nil, lock_err)
+    return
+  end
+  -- Another process can have sent the comment. Its mark comes first, so that
+  -- the comment does not go out again.
+  store:take_marks()
+  local comment = store:get(opts.id) --[[@as codeview.store.Comment]]
+  if store_mod.is_synced(comment) then
+    if loud then
+      notify.info("the comment went to the pull request already")
+    end
+    finish({ posted = 0, skipped = 0, cancelled = true, review = nil, url = "" }, nil)
     return
   end
   local dir = opts.dir or session.repo.root

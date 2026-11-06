@@ -43,6 +43,139 @@ M.ns = marks.ns
 ---@type table<integer, codeview.store.Store>
 local stores = {}
 
+---Watcher of the comment file of each open session, by session id.
+---@type table<integer, { handle: uv.uv_fs_event_t?, timer: uv.uv_timer_t?, subscription: integer? }>
+local watchers = {}
+
+---Milliseconds between the last change of the directory and the read.
+---@type integer
+local DEBOUNCE = 100
+
+--- Watch ------------------------------------------------------------------------
+
+---Close one libuv handle, without an error on a handle that closes already.
+---@param handle uv.uv_handle_t?
+local function shut(handle)
+  if not handle then
+    return
+  end
+  pcall(function()
+    handle:stop()
+  end)
+  pcall(function()
+    if not handle:is_closing() then
+      handle:close()
+    end
+  end)
+end
+
+---Take the sent marks of the comment file of a session, and draw them.
+---
+--- Another process, for example a headless codeview that chaoshub starts, can
+--- send comments of the file. The session then shows them as sent, and a
+--- later save keeps the marks.
+---@param session codeview.Session
+---@return integer count Number of comments that got a sent mark.
+function M.take_marks(session)
+  local store = stores[session.id]
+  if not store or session.closed then
+    return 0
+  end
+  local count = store:take_marks()
+  if count > 0 then
+    events.emit("review_submitted", { session = session.id, count = count, review = "" })
+  end
+  return count
+end
+
+---Start the watcher handle of the comment file of a session.
+---
+--- The handle watches the directory of the file, because a save renames a
+--- new file over the old one. The call starts no handle while the directory
+--- does not exist. The first save makes it, and the next comment event starts
+--- the handle.
+---@param session codeview.Session
+---@param store codeview.store.Store
+---@param held { handle: uv.uv_fs_event_t?, timer: uv.uv_timer_t? }
+local function follow(session, store, held)
+  if held.handle or store.path == "" then
+    return
+  end
+  local dir = vim.fs.dirname(store.path)
+  if vim.fn.isdirectory(dir) == 0 then
+    return
+  end
+  local handle = vim.uv.new_fs_event()
+  if not handle then
+    return
+  end
+  local name = vim.fs.basename(store.path)
+  held.timer = held.timer or vim.uv.new_timer()
+  local ok, started = pcall(function()
+    return handle:start(dir, {}, function(err, file)
+      if err or not held.timer then
+        return
+      end
+      -- The temporary file and the lock file of a save start with the name of
+      -- the comment file too.
+      if file and not vim.startswith(file, name) then
+        return
+      end
+      held.timer:stop()
+      held.timer:start(DEBOUNCE, 0, function()
+        vim.schedule(function()
+          if watchers[session.id] == held then
+            M.take_marks(session)
+          end
+        end)
+      end)
+    end)
+  end)
+  if ok and started then
+    held.handle = handle
+  else
+    shut(handle)
+  end
+end
+
+---Watch the comment file of a session.
+---@param session codeview.Session
+---@param store codeview.store.Store
+local function watch(session, store)
+  local held = {}
+  watchers[session.id] = held
+  follow(session, store, held)
+  held.subscription = events.on(events.comment, function(data)
+    if data.session == session.id and watchers[session.id] == held then
+      follow(session, store, held)
+    end
+  end)
+end
+
+---Stop the watcher of a session.
+---@param session codeview.Session
+local function unwatch(session)
+  local held = watchers[session.id]
+  if not held then
+    return
+  end
+  watchers[session.id] = nil
+  shut(held.handle)
+  shut(held.timer)
+  if held.subscription then
+    events.off(held.subscription)
+  end
+end
+
+---Report whether the comment file of a session has a watcher handle, for the
+---tests.
+---@param session codeview.Session
+---@return boolean watched
+function M.watched(session)
+  local held = watchers[session.id]
+  return held ~= nil and held.handle ~= nil
+end
+
 --- Store ------------------------------------------------------------------------
 
 ---Load the comment file of a session.
@@ -68,7 +201,9 @@ function M.attach(session)
     return nil, err
   end
   stores[session.id] = store
+  watch(session, store)
   session:on_close(function(closed)
+    unwatch(closed)
     stores[closed.id] = nil
     -- The editor float belongs to the session. A float that stays open holds a
     -- store that the session does not own any more. A later save then writes

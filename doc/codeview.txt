@@ -1601,6 +1601,25 @@ posts nothing. The `existing` field of the result is true in that case.
 One session runs one submit or one send at a time. A second call while the
 first one runs gives an error, so no comment goes out twice.
 
+Another Neovim can send the comments of the same session file, for example
+the headless codeview of |codeview-bridge|. These rules keep each comment to
+one send:
+
+- The session file is the truth. A comment with a `synced_at` value in the
+  file went out, and no submit and no send posts it again.
+- A save reads the file first and keeps its sent marks. An open session
+  never writes its old copy over the marks of another send.
+- A submit and a send read the sent marks of the file before they choose
+  the comments.
+- An open session watches its session file. When another Neovim marks a
+  comment as sent, the diff and the overview show it as sent.
+- A submit and a send make the lock file `<session-key>.md.lock` next to the
+  session file. It holds the pid and the time. While another Neovim holds
+  the lock, the call stops with the error "another codeview sends these
+  comments now. Try again when it is done". A lock older than 10 minutes,
+  or a lock of a pid that does not run, is stale, and the call replaces it.
+  The lock goes away at the end of the call, also after an error.
+
 A failed post writes nothing. No comment gets the fields, and the session file
 does not change. The report holds the answer of the server, for example the
 line that GitHub did not take. Correct the comment, then run the command
@@ -1608,6 +1627,105 @@ again.
 
 A submit sends the event CodeViewReviewSubmitted. See
 |codeview-overview-events|.
+
+                                                             *codeview-bridge*
+Another tool can show the comments of codeview and send some of them. chaoshub
+does this. The tool reads the session file, see |codeview-bridge-file|. It
+never writes it. To send, the tool runs codeview in a headless Neovim, with
+the repository as the working directory: >
+
+    nvim --headless -c "lua require('codeview.bridge').submit_file('<path>')"
+<
+codeview then maps the comments to the lines of the diff, posts one review,
+and marks the comments as sent. The lock and the sent marks of
+|codeview-submit-guard| cover this send too.
+
+The file at `<path>` holds the request, as JSON: >json
+
+    {
+      "version": 1,
+      "repo": "owner/name",
+      "number": 14,
+      "head": "<sha>",
+      "ids": ["68a1c2f30b7a"],
+      "event": "comment",
+      "body": "",
+      "out": "/tmp/result.json"
+    }
+<
+The fields hold: >
+
+    version       1
+    repo          repository of the pull request, as owner/name
+    number        number of the pull request
+    head          head commit that the comments belong to
+    ids           ids of the comments to send
+    event         "comment", "approve", or "request-changes"
+    body          text of the review, "" when it is not given
+    out           path of the result file
+<
+The call opens the pull request session without the layout. When the head of
+the pull request is not `head`, the call stops with an error, because the
+comments belong to another push. It then sends the chosen comments, without
+questions: the tool asked the user already. A chosen comment that went out
+already does not go out again.
+
+The call writes the result atomically to `out`, as JSON: >json
+
+    {
+      "version": 1,
+      "ok": true,
+      "posted": 3,
+      "skipped": [{ "id": "68a1c2f30b7b", "reason": "..." }],
+      "already_sent": ["68a1c2f30b7c"],
+      "url": "https://github.com/owner/name/pull/14#pullrequestreview-1",
+      "error": ""
+    }
+<
+The fields hold: >
+
+    version       1
+    ok            true when the send ran without an error
+    posted        number of comments that GitHub took
+    skipped       comments that stay local, with the reason
+    already_sent  chosen comments that went out already
+    url           address of the review, "" when GitHub sent none
+    error         text of the error, "" when ok is true
+<
+When every chosen comment went out already, the call posts nothing. The
+result then has `ok` true and `posted` 0. When another Neovim holds the lock,
+the result has `ok` false and the error of the lock.
+
+The call then closes the session and quits Neovim. The exit codes are: >
+
+    0             ok is true
+    1             ok is false, or the call wrote no result file
+<
+Every error, also a Lua error, writes a result with `ok` false and the text
+of the error.
+
+The request, the result, and the exit codes are a stable interface within
+version 0.x.
+
+                                                        *codeview-bridge-file*
+The session file is a read interface for other tools, stable within version
+0.x. Its format is in |codeview-comments-store|. A tool reads it like this:
+
+- The file is `<session-key>.md` in one directory per repository, under the
+  `comments.dir` option. `~/.local/share/nvim/codeview/review/` by default.
+- The frontmatter holds `version`, `repo`, and `range`. `repo` is the
+  absolute path of the repository root. A tool reads only `version: 1`.
+- For a pull request, `range` is `pr-<number>-<head sha>`. Each push of the
+  head therefore gets a new file.
+- Each comment starts with the line `## codeview-comment <id>`. The `- key:
+  value` lines follow, then the body.
+- A body line that starts with `\` loses that first character. The escape
+  keeps a body line that reads as a comment heading out of the headings.
+- A comment is unsent while its `synced_at` value is empty.
+- A `file` of `codeview://pr/<number>` is a comment on the pull request
+  document. It goes into the text of the review. A `file` of another
+  `codeview://` form is a comment on a commit message. GitHub takes no such
+  comment. Every other `file` is a path in the repository.
 
 ==============================================================================
 13. LUA API                                                       *codeview-api*
@@ -1966,13 +2084,25 @@ codeview.submit({opts}, {cb})
           body = nil,     -- text of the review, the prompt asks without it
           dir = nil,      -- directory that gh runs in, the repo root by default
           notify = true,  -- false silences the reports of the call
+          ids = nil,      -- ids of the comments to send, every unsent comment by default
+          confirm = true, -- false asks nothing and shows no summary
         }
 <
+    With `ids`, the call sends only these comments. An id that the session
+    does not hold gives an error. A chosen comment that went out already
+    does not go out again, and `result.already_sent` names it.
+
+    With `confirm = false`, the call asks nothing: no event picker, no text
+    prompt, and no summary. `event` is then required, and `body` is "" by
+    default. The plugin posts only after the user confirms, in codeview or
+    in the tool that calls it. |codeview-bridge| uses this form.
+
     {cb} gets `result, err`. The result holds the number of comments that
     GitHub took, the number of comments that stay local, the review of the
     answer, and its address. `result.existing` is true when GitHub held the
-    review of an earlier try, so the call posted nothing. See
-    |codeview-submit| and |codeview-submit-guard|.
+    review of an earlier try, so the call posted nothing.
+    `result.stays_local` lists the comments that stay local, with the
+    reason. See |codeview-submit| and |codeview-submit-guard|.
 
                                                              *codeview.send()*
 codeview.send({opts}, {cb})

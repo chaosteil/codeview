@@ -758,6 +758,62 @@ function Store:unsynced()
   return out
 end
 
+---Report whether two comments hold the same anchor.
+---@param a codeview.store.Comment
+---@param b codeview.store.Comment
+---@return boolean same
+local function same_anchor(a, b)
+  return a.file == b.file and a.side == b.side and a.start_line == b.start_line and a.end_line == b.end_line
+end
+
+---Take the sent marks of the session file.
+---
+--- Another process can send the comments of this file, for example a
+--- headless codeview that another tool starts. The file then holds sent
+--- marks that this store does not hold. The call reads the file. For each
+--- comment that the file shows as sent while the store does not, the call
+--- takes `synced_at`, `review_id`, and `remote_id` from the file.
+---
+--- A comment that got a new text or a new anchor in this store after the send
+--- keeps an empty `synced_at`, because the new text did not go out. It takes
+--- `review_id`, and with the same anchor also `remote_id`, so that the next
+--- submit changes the comment on the host.
+---
+--- The call never clears a sent mark. A missing file or a file that does not
+--- read changes nothing.
+---@return integer count Number of comments that got a sent mark.
+function Store:take_marks()
+  if self.path == "" or not uv.fs_stat(self.path) then
+    return 0
+  end
+  local text = read_file(self.path)
+  local disk = text and M.decode(text)
+  if not disk then
+    return 0
+  end
+  local count = 0
+  for _, sent in ipairs(disk.comments) do
+    local comment = self:get(sent.id)
+    if comment and M.is_synced(sent) and not M.is_synced(comment) then
+      local anchor = same_anchor(comment, sent)
+      if anchor and comment.body == sent.body then
+        comment.synced_at = sent.synced_at
+        comment.review_id = sent.review_id
+        comment.remote_id = sent.remote_id
+        count = count + 1
+      else
+        if comment.review_id == "" then
+          comment.review_id = sent.review_id
+        end
+        if anchor and comment.remote_id == "" then
+          comment.remote_id = sent.remote_id
+        end
+      end
+    end
+  end
+  return count
+end
+
 ---Delete one comment.
 ---@param id string Id of the comment.
 ---@return codeview.store.Comment? comment The comment that the call removed.
@@ -774,12 +830,17 @@ end
 ---
 --- The call makes the directory of the file when it is missing, and writes the
 --- file atomically.
+---
+--- The call reads the file first and takes its sent marks, see
+--- |codeview.store.Store:take_marks()|. A save therefore never writes over
+--- the marks of a send of another process.
 ---@return boolean ok False after an error.
 ---@return codeview.Error? err
 function Store:save()
   if self.path == "" then
     return false, errors.new(errors.codes.INVALID_ARG, "the store has no path")
   end
+  self:take_marks()
   self.updated_at = os.time()
   return fsutil.write_atomic(self.path, M.encode(self))
 end
