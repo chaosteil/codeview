@@ -738,8 +738,8 @@ reopen of the same range shows the comments again.
 
 The diff buffer stays read-only. A comment never becomes a line of the buffer.
 The view shows a comment with extmarks only: a sign on every covered row, and
-virtual lines below the range. The line count of the diff buffer never
-changes, so the line map of the render stays correct.
+a box of virtual lines below the range. The line count of the diff buffer
+never changes, so the line map of the render stays correct.
 
                                                      *codeview-comments-keys*
 The insert keys write comments. They do nothing in a read-only buffer, so the
@@ -866,10 +866,39 @@ The editor starts in insert mode, after the last character of the text. Set
                                                    *codeview-comments-display*
 The `comments.display` option selects the display: >
 
-    virtual   the body shows in virtual lines below the range (default)
+    virtual   the body shows in a box of virtual lines below the range
+              (default)
     float     the row keeps the sign only
 <
 The `K` key shows the comment in a float in both cases.
+
+                                                       *codeview-comments-box*
+With `display = "virtual"` a comment shows as a box with a frame and a
+background of its own, the same as the inline editor: >
+
+    ╭─ comment L2 (new) ──────────────────────────╮
+    │ please rename this                          │
+    ╰─────────────────────────────────────────────╯
+<
+The header goes into the top border. The box is as wide as the diff window,
+minus the line numbers and the sign column, minus one column. It is never
+less than 20 columns. In the side-by-side style each box takes the width of
+its own window. When a window changes size, for example when the sidebar or
+the overview opens or closes, the boxes take the new width.
+
+A body line that is too long wraps inside the box, at the spaces between the
+words. A word that is wider than the box breaks at the edge. A header that is
+too long ends in "…".
+
+The frame follows the `comments.border` option: "rounded", "single",
+"double", "bold", and "solid" draw a frame. "none", "", and "shadow" draw no
+frame. The box is then the header line and the body lines, still with the
+background. A border name that the box does not know draws a "single" frame.
+
+The background comes from |hl-CodeViewCommentBox|, a light blue tint in most
+colorschemes, and the frame from |hl-CodeViewCommentBorder|. A comment from
+GitHub takes |hl-CodeViewRemoteBox| and |hl-CodeViewRemoteBorder|, a grey
+tint, so it looks different from your own comments.
 
                                                      *codeview-comments-state*
 A comment holds a state: "open" or "resolved". The resolve key changes the
@@ -1298,7 +1327,9 @@ empty comment file and your notes on the older push stay where they are. See
                                                      *codeview-github-remote*
 The review comments of the pull request come in after the session opens. The
 diff shows them under their line, with the sign of the `comments.remote_sign`
-option, the login of the author, and the word "read-only". The comment
+option, the login of the author, and the word "read-only". Each one shows in
+a box with a grey tint, the same box as a local comment. See
+|codeview-comments-box|. The comment
 overview lists them in a section of their own, under the local comments.
 
 A remote comment is read-only. The edit key, the delete key, and the resolve
@@ -1921,8 +1952,8 @@ Defaults: >lua
         sign = "▌",                  -- sign of a commented line
         resolved_sign = "✓",         -- sign of a resolved comment
         remote_sign = "▏",           -- sign of a comment from GitHub
-        border = "rounded",          -- border of the editor, the float, and
-                                     -- the loading view
+        border = "rounded",          -- border of the editor, the float, the
+                                     -- comment boxes, and the loading view
         width = 72,                  -- width of the editor, in columns
         height = 10,                 -- height of the editor, in lines
         editor = "inline",           -- "inline" | "float"
@@ -2162,6 +2193,11 @@ again after a colorscheme change.
                                                         *hl-CodeViewDiffTextDelete*
                                                         *hl-CodeViewDiffFiller*
                                                         *hl-CodeViewComment*
+                                                        *hl-CodeViewCommentBox*
+                                                        *hl-CodeViewCommentBorder*
+                                                        *hl-CodeViewRemote*
+                                                        *hl-CodeViewRemoteBox*
+                                                        *hl-CodeViewRemoteBorder*
                                                     *hl-CodeViewLoadingDone*
                                                   *hl-CodeViewLoadingFailed*
 >
@@ -2195,10 +2231,14 @@ again after a colorscheme change.
     CodeViewCommentHeader  Title        header line of a comment
     CodeViewCommentSign    Special      sign of a commented line
     CodeViewCommentResolved DiagnosticOk sign of a resolved comment
+    CodeViewCommentBox     computed     background of a comment box
+    CodeViewCommentBorder  computed     frame of a comment box
     CodeViewRemote         Comment      body of a comment from GitHub
     CodeViewRemoteHeader   DiagnosticInfo header line of a remote comment
     CodeViewRemoteSign     DiagnosticInfo sign of a remote comment
     CodeViewRemoteOutdated DiagnosticWarn sign of an outdated remote comment
+    CodeViewRemoteBox      computed     background of a remote comment box
+    CodeViewRemoteBorder   computed     frame of a remote comment box
     CodeViewLoadingDone    DiagnosticOk mark of a step that ended, in the
                                         loading view
     CodeViewLoadingFailed  DiagnosticError mark and text of an error, in the
@@ -2208,6 +2248,27 @@ The two word groups take no link. The plugin computes their colors from the
 colorscheme, and so do |hl-CodeViewDiffAdd| and |hl-CodeViewDiffDelete| while
 `diff.syntax` is on. To keep your own colors for these groups, set them from
 your own |ColorScheme| autocmd, which runs after the one of the plugin.
+
+The four box groups take no link either. |hl-CodeViewCommentBox| is 15
+percent of the foreground of `DiagnosticInfo` on the background of `Normal`.
+|hl-CodeViewRemoteBox| is 15 percent of the foreground of `Comment`. The
+box groups carry a background only, so the text of a box keeps the color of
+|hl-CodeViewComment| or |hl-CodeViewRemote|. The border groups take the
+foreground of `FloatBorder`, or of the tint when `FloatBorder` has none, on
+the background of the box. When the colorscheme has no such colors, the box
+groups link to `NormalFloat` and the border groups link to `FloatBorder`.
+
+To give the boxes your own colors, set them from your own |ColorScheme|
+autocmd: >lua
+
+    vim.api.nvim_create_autocmd("ColorScheme", {
+      callback = function()
+        vim.api.nvim_set_hl(0, "CodeViewCommentBox", { bg = "#1d2b3a" })
+        vim.api.nvim_set_hl(0, "CodeViewCommentBorder",
+          { fg = "#5f87af", bg = "#1d2b3a" })
+      end,
+    })
+<
 
 To change a color, set the group after your colorscheme: >lua
 

@@ -620,6 +620,38 @@ local function watch_split(view, wins)
   })
 end
 
+---Fit the comment boxes of the view to its windows after a resize.
+---
+--- A comment box is as wide as its window. When a window of the view changes
+--- size, for example after an open or a close of the sidebar or of the
+--- overview, the call draws the comments again in the new width. The event
+--- lists the windows that changed size. An event without that list, for
+--- example from |:doautocmd|, draws the comments again too.
+---@param view codeview.view.State
+local function watch_size(view)
+  view.guards[#view.guards + 1] = api.nvim_create_autocmd("WinResized", {
+    group = view.session:augroup(),
+    desc = "Fit the codeview comment boxes to the width of the window",
+    callback = function()
+      if state ~= view then
+        return
+      end
+      local changed = vim.v.event.windows
+      if changed then
+        local hit = false
+        for _, win in ipairs(view_windows(view)) do
+          hit = hit or vim.tbl_contains(changed, win)
+        end
+        if not hit then
+          return
+        end
+      end
+      require("codeview.comments").decorate(view)
+      require("codeview.remote").decorate(view)
+    end,
+  })
+end
+
 ---Map the load key on the buffers of a diff that the line limit stopped.
 ---
 --- The key is free in the diff buffer of every other file, because a diff that
@@ -657,6 +689,7 @@ local function mount(view, style, win_hint)
     api.nvim_win_set_buf(win, buf)
   end
   view.buf, view.win = buf, win
+  watch_size(view)
 
   if style ~= "split" then
     view.old_buf, view.old_win, view.old_map = nil, nil, nil

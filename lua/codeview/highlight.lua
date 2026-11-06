@@ -4,9 +4,9 @@
 --- keeps control: an own `:highlight` command, or a link in a colorscheme,
 --- wins over the default link.
 ---
---- The row groups and the word groups of a diff are the exceptions. The
---- module computes their colors from the colorscheme, so they carry no link
---- and no `default`.
+--- The row groups and the word groups of a diff, and the box groups of the
+--- comments, are the exceptions. The module computes their colors from the
+--- colorscheme, so they carry no link and no `default`.
 ---
 --- The links go away when a colorscheme runs `:highlight clear`. The module
 --- sets them again on the |ColorScheme| event.
@@ -89,6 +89,20 @@ M.diff_words = {
   CodeViewDiffTextDelete = { row = "DiffDelete", color = "Removed" },
 }
 
+---@class codeview.highlight.BoxSource
+---@field tint string Standard group that gives the color of the background.
+---@field border string Group of the frame of the box.
+
+---Groups of the background of a comment box in the diff, and the standard
+--- groups they derive from. |codeview.highlight.apply_comment_boxes()|
+--- defines them and their border groups, so they are not part of
+--- |codeview.highlight.links|.
+---@type table<string, codeview.highlight.BoxSource>
+M.comment_boxes = {
+  CodeViewCommentBox = { tint = "DiagnosticInfo", border = "CodeViewCommentBorder" },
+  CodeViewRemoteBox = { tint = "Comment", border = "CodeViewRemoteBorder" },
+}
+
 ---Define every group.
 function M.apply()
   for group, target in pairs(M.links) do
@@ -96,6 +110,7 @@ function M.apply()
   end
   M.apply_diff_rows()
   M.apply_diff_words()
+  M.apply_comment_boxes()
 end
 
 ---Background of one group, or nil when the group carries none.
@@ -186,6 +201,43 @@ function M.apply_diff_words()
       api.nvim_set_hl(0, group, { bg = blend(fg, bg, 0.25) })
     else
       api.nvim_set_hl(0, group, { link = "CodeViewDiffText" })
+    end
+  end
+end
+
+---Colors of the boxes of the comments in the diff.
+---
+--- A comment box takes a light tint of a color on the background of
+--- `Normal`, so the comment stands out from the code around it. The box of a
+--- local comment takes 15 percent of the foreground of `DiagnosticInfo`,
+--- which is blue in most colorschemes. The box of a GitHub comment takes 15
+--- percent of the foreground of `Comment`, a grey, so the two kinds of
+--- comment look different. The box groups carry no foreground, so the text
+--- keeps the color of its own group.
+---
+--- The border group of a box takes the foreground of `FloatBorder` on the
+--- background of the box. When `FloatBorder` has no foreground, the border
+--- takes the color of the tint.
+---
+--- When the colorscheme gives no background to `Normal` or no foreground to
+--- the tint, the box links to `NormalFloat` and the border links to
+--- `FloatBorder`.
+---
+--- The groups carry no `default`, like the row groups. Their value follows a
+--- colorscheme, so the call computes it again on each run. To give them your
+--- own colors, set them from your own |ColorScheme| autocmd.
+function M.apply_comment_boxes()
+  local base = background_of("Normal")
+  local line = foreground_of("FloatBorder")
+  for group, source in pairs(M.comment_boxes) do
+    local tint = foreground_of(source.tint)
+    if base and tint then
+      local bg = blend(tint, base, 0.15)
+      api.nvim_set_hl(0, group, { bg = bg })
+      api.nvim_set_hl(0, source.border, { fg = line or tint, bg = bg })
+    else
+      api.nvim_set_hl(0, group, { link = "NormalFloat" })
+      api.nvim_set_hl(0, source.border, { link = "FloatBorder" })
     end
   end
 end

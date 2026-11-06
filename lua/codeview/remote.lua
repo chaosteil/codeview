@@ -30,6 +30,7 @@
 --- `side` is LEFT for the old side of the diff and RIGHT for the new side.
 --- |codeview.position.from_api()| maps these fields to the lines of an anchor.
 
+local box = require("codeview.box")
 local config = require("codeview.config")
 local errors = require("codeview.error")
 local events = require("codeview.events")
@@ -583,15 +584,23 @@ function M.header(comment)
 end
 
 ---Virtual lines of one remote comment.
+---
+--- The comment shows as a box, the same as a local comment. A grey tint
+--- tells it apart from a local comment. |codeview.box| builds it.
 ---@param comment codeview.remote.Comment
----@return string[][][] lines Chunks of every virtual line.
-local function virt_lines(comment)
-  local prefix = M.sign() .. " "
-  local out = { { { prefix .. M.header(comment), "CodeViewRemoteHeader" } } }
-  for _, line in ipairs(vim.split(comment.body, "\n", { plain = true })) do
-    out[#out + 1] = { { prefix .. line, "CodeViewRemote" } }
-  end
-  return out
+---@param width integer Width of the box, in screen cells.
+---@return table[][] lines Chunks of every virtual line.
+local function virt_lines(comment, width)
+  return box.lines({
+    header = M.header(comment),
+    header_hl = "CodeViewRemoteHeader",
+    body = comment.body,
+    body_hl = "CodeViewRemote",
+    box_hl = "CodeViewRemoteBox",
+    border_hl = "CodeViewRemoteBorder",
+    border = config.get().comments.border,
+    width = width,
+  })
 end
 
 ---Virtual lines that hold no text.
@@ -650,7 +659,7 @@ local function place(view, comment, display)
       priority = 190,
     }
     if display == "virtual" and row == rows[#rows] then
-      opts.virt_lines = virt_lines(comment)
+      opts.virt_lines = virt_lines(comment, box.width_for(buf, view.win))
       opts.virt_lines_above = false
     end
     local ok = pcall(api.nvim_buf_set_extmark, buf, M.ns, row - 1, 0, opts)
@@ -697,6 +706,11 @@ function M.decorate(view)
     else
       hidden = hidden + 1
     end
+  end
+  if count > 0 and display == "virtual" then
+    box.refit(view, function()
+      M.decorate(view)
+    end)
   end
   return count, hidden
 end

@@ -70,6 +70,15 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- A comment in the diff shows as a box with a frame and a blue tint, the same
+  as the inline editor. The header goes into the top border. The box is as
+  wide as the editor, wraps long body lines, and takes the new width when a
+  window changes size. The frame follows `comments.border`. A GitHub comment
+  takes the same box with a grey tint. The sign no longer goes in front of
+  each line of the comment.
+- New highlight groups `CodeViewCommentBox`, `CodeViewCommentBorder`,
+  `CodeViewRemoteBox`, and `CodeViewRemoteBorder`. The plugin computes their
+  colors from the colorscheme.
 - The inline comment editor has a frame. It uses the `comments.border`
   option, the same as the float. The title and the key hint go into the
   frame. With `border = "none"` they stay in the winbar.

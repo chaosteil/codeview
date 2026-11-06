@@ -1,11 +1,13 @@
 ---@brief Extmarks of the comments in the diff.
 ---
 --- A comment never becomes a line of the diff buffer. This module shows it
---- with extmarks only: a sign on every covered row, and virtual lines below
---- the range. |codeview.anchor| gives the rows. The call only writes
---- extmarks, so the text and the line map of the diff stay as they were.
+--- with extmarks only: a sign on every covered row, and a box of virtual
+--- lines below the range. |codeview.anchor| gives the rows. The call only
+--- writes extmarks, so the text and the line map of the diff stay as they
+--- were.
 
 local anchor = require("codeview.anchor")
+local box = require("codeview.box")
 local config = require("codeview.config")
 local highlight = require("codeview.highlight")
 local store_mod = require("codeview.store")
@@ -80,16 +82,23 @@ function M.sign_group(comment)
 end
 
 ---Virtual lines of one comment.
+---
+--- The comment shows as a box: the header in the top border, and the body
+--- between the side borders. |codeview.box| builds it.
 ---@param comment codeview.store.Comment
----@return string[][][] lines Chunks of every virtual line.
-local function virt_lines(comment)
-  local prefix = M.sign(comment) .. " "
-  local header = comment.state == "resolved" and "CodeViewCommentResolved" or "CodeViewCommentHeader"
-  local out = { { { prefix .. M.header_text(comment), header } } }
-  for _, line in ipairs(vim.split(comment.body, "\n", { plain = true })) do
-    out[#out + 1] = { { prefix .. line, "CodeViewComment" } }
-  end
-  return out
+---@param width integer Width of the box, in screen cells.
+---@return table[][] lines Chunks of every virtual line.
+local function virt_lines(comment, width)
+  return box.lines({
+    header = M.header_text(comment),
+    header_hl = comment.state == "resolved" and "CodeViewCommentResolved" or "CodeViewCommentHeader",
+    body = comment.body,
+    body_hl = "CodeViewComment",
+    box_hl = "CodeViewCommentBox",
+    border_hl = "CodeViewCommentBorder",
+    border = config.get().comments.border,
+    width = width,
+  })
 end
 
 ---Virtual lines that hold no text.
@@ -137,7 +146,7 @@ function M.place(view, comment, display)
       priority = 200,
     }
     if display == "virtual" and row == rows[#rows] then
-      opts.virt_lines = virt_lines(comment)
+      opts.virt_lines = virt_lines(comment, box.width_for(buf, view.win))
       opts.virt_lines_above = false
     end
     local ok = pcall(api.nvim_buf_set_extmark, buf, M.ns, row - 1, 0, opts)
@@ -189,6 +198,11 @@ function M.decorate(view, store)
     else
       hidden = hidden + 1
     end
+  end
+  if count > 0 and display == "virtual" then
+    box.refit(view, function()
+      M.decorate(view, store)
+    end)
   end
   return count, hidden
 end

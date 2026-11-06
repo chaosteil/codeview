@@ -109,13 +109,10 @@ describe("codeview.comments", function()
     return rows
   end
 
-  ---Text of the virtual lines of every mark of a buffer.
-  ---
-  --- A line without text does not count. The other side of a side-by-side view
-  --- takes such lines, so that both windows grow by the same height.
+  ---Full text of the virtual lines of every mark of a buffer, with the frame.
   ---@param buf integer
   ---@return string[] lines
-  local function virt_lines(buf)
+  local function box_lines(buf)
     local out = {}
     for _, mark in ipairs(marks_of(buf)) do
       for _, line in ipairs(mark[4].virt_lines or {}) do
@@ -123,9 +120,48 @@ describe("codeview.comments", function()
         for _, chunk in ipairs(line) do
           text = text .. chunk[1]
         end
-        if text ~= "" then
-          out[#out + 1] = text
-        end
+        out[#out + 1] = text
+      end
+    end
+    return out
+  end
+
+  ---Text of a box line without the frame and without the padding.
+  ---@param text string
+  ---@return string
+  local function content(text)
+    for _, char in ipairs({ "╭", "│", "╰" }) do
+      if vim.startswith(text, char) then
+        text = text:sub(#char + 1)
+      end
+    end
+    for _, char in ipairs({ "╮", "│", "╯" }) do
+      if vim.endswith(text, char) then
+        text = text:sub(1, -#char - 1)
+      end
+    end
+    while vim.startswith(text, "─") do
+      text = text:sub(#"─" + 1)
+    end
+    while vim.endswith(text, "─") do
+      text = text:sub(1, -#"─" - 1)
+    end
+    return vim.trim(text)
+  end
+
+  ---Text of the virtual lines of every mark of a buffer, without the frame.
+  ---
+  --- A line without text does not count: the bottom border, and the blank
+  --- lines that the other side of a side-by-side view takes, so that both
+  --- windows grow by the same height.
+  ---@param buf integer
+  ---@return string[] lines
+  local function virt_lines(buf)
+    local out = {}
+    for _, line in ipairs(box_lines(buf)) do
+      local text = content(line)
+      if text ~= "" then
+        out[#out + 1] = text
       end
     end
     return out
@@ -210,9 +246,9 @@ describe("codeview.comments", function()
       local state = open_diff()
       comment_on(5, "first line\nsecond line", { first = 5, last = 6 })
       assert.are.same({
-        "▌ comment L3-4 (new)",
-        "▌ first line",
-        "▌ second line",
+        "comment L3-4 (new)",
+        "first line",
+        "second line",
       }, virt_lines(state.buf))
 
       -- The body sits below the last row of the range, and only there.
@@ -242,8 +278,8 @@ describe("codeview.comments", function()
       local state = assert(view.current())
       assert.are.same({ 3 }, sign_rows(state.old_buf))
       assert.are.same({ 3 }, sign_rows(state.buf))
-      assert.are.same({ "▌ comment L2 (old)", "▌ the old side" }, virt_lines(state.old_buf))
-      assert.are.same({ "▌ comment L2 (new)", "▌ the new side" }, virt_lines(state.buf))
+      assert.are.same({ "comment L2 (old)", "the old side" }, virt_lines(state.old_buf))
+      assert.are.same({ "comment L2 (new)", "the new side" }, virt_lines(state.buf))
     end)
 
     it("keeps the two windows of the split aligned", function()
@@ -264,10 +300,11 @@ describe("codeview.comments", function()
       comment_on(3, "one\ntwo\nthree")
       state = assert(view.current())
 
-      -- The comment adds four virtual lines to the new side. The old side takes
-      -- four blank ones, so both windows keep the same height.
-      assert.are.equal(4, virt_line_count(state.buf))
-      assert.are.equal(4, virt_line_count(assert(state.old_buf)))
+      -- The comment adds five virtual lines to the new side: the top border,
+      -- three body lines, and the bottom border. The old side takes five blank
+      -- ones, so both windows keep the same height.
+      assert.are.equal(5, virt_line_count(state.buf))
+      assert.are.equal(5, virt_line_count(assert(state.old_buf)))
       local after_old, after_new = heights()
       assert.are.equal(after_old, after_new)
       assert.is_true(after_new > before_new)
@@ -813,7 +850,7 @@ describe("codeview.comments", function()
 
       editor.cancel()
       assert.is_nil(require("codeview.marks").editing)
-      assert.are.same({ "▌ comment L1 (new)", "▌ the first note" }, virt_lines(fresh.buf))
+      assert.are.same({ "comment L1 (new)", "the first note" }, virt_lines(fresh.buf))
     end)
 
     it("takes the keys from the configuration", function()
@@ -870,12 +907,12 @@ describe("codeview.comments", function()
 
       local comment = comment_on(4, "one")
       assert.are.equal(1, #marks_of(state.buf))
-      assert.are.same({ "▌ comment L2 (new)", "▌ one" }, virt_lines(state.buf))
+      assert.are.same({ "comment L2 (new)", "one" }, virt_lines(state.buf))
 
       comments.edit({ id = comment.id })
       write_comment("two")
       assert.are.equal(1, #marks_of(state.buf))
-      assert.are.same({ "▌ comment L2 (new)", "▌ two" }, virt_lines(state.buf))
+      assert.are.same({ "comment L2 (new)", "two" }, virt_lines(state.buf))
 
       comments.remove({ id = comment.id, confirm = false })
       assert.are.equal(0, #marks_of(state.buf))
@@ -1030,7 +1067,7 @@ describe("codeview.comments", function()
       local store = assert(comments.store())
       assert.are.equal("resolved", store.comments[1].state)
       assert.are.equal("✓", marks_of(state.buf)[1][4].sign_text:sub(1, 3))
-      assert.are.same({ "✓ comment L2 (new) · resolved", "✓ please rename this" }, virt_lines(state.buf))
+      assert.are.same({ "comment L2 (new) · resolved", "please rename this" }, virt_lines(state.buf))
       assert.are.equal(
         "resolved",
         assert(store_mod.load({ repo = fixture.root, range = store.range })).comments[1].state
@@ -1058,6 +1095,218 @@ describe("codeview.comments", function()
 
       api.nvim_win_set_cursor(state.win, { 4, 0 })
       assert.are.equal(0, #comments.at_cursor())
+    end)
+  end)
+
+  describe("the box", function()
+    ---Width that a box takes in a window.
+    ---@param win integer
+    ---@return integer
+    local function box_width(win)
+      return api.nvim_win_get_width(win) - vim.fn.getwininfo(win)[1].textoff - 1
+    end
+
+    ---Chunks of the virtual lines of the first mark with virtual lines.
+    ---@param buf integer
+    ---@return table[][]
+    local function chunks_of(buf)
+      for _, mark in ipairs(marks_of(buf)) do
+        if mark[4].virt_lines then
+          return mark[4].virt_lines
+        end
+      end
+      return {}
+    end
+
+    it("frames the comment with the rounded border", function()
+      local state = open_diff()
+      comment_on(4, "one\n\ntwo")
+      local width = box_width(state.win)
+      local lines = box_lines(state.buf)
+      assert.are.equal(5, #lines)
+
+      assert.is_true(vim.startswith(lines[1], "╭─ comment L2 (new) ─"))
+      assert.is_true(vim.endswith(lines[1], "─╮"))
+      assert.are.equal("│ one" .. string.rep(" ", width - 7) .. " │", lines[2])
+      -- An empty body line stays in the box as a line of spaces.
+      assert.are.equal("│" .. string.rep(" ", width - 2) .. "│", lines[3])
+      assert.are.equal("│ two" .. string.rep(" ", width - 7) .. " │", lines[4])
+      assert.are.equal("╰" .. string.rep("─", width - 2) .. "╯", lines[5])
+    end)
+
+    it("fills the space right of the line numbers, minus one column", function()
+      local state = open_diff()
+      comment_on(4, "a short note")
+      local width = box_width(state.win)
+      assert.is_true(width > 20)
+      for _, line in ipairs(box_lines(state.buf)) do
+        assert.are.equal(width, vim.fn.strdisplaywidth(line))
+      end
+    end)
+
+    it("wraps a long body line inside the box", function()
+      local state = open_diff()
+      local width = box_width(state.win)
+      local words = {}
+      for index = 1, 40 do
+        words[index] = "word" .. index
+      end
+      local long = string.rep("x", width)
+      comment_on(4, table.concat(words, " ") .. " " .. long)
+
+      local lines = box_lines(state.buf)
+      assert.is_true(#lines > 4)
+      for _, line in ipairs(lines) do
+        assert.are.equal(width, vim.fn.strdisplaywidth(line))
+      end
+      -- The words break at the spaces only, and a word that is wider than the
+      -- box breaks at the width.
+      local body = {}
+      for index = 2, #lines - 1 do
+        body[#body + 1] = content(lines[index])
+      end
+      local text = table.concat(body, " ")
+      assert.are.equal(table.concat(words, " "), text:sub(1, #table.concat(words, " ")))
+      assert.are.equal(long, text:sub(#table.concat(words, " ") + 2):gsub(" ", ""))
+      for index = 2, #lines - 1 do
+        local line = content(lines[index])
+        if not line:find("x", 1, true) then
+          assert.is_truthy(line:match("^word%d+"), line)
+        end
+      end
+    end)
+
+    it("cuts a header that does not fit", function()
+      local lines = require("codeview.box").lines({
+        header = "comment L120-140 (new) · resolved",
+        header_hl = "CodeViewCommentHeader",
+        body = "note",
+        body_hl = "CodeViewComment",
+        box_hl = "CodeViewCommentBox",
+        border_hl = "CodeViewCommentBorder",
+        border = "rounded",
+        width = 20,
+      })
+      local top = ""
+      for _, chunk in ipairs(lines[1]) do
+        top = top .. chunk[1]
+      end
+      assert.are.equal("╭─ comment L120-… ─╮", top)
+      assert.are.equal(20, vim.fn.strdisplaywidth(top))
+    end)
+
+    it("draws no frame with the border none", function()
+      config.setup({ commit_message = false, comments = { dir = dir, border = "none" } })
+      local state = open_diff()
+      comment_on(4, "one\ntwo")
+      local width = box_width(state.win)
+      assert.are.same({
+        " comment L2 (new)" .. string.rep(" ", width - 18) .. " ",
+        " one" .. string.rep(" ", width - 5) .. " ",
+        " two" .. string.rep(" ", width - 5) .. " ",
+      }, box_lines(state.buf))
+    end)
+
+    it("takes the characters of the border option", function()
+      config.setup({ commit_message = false, comments = { dir = dir, border = "double" } })
+      local state = open_diff()
+      comment_on(4, "one")
+      local lines = box_lines(state.buf)
+      assert.is_true(vim.startswith(lines[1], "╔═ comment L2 (new) ═"))
+      assert.is_true(vim.startswith(lines[2], "║ one"))
+      assert.is_true(vim.startswith(lines[3], "╚═"))
+    end)
+
+    it("puts the box groups on the chunks", function()
+      local state = open_diff()
+      comment_on(4, "one")
+      local lines = chunks_of(state.buf)
+      assert.are.same({
+        { "╭─ ", "CodeViewCommentBorder" },
+        { "comment L2 (new)", { "CodeViewCommentHeader", "CodeViewCommentBox" } },
+      }, { lines[1][1], lines[1][2] })
+      assert.are.equal("CodeViewCommentBorder", lines[1][3][2])
+      assert.are.same({ "│", "CodeViewCommentBorder" }, lines[2][1])
+      assert.are.same({ "CodeViewComment", "CodeViewCommentBox" }, lines[2][2][2])
+      assert.are.same({ "│", "CodeViewCommentBorder" }, lines[2][3])
+      assert.are.equal("CodeViewCommentBorder", lines[3][1][2])
+
+      -- The box group carries a background and no foreground, so the text
+      -- keeps the color of its own group.
+      local box = api.nvim_get_hl(0, { name = "CodeViewCommentBox" })
+      assert.is_number(box.bg)
+      assert.is_nil(box.fg)
+      local border = api.nvim_get_hl(0, { name = "CodeViewCommentBorder" })
+      assert.are.equal(box.bg, border.bg)
+      assert.is_number(border.fg)
+    end)
+
+    it("gives a resolved comment the header group of the state", function()
+      local state = open_diff()
+      local comment = comment_on(4, "one")
+      assert(assert(comments.store()):update(comment.id, { state = "resolved" }))
+      comments.refresh()
+      local lines = chunks_of(state.buf)
+      assert.are.same(
+        { "comment L2 (new) · resolved", { "CodeViewCommentResolved", "CodeViewCommentBox" } },
+        lines[1][2]
+      )
+    end)
+
+    it("fits the box to the window again after a resize", function()
+      local state = open_diff()
+      comment_on(4, "a short note")
+      local before = box_width(state.win)
+      assert.are.equal(before, vim.fn.strdisplaywidth(box_lines(state.buf)[1]))
+
+      -- A second window takes room from the diff window, as a sidebar does.
+      local other = api.nvim_open_win(api.nvim_create_buf(false, true), false, { split = "left", win = state.win })
+      api.nvim_win_set_width(state.win, 50)
+      local after = box_width(state.win)
+      assert.is_true(after < before)
+
+      -- A headless Neovim sends no WinResized event, so the test sends it.
+      api.nvim_exec_autocmds("WinResized", { group = assert(opened):augroup() })
+      for _, line in ipairs(box_lines(state.buf)) do
+        assert.are.equal(after, vim.fn.strdisplaywidth(line))
+      end
+
+      api.nvim_win_close(other, true)
+      api.nvim_exec_autocmds("WinResized", { group = assert(opened):augroup() })
+      assert.are.equal(box_width(state.win), vim.fn.strdisplaywidth(box_lines(state.buf)[1]))
+      assert.are.equal(before, box_width(state.win))
+    end)
+
+    it("fits the box again after the redraw that shows the sign column", function()
+      local state = open_diff()
+      comment_on(4, "a short note")
+      local before = vim.fn.strdisplaywidth(box_lines(state.buf)[1])
+
+      -- Neovim measures the sign column and the line numbers on a redraw. The
+      -- first sign of the buffer then makes the text column move right.
+      vim.cmd("redraw")
+      local width = box_width(state.win)
+      assert.is_true(width < before)
+      assert.is_true(vim.wait(1000, function()
+        return vim.fn.strdisplaywidth(box_lines(state.buf)[1]) == width
+      end))
+    end)
+
+    it("gives the other side of the split as many blank lines as the box", function()
+      open_diff()
+      assert.are.equal("split", view.set_style("split"))
+      local state = assert(view.current())
+      local width = box_width(state.win)
+      comment_on(3, string.rep("long words ", width))
+      state = assert(view.current())
+
+      local count = virt_line_count(state.buf)
+      assert.is_true(count > 3)
+      assert.are.equal(count, virt_line_count(assert(state.old_buf)))
+      assert.are.same({}, virt_lines(assert(state.old_buf)))
+      for _, line in ipairs(box_lines(state.buf)) do
+        assert.are.equal(width, vim.fn.strdisplaywidth(line))
+      end
     end)
   end)
 
@@ -1122,7 +1371,7 @@ describe("codeview.comments", function()
       assert.are.equal(1, store:count())
       assert.are.equal("written in the first session", store.comments[1].body)
       assert.are.same({ 4 }, sign_rows(state.buf))
-      assert.are.same({ "▌ comment L2 (new)", "▌ written in the first session" }, virt_lines(state.buf))
+      assert.are.same({ "comment L2 (new)", "written in the first session" }, virt_lines(state.buf))
     end)
 
     it("keeps the comments of another range apart", function()
@@ -1252,7 +1501,7 @@ describe("codeview.comments", function()
       assert.are.equal(1, count)
       assert.are.equal(0, hidden)
       assert.are.same({ 1 }, sign_rows(state.buf))
-      assert.are.same({ "▌ comment L2 (new)", "▌ please rename this" }, virt_lines(state.buf))
+      assert.are.same({ "comment L2 (new)", "please rename this" }, virt_lines(state.buf))
 
       -- The row of the section reaches the comment, so edit and delete work.
       api.nvim_win_set_cursor(state.win, { 1, 0 })

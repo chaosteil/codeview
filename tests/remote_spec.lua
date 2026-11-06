@@ -381,6 +381,29 @@ describe("codeview.remote in the review", function()
     return remote.marks(buf)
   end
 
+  ---Text of one virtual line, with the frame.
+  ---@param line table[] Chunks of the line.
+  ---@return string
+  local function line_text(line)
+    local text = ""
+    for _, chunk in ipairs(line) do
+      text = text .. chunk[1]
+    end
+    return text
+  end
+
+  ---Text of the virtual lines of the first mark with virtual lines.
+  ---@param buf integer
+  ---@return string[]
+  local function virt_lines(buf)
+    for _, mark in ipairs(marks(buf)) do
+      if mark[4].virt_lines then
+        return vim.tbl_map(line_text, mark[4].virt_lines)
+      end
+    end
+    return {}
+  end
+
   before_each(function()
     helpers.unload()
     comments_mod = require("codeview.comments")
@@ -434,8 +457,68 @@ describe("codeview.remote in the review", function()
     assert.are.equal(config.get().comments.remote_sign, vim.trim(details.sign_text))
     assert.are.equal("CodeViewRemoteSign", details.sign_hl_group)
     assert.is_truthy(details.virt_lines)
-    assert.is_truthy(details.virt_lines[1][1][1]:find("@grace", 1, true))
-    assert.is_truthy(details.virt_lines[1][1][1]:find("read-only", 1, true))
+    assert.is_truthy(line_text(details.virt_lines[1]):find("@grace", 1, true))
+    assert.is_truthy(line_text(details.virt_lines[1]):find("read-only", 1, true))
+  end)
+
+  it("draws a remote comment as a framed box with the grey tint", function()
+    local review = open_session()
+    remote.attach(review, { remote_comment() })
+    local state = open_diff("call.lua")
+
+    local width = api.nvim_win_get_width(state.win) - vim.fn.getwininfo(state.win)[1].textoff - 1
+    local lines = virt_lines(state.buf)
+    assert.are.equal(3, #lines)
+    assert.is_true(vim.startswith(lines[1], "╭─ @grace L2 (new) · read-only ─"))
+    assert.is_true(vim.endswith(lines[1], "─╮"))
+    assert.are.equal("│ this line needs a test" .. string.rep(" ", width - 26) .. " │", lines[2])
+    assert.are.equal("╰" .. string.rep("─", width - 2) .. "╯", lines[3])
+    for _, line in ipairs(lines) do
+      assert.are.equal(width, vim.fn.strdisplaywidth(line))
+    end
+
+    local chunks = marks(state.buf)[1][4].virt_lines
+    assert.are.same({ "╭─ ", "CodeViewRemoteBorder" }, chunks[1][1])
+    assert.are.same({ "CodeViewRemoteHeader", "CodeViewRemoteBox" }, chunks[1][2][2])
+    assert.are.same({ "│", "CodeViewRemoteBorder" }, chunks[2][1])
+    assert.are.same({ "CodeViewRemote", "CodeViewRemoteBox" }, chunks[2][2][2])
+
+    -- The grey box of a remote comment is not the blue box of a local one.
+    local own = api.nvim_get_hl(0, { name = "CodeViewCommentBox" })
+    local other = api.nvim_get_hl(0, { name = "CodeViewRemoteBox" })
+    assert.is_number(other.bg)
+    assert.are_not.equal(own.bg, other.bg)
+  end)
+
+  it("draws a remote comment without a frame with the border none", function()
+    config.setup({ comments = { border = "none" } })
+    local review = open_session()
+    remote.attach(review, { remote_comment({ body = "one\ntwo" }) })
+    local state = open_diff("call.lua")
+
+    local width = api.nvim_win_get_width(state.win) - vim.fn.getwininfo(state.win)[1].textoff - 1
+    local header = " @grace L2 (new) · read-only"
+    assert.are.same({
+      header .. string.rep(" ", width - 1 - vim.fn.strdisplaywidth(header)) .. " ",
+      " one" .. string.rep(" ", width - 5) .. " ",
+      " two" .. string.rep(" ", width - 5) .. " ",
+    }, virt_lines(state.buf))
+  end)
+
+  it("gives the other side of the split as many blank lines as the remote box", function()
+    local review = open_session()
+    remote.attach(review, { remote_comment({ body = string.rep("long words ", 40) }) })
+    open_diff("call.lua")
+    assert.are.equal("split", view.set_style("split"))
+    local state = assert(view.current())
+
+    local count = #virt_lines(state.buf)
+    assert.is_true(count > 3)
+    local blank = 0
+    for _, mark in ipairs(marks(assert(state.old_buf))) do
+      blank = blank + #(mark[4].virt_lines or {})
+    end
+    assert.are.equal(count, blank)
   end)
 
   it("keeps the marks of the local comments", function()
@@ -507,7 +590,7 @@ describe("codeview.remote in the review", function()
 
     local details = marks(state.buf)[1][4]
     assert.are.equal("CodeViewRemoteOutdated", details.sign_hl_group)
-    assert.is_truthy(details.virt_lines[1][1][1]:find("outdated", 1, true))
+    assert.is_truthy(line_text(details.virt_lines[1]):find("outdated", 1, true))
   end)
 
   it("draws an outdated comment where the current file holds its lines", function()

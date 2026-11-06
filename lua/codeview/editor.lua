@@ -14,6 +14,7 @@
 --- the editor that is open. When that editor holds a change, the call asks
 --- first, and "No" keeps it.
 
+local box = require("codeview.box")
 local config = require("codeview.config")
 local notify = require("codeview.notify")
 
@@ -292,34 +293,6 @@ local function editor_height()
   return math.max(math.min(cfg.height, vim.o.lines - 6), 3)
 end
 
----Rows and columns that a border adds to a window.
----
---- The "shadow" border draws only on the right side and on the bottom side.
---- Every other border except "none" draws on all four sides.
----@param border string
----@return integer rows
----@return integer cols
-local function border_size(border)
-  if border == "none" or border == "" then
-    return 0, 0
-  end
-  if border == "shadow" then
-    return 1, 1
-  end
-  return 2, 2
-end
-
----Width of the columns in front of the text of a window.
----
---- The width includes the status column, the number column, the sign column,
---- and the fold column.
----@param win integer
----@return integer
-local function text_offset(win)
-  local info = vim.fn.getwininfo(win)[1]
-  return info and info.textoff or 0
-end
-
 ---Open the space that the inline editor sits in.
 ---
 --- Without the spacer the window covers the lines under the anchor. The
@@ -352,8 +325,8 @@ local function window_config(style, anchor)
     -- of the diff. The window must fit in the space to the right of them:
     -- Neovim pushes a float that goes past the edge of the screen to the
     -- left, and then the float covers the line numbers.
-    local _, cols = border_size(cfg.border)
-    local free = api.nvim_win_get_width(anchor.win) - text_offset(anchor.win)
+    local _, cols = box.border_size(cfg.border)
+    local free = api.nvim_win_get_width(anchor.win) - box.text_offset(anchor.win)
     local width = math.max(free - cols - 1, 20)
     return {
       relative = "win",
@@ -465,7 +438,7 @@ function M.open(opts)
   api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(opts.text or "", "\n", { plain = true }))
   vim.bo[buf].modified = false
 
-  local border_rows = border_size(cfg.border)
+  local border_rows = box.border_size(cfg.border)
   local spacer = nil
   if style == "inline" then
     spacer = open_spacer(anchor, editor_height() + border_rows)
