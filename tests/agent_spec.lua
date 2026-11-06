@@ -220,6 +220,153 @@ describe("codeview.agent in a pull request review", function()
     assert.is_truthy(seen[1]:find("ask.json", 1, true), seen[1])
   end)
 
+  ---A review result of the head of the fixture, with one key issue.
+  ---@param head? string Head commit of the run.
+  ---@return table
+  local function review_record(head)
+    return {
+      version = 1,
+      tool = "review",
+      pr = 12,
+      head_sha = head or fixture.ids.change,
+      model = "anthropic/claude-sonnet-5-5",
+      finished_at = "2026-11-05T17:00:00Z",
+      data = {
+        review = {
+          ["estimated_effort_to_review_[1-5]"] = 2,
+          key_issues_to_review = {
+            {
+              relevant_file = "call.lua",
+              issue_header = "Possible Bug",
+              issue_content = "The value changed.",
+              start_line = 2,
+              end_line = 2,
+            },
+          },
+        },
+      },
+    }
+  end
+
+  ---Lines of the document of one entry of the session.
+  ---@param review codeview.Session
+  ---@param path string
+  ---@return string[]
+  local function document(review, path)
+    local message = require("codeview.message")
+    local file = assert(review:file(assert(review:index_of(path))))
+    local built = assert(message.for_file(review, file))
+    return built.new_lines
+  end
+
+  it("lists the documents under the node Agent, after the pull request document", function()
+    write("review", review_record())
+    write("ask", { version = 1, tool = "ask", pr = 12, head_sha = fixture.ids.change, data = {} })
+    local message = require("codeview.message")
+    local review = open_session()
+    assert.is_nil(review:index_of(message.agent_path("review")))
+    agent.attach(review)
+
+    assert.is_true(message.is_pr(review.files[1].path))
+    assert.are.equal(message.agent_path("review"), review.files[2].path)
+    assert.are.equal(message.agent_path("ask"), review.files[3].path)
+    assert.is_nil(review:index_of(message.agent_path("describe")))
+    assert.are.equal("Agent", review.files[2].group)
+    assert.are.equal(2, review.files[2].order)
+    assert.is_true(review.files[2].virtual)
+    assert.are.equal("pr-agent review", message.display(review.files[2].path, review))
+  end)
+
+  it("keeps the documents after a refresh of the session", function()
+    write("review", review_record())
+    local message = require("codeview.message")
+    local review = open_session()
+    agent.attach(review)
+    assert.is_true(review:refresh({ snapshot = false }) ~= nil)
+    assert.is_truthy(review:index_of(message.agent_path("review")))
+  end)
+
+  it("shows the fields and the key issues of a review", function()
+    write("review", review_record())
+    local review = open_session()
+    agent.attach(review)
+    local text = table.concat(document(review, "codeview://agent/review"), "\n")
+    assert.is_truthy(text:find("pr-agent review of #12", 1, true), text)
+    assert.is_truthy(text:find("Estimated effort to review: 2", 1, true), text)
+    assert.is_truthy(text:find("Possible Bug  call.lua:2", 1, true), text)
+    assert.is_truthy(text:find("The value changed.", 1, true), text)
+    assert.is_nil(text:find("Outdated", 1, true), text)
+  end)
+
+  it("says in the first line that a result is outdated", function()
+    write("review", review_record("3a1f2c0e9b"))
+    local review = open_session()
+    agent.attach(review)
+    local first = document(review, "codeview://agent/review")[1]
+    assert.are.equal(
+      string.format("Outdated: pr-agent ran on 3a1f2c0, the head is now %s.", fixture.ids.change:sub(1, 7)),
+      first
+    )
+  end)
+
+  it("shows the new title and body of a describe result", function()
+    write("describe", {
+      version = 1,
+      tool = "describe",
+      pr = 12,
+      head_sha = fixture.ids.change,
+      data = {
+        title = "Add a greeting",
+        description = "- Add a greeting",
+        pr_files = { { filename = "call.lua", changes_title = "Greet", label = "enhancement" } },
+      },
+    })
+    local review = open_session()
+    agent.attach(review)
+    local text = table.concat(document(review, "codeview://agent/describe"), "\n")
+    assert.is_truthy(text:find("Title: Add a greeting", 1, true), text)
+    assert.is_truthy(text:find("    - Add a greeting", 1, true), text)
+    assert.is_truthy(text:find("- `call.lua` (enhancement): Greet", 1, true), text)
+  end)
+
+  it("shows the questions and answers, newest first", function()
+    write("ask", {
+      version = 1,
+      tool = "ask",
+      pr = 12,
+      head_sha = fixture.ids.change,
+      data = {
+        { question = "How?", answer = "Like this.", head_sha = fixture.ids.change, at = "2026-11-05T18:00:00Z" },
+        { question = "Why?", answer = "Because.", head_sha = fixture.ids.change, at = "2026-11-05T17:00:00Z" },
+      },
+    })
+    local review = open_session()
+    agent.attach(review)
+    local text = table.concat(document(review, "codeview://agent/ask"), "\n")
+    local how, why = text:find("Q: How?", 1, true), text:find("Q: Why?", 1, true)
+    assert.is_truthy(how and why and how < why, text)
+    assert.is_truthy(text:find("    Like this.", 1, true), text)
+  end)
+
+  it("keeps a comment on a pr-agent document local", function()
+    write("review", review_record())
+    local review = open_session()
+    agent.attach(review)
+    local store = assert(require("codeview.comments").store(review))
+    assert(store:add({
+      file = "codeview://agent/review",
+      start_line = 1,
+      end_line = 1,
+      side = "new",
+      commit = fixture.ids.change,
+      body = "a note on the review",
+    }))
+    local plan = assert(require("codeview.submit").plan({ session = review }))
+    assert.are.equal(0, #plan.entries)
+    assert.are.equal(1, #plan.skipped)
+    assert.are.equal(0, #plan.notes)
+  end)
+
   it("removes the fixture", function()
     fixture.cleanup()
     assert.are.equal(0, vim.fn.isdirectory(fixture.dir))

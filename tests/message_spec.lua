@@ -90,7 +90,8 @@ describe("codeview.message", function()
 
     it("keeps the commit document order", function()
       local session = open_session()
-      assert.are.equal(2, message.entries(session.commits)[1].order)
+      -- The pull request document is 1, and the pr-agent documents are 2.
+      assert.are.equal(3, message.entries(session.commits)[1].order)
     end)
 
     it("keeps the commits out of the file count", function()

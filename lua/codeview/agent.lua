@@ -20,6 +20,9 @@
 --- The results load with the session, again after each refresh of the
 --- session, and after each change of the directory. A |uv.new_fs_event()|
 --- watches the directory, so a run of chaoshub reaches the open review.
+---
+--- The review, describe, and ask results are documents of the review, in the
+--- group "Agent" of the sidebar. See |codeview.message|.
 
 local config = require("codeview.config")
 local events = require("codeview.events")
@@ -175,8 +178,53 @@ function M.load(session)
     end
   end
   cache[key] = results
+  M.sync_files(session, results)
   events.emit("agent_loaded", { session = session.id })
   return results
+end
+
+---Put the pr-agent documents of the results into the file list of a session.
+---
+--- The documents follow the pull request document. The open view and the
+--- sidebar keep their file, because the positions of the list move. An open
+--- pr-agent document shows the new result.
+---@param session codeview.Session
+---@param results codeview.agent.Results
+function M.sync_files(session, results)
+  local message = require("codeview.message")
+  local view_mod = require("codeview.view")
+  local open = view_mod.current()
+  if open and open.session ~= session then
+    open = nil
+  end
+  local entries = message.agent_entries(results)
+  local out, placed = {}, false
+  for _, file in ipairs(session.files) do
+    if not message.is_agent(file.path) then
+      out[#out + 1] = file
+      if not placed and message.is_pr(file.path) then
+        vim.list_extend(out, entries)
+        placed = true
+      end
+    end
+  end
+  if not placed then
+    out = vim.list_extend(vim.list_extend({}, entries), out)
+  end
+  session.files = out
+
+  local index = open and session:index_of(open.path) or nil
+  if open and index then
+    open.index = index
+    if message.is_agent(open.path) then
+      view_mod.open(session, index, { win = open.win }, function() end)
+    end
+  end
+  local bar = require("codeview.sidebar").get()
+  if bar and bar.session == session then
+    bar.current = index or bar.current
+    bar:render()
+  end
 end
 
 --- Watch -----------------------------------------------------------------------

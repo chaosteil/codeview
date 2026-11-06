@@ -102,6 +102,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - A review of a pull request reads the pr-agent results of chaoshub. The new
   `github.agent_dir` option names their root. See `:help codeview-agent`.
+- The sidebar lists the pr-agent review, describe, and ask results under
+  the node "Agent".
 - The `rex-codeview` skill starts when the user asks to review the changes,
   for example "I want to review this". It does not start when the user asks
   an agent to review the code.

@@ -748,7 +748,7 @@ describe("codeview.pr", function()
 
       assert.is_true(message.is(opened.files[2].path))
       assert.is_false(message.is_pr(opened.files[2].path))
-      assert.are.equal(2, opened.files[2].order)
+      assert.are.equal(3, opened.files[2].order)
 
       assert.are.equal(2, opened:changed_count())
     end)

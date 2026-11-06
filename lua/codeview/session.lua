@@ -145,7 +145,8 @@ end
 --- The documents read before the code, the way a reviewer reads the pull
 --- request and the message of a change first. The `commit_message` option
 --- removes the commits, and a range without a commit gets none. The pull
---- request document does not depend on that option.
+--- request document does not depend on that option. The pr-agent documents
+--- of |codeview.agent| come after the pull request document.
 ---@param files codeview.vcs.FileChange[]
 ---@param commits codeview.vcs.Commit[]
 ---@param pr codeview.pr.Info? Pull request that the session reviews.
@@ -155,6 +156,7 @@ local function with_message(files, commits, pr)
   local out = {}
   if type(pr) == "table" and type(pr.number) == "number" then
     out[1] = message.pr_entry(pr)
+    vim.list_extend(out, message.agent_entries(require("codeview.agent").get(pr)))
   end
   if config.get().commit_message and #(commits or {}) > 0 then
     vim.list_extend(out, message.entries(commits))
