@@ -67,4 +67,62 @@ describe("codeview.highlight", function()
     highlight.setup()
     assert.are.equal(1, #api.nvim_get_autocmds({ group = "codeview.highlight" }))
   end)
+
+  describe("comment boxes on a transparent colorscheme", function()
+    local saved
+
+    before_each(function()
+      saved = {
+        Normal = api.nvim_get_hl(0, { name = "Normal" }),
+        NormalFloat = api.nvim_get_hl(0, { name = "NormalFloat" }),
+        DiagnosticInfo = api.nvim_get_hl(0, { name = "DiagnosticInfo" }),
+        background = vim.o.background,
+      }
+    end)
+
+    ---Set the groups of a transparent colorscheme: a foreground, no background.
+    ---
+    --- A change of 'background' sets the default colors again, so the tests
+    --- call this after the change.
+    local function transparent()
+      api.nvim_set_hl(0, "Normal", { fg = 0xeeeeee })
+      api.nvim_set_hl(0, "NormalFloat", { fg = 0xeeeeee })
+      api.nvim_set_hl(0, "DiagnosticInfo", { fg = 0x0000ff })
+    end
+
+    after_each(function()
+      for _, name in ipairs({ "Normal", "NormalFloat", "DiagnosticInfo" }) do
+        api.nvim_set_hl(0, name, saved[name])
+      end
+      vim.o.background = saved.background
+    end)
+
+    it("tints black for a dark background", function()
+      vim.o.background = "dark"
+      transparent()
+      highlight.apply_comment_boxes()
+      local box = api.nvim_get_hl(0, { name = "CodeViewCommentBox" })
+      -- 15 percent of 0xff on 0x00 is 0x26.
+      assert.are.equal(0x000026, box.bg)
+      assert.are.equal(box.bg, api.nvim_get_hl(0, { name = "CodeViewCommentBorder" }).bg)
+    end)
+
+    it("tints white for a light background", function()
+      vim.o.background = "light"
+      transparent()
+      highlight.apply_comment_boxes()
+      local box = api.nvim_get_hl(0, { name = "CodeViewCommentBox" })
+      -- 85 percent of 0xff on red and green, all of it on blue.
+      assert.are.equal(0xd9d9ff, box.bg)
+    end)
+
+    it("tints the background of NormalFloat when it has one", function()
+      transparent()
+      api.nvim_set_hl(0, "NormalFloat", { bg = 0x101010 })
+      highlight.apply_comment_boxes()
+      local box = api.nvim_get_hl(0, { name = "CodeViewCommentBox" })
+      -- 0x10 * 0.85 + 0xff * 0.15 = 51.85, so blue is 0x34. Red and green are 0x0e.
+      assert.are.equal(0x0e0e34, box.bg)
+    end)
+  end)
 end)

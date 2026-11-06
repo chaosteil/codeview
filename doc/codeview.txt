@@ -2406,6 +2406,15 @@ foreground of `FloatBorder`, or of the tint when `FloatBorder` has none, on
 the background of the box. When the colorscheme has no such colors, the box
 groups link to `NormalFloat` and the border groups link to `FloatBorder`.
 
+A transparent colorscheme gives `Normal` no background. The tint then goes on
+the background of `NormalFloat`. When `NormalFloat` has no background too,
+the tint goes on black for a dark 'background' and on white for a light one.
+The box then has a color on the background of the terminal.
+
+The inline comment editor takes |hl-CodeViewCommentBox| and
+|hl-CodeViewCommentBorder| too, so a comment looks the same while you type it
+and after you save it.
+
 To give the boxes your own colors, set them from your own |ColorScheme|
 autocmd: >lua
 

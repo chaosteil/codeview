@@ -304,7 +304,7 @@ end
 local function open_spacer(anchor, height)
   local lines = {}
   for _ = 1, height do
-    lines[#lines + 1] = { { "", "NormalFloat" } }
+    lines[#lines + 1] = { { "", "CodeViewCommentBox" } }
   end
   local ok, id = pcall(api.nvim_buf_set_extmark, anchor.buf, ns, anchor.row - 1, 0, {
     virt_lines = lines,
@@ -479,7 +479,9 @@ function M.open(opts)
   vim.wo[win][0].spell = false
   vim.wo[win][0].cursorline = false
   if style == "inline" then
-    vim.wo[win][0].winhighlight = "Normal:NormalFloat"
+    -- The inline editor takes the colors of a comment box, so the comment
+    -- looks the same while the reviewer types it and after the save.
+    vim.wo[win][0].winhighlight = "Normal:CodeViewCommentBox,FloatBorder:CodeViewCommentBorder"
   end
   if style == "inline" and not framed then
     local bar = " " .. (opts.title or "Comment") .. " · " .. hint

@@ -224,15 +224,22 @@ end
 --- background of the box. When `FloatBorder` has no foreground, the border
 --- takes the color of the tint.
 ---
---- When the colorscheme gives no background to `Normal` or no foreground to
---- the tint, the box links to `NormalFloat` and the border links to
---- `FloatBorder`.
+--- A transparent colorscheme gives no background to `Normal`. The tint then
+--- goes on the background of `NormalFloat`. When `NormalFloat` has no
+--- background too, the tint goes on black for a dark 'background' and on
+--- white for a light one. The box then has a color on the background of the
+--- terminal.
+---
+--- When the colorscheme gives no foreground to the tint, the box links to
+--- `NormalFloat` and the border links to `FloatBorder`.
 ---
 --- The groups carry no `default`, like the row groups. Their value follows a
 --- colorscheme, so the call computes it again on each run. To give them your
 --- own colors, set them from your own |ColorScheme| autocmd.
 function M.apply_comment_boxes()
   local base = background_of("Normal")
+    or background_of("NormalFloat")
+    or (vim.o.background == "light" and 0xffffff or 0x000000)
   local line = foreground_of("FloatBorder")
   for group, source in pairs(M.comment_boxes) do
     local tint = foreground_of(source.tint)
