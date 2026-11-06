@@ -21,6 +21,11 @@
 --- session, and after each change of the directory. A |uv.new_fs_event()|
 --- watches the directory, so a run of chaoshub reaches the open review.
 ---
+--- A pull request without result files gets no change at all. The module
+--- creates no file and no directory. Without the root it starts no watcher.
+--- A load sends no event and changes no file list until a result arrives.
+--- The adopt key and its hint exist only while the session holds items.
+---
 --- The review, describe, and ask results are documents of the review, in the
 --- group "Agent" of the sidebar. See |codeview.message|.
 ---
@@ -76,8 +81,13 @@ local DEBOUNCE = 100
 ---@type table<string, codeview.agent.Results>
 local cache = {}
 
+---Head commit of each pull request at the last load, by the key of
+---|codeview.agent.key()|. The items of an older head are outdated.
+---@type table<string, string>
+local heads = {}
+
 ---Watcher of each session, by session id.
----@type table<integer, { handle: uv.uv_fs_event_t?, timer: uv.uv_timer_t?, autocmd: integer? }>
+---@type table<integer, { dir: string?, handle: uv.uv_fs_event_t?, timer: uv.uv_timer_t?, autocmd: integer? }>
 local watchers = {}
 
 --- Paths -----------------------------------------------------------------------
@@ -246,6 +256,15 @@ function M.items(session)
   return items_cache[M.key(info)] or {}
 end
 
+---Report whether the pull request of a session holds pr-agent items.
+---
+--- The adopt key and its hint exist only then.
+---@param session codeview.Session?
+---@return boolean
+function M.has_items(session)
+  return #M.items(session) > 0
+end
+
 ---Sign text of a pr-agent item.
 ---@return string text Empty when the option holds no sign.
 function M.sign()
@@ -343,6 +362,18 @@ function M.read(info)
   return results
 end
 
+---Report whether the results hold the record of at least one tool.
+---@param results codeview.agent.Results?
+---@return boolean
+function M.holds_records(results)
+  for _, tool in ipairs(M.tools) do
+    if results and results[tool] then
+      return true
+    end
+  end
+  return false
+end
+
 ---Results of one pull request, from the last read.
 ---@param info codeview.pr.Info?
 ---@return codeview.agent.Results? results Nil before the first read.
@@ -356,7 +387,12 @@ end
 ---Read the results of the pull request of a session and keep them.
 ---
 --- A file that the module refuses gives one warning. The same reason on the
---- next read stays quiet.
+--- next read stays quiet. A missing file gives no warning.
+---
+--- The call sends the `agent_loaded` event and changes the file list only
+--- when the results changed from the last load of the pull request. A first
+--- load without files is no change, so a review without pr-agent results
+--- sees no event and no new render.
 ---@param session codeview.Session
 ---@return codeview.agent.Results? results Nil for a session without a pull request.
 function M.load(session)
@@ -372,10 +408,20 @@ function M.load(session)
       notify.warn(string.format("cannot read %s.json of pr-agent: %s", tool, err))
     end
   end
+  local head = tostring(info.head_sha or "")
+  -- A new head makes the items outdated. Without a record it changes nothing.
+  local moved = held ~= nil and heads[key] ~= head and M.holds_records(results)
+  local changed = moved or not vim.deep_equal(results, held or { errors = {} })
+  if held and not changed then
+    return held
+  end
   cache[key] = results
+  heads[key] = head
   items_cache[key] = build_items(info, results)
-  M.sync_files(session, results)
-  events.emit("agent_loaded", { session = session.id })
+  if changed then
+    M.sync_files(session, results)
+    events.emit("agent_loaded", { session = session.id })
+  end
   return results
 end
 
@@ -544,52 +590,110 @@ local function unwatch(session)
   end
 end
 
----Watch the directory of the results of a session.
+---Deepest directory that exists on the path to the results of a pull
+---request: the root, `<owner>`, `<repo>`, then `<number>`.
+---@param info codeview.pr.Info
+---@return string? dir Nil when the root does not exist.
+local function deepest(info)
+  local dir = M.root()
+  if vim.fn.isdirectory(dir) == 0 then
+    return nil
+  end
+  local owner, name = (info.repo or ""):match("^([^/]+)/([^/]+)$")
+  if not owner then
+    return dir
+  end
+  for _, part in ipairs({ owner, name, tostring(info.number) }) do
+    local next_dir = fs.joinpath(dir, part)
+    if vim.fn.isdirectory(next_dir) == 0 then
+      break
+    end
+    dir = next_dir
+  end
+  return dir
+end
+
+---Point the watcher of a session at the deepest directory that exists.
 ---
---- The directory comes to exist when it does not, because a watcher needs
---- it. The events of one write come in a burst, so a timer collects them.
+--- The call creates no directory. Without the root it starts no handle and
+--- no timer. While the directory of the pull request does not exist, the
+--- watcher sits on a directory above it. A change there moves the watcher
+--- down, so a first run of chaoshub reaches the open review. The events of
+--- one write come in a burst, so a timer collects them.
 ---@param session codeview.Session
 ---@param info codeview.pr.Info
-local function watch(session, info)
-  local held = { timer = uv.new_timer() }
-  watchers[session.id] = held
-  local dir = M.dir(info)
-  if vim.fn.isdirectory(dir) == 0 then
-    pcall(vim.fn.mkdir, dir, "p")
+---@param held { dir: string?, handle: uv.uv_fs_event_t?, timer: uv.uv_timer_t? }
+local function follow(session, info, held)
+  local dir = deepest(info)
+  if held.handle and dir == held.dir then
+    return
+  end
+  shut(held.handle)
+  held.handle, held.dir = nil, nil
+  if not dir then
+    return
   end
   local handle = uv.new_fs_event()
-  if handle then
-    local ok = pcall(function()
-      return handle:start(dir, {}, function(err)
-        if err or not held.timer then
-          return
-        end
-        held.timer:stop()
-        held.timer:start(DEBOUNCE, 0, function()
-          vim.schedule(function()
-            if watchers[session.id] == held and not session.closed then
-              M.load(session)
-            end
-          end)
+  if not handle then
+    return
+  end
+  held.timer = held.timer or uv.new_timer()
+  local ok, started = pcall(function()
+    return handle:start(dir, {}, function(err)
+      if err or not held.timer then
+        return
+      end
+      held.timer:stop()
+      held.timer:start(DEBOUNCE, 0, function()
+        vim.schedule(function()
+          if watchers[session.id] == held and not session.closed then
+            follow(session, info, held)
+            M.load(session)
+          end
         end)
       end)
     end)
-    if ok then
-      held.handle = handle
-    else
-      shut(handle)
-    end
+  end)
+  if ok and started then
+    held.handle, held.dir = handle, dir
+  else
+    shut(handle)
   end
+end
+
+---Watch the directory of the results of a session.
+---
+--- A refresh of the session reads the results again. It also starts the
+--- watcher when the root came to exist after the open.
+---@param session codeview.Session
+---@param info codeview.pr.Info
+local function watch(session, info)
+  local held = {}
+  watchers[session.id] = held
+  follow(session, info, held)
   held.autocmd = api.nvim_create_autocmd("User", {
     group = session:augroup(),
     pattern = "CodeViewSessionRefreshed",
     desc = "Read the pr-agent results of the codeview session again",
     callback = function(event)
       if type(event.data) == "table" and event.data.id == session.id then
+        follow(session, info, held)
         M.load(session)
       end
     end,
   })
+end
+
+---Directory that the watcher of a session follows, for the tests.
+---@param session codeview.Session
+---@return string? dir Nil without a watcher handle.
+---@return boolean timer True while the watcher holds a timer.
+function M.watched(session)
+  local held = watchers[session.id]
+  if not held then
+    return nil, false
+  end
+  return held.handle and held.dir or nil, held.timer ~= nil
 end
 
 ---Read the results of a pull request session, and follow them.
@@ -617,6 +721,7 @@ end
 function M.clear()
   cache = {}
   items_cache = {}
+  heads = {}
   adopted = {}
 end
 

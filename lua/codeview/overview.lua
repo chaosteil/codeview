@@ -725,6 +725,22 @@ function Overview:toggle_node(item)
   return true
 end
 
+---Map the adopt key in the overview, or remove the map.
+---
+--- The key exists only while the session holds pr-agent items, the same as
+--- in the diff. See |codeview.comments.set_adopt_keymap()|.
+function Overview:sync_adopt()
+  local on = require("codeview.agent").has_items(self.session)
+  for _, lhs in ipairs(config.keys(config.get().keymaps.adopt)) do
+    self.panel:set_keymap(lhs, on and {
+      fn = function()
+        self:adopt()
+      end,
+      desc = "adopt the pr-agent item under the cursor as a comment",
+    } or false)
+  end
+end
+
 ---Take the pr-agent item under the cursor as a local comment.
 ---@return codeview.store.Comment? comment Nil without a pr-agent item on the line.
 function Overview:adopt()
@@ -887,9 +903,6 @@ local function keymaps(overview)
   add(keys.resolve_comment, function()
     overview:set_state()
   end, "resolve the comment under the cursor, or open it again")
-  add(keys.adopt, function()
-    overview:adopt()
-  end, "adopt the pr-agent item under the cursor as a comment")
   add(keys.export, function()
     overview:export()
   end, "show the markdown of the comments in a scratch buffer")
@@ -945,6 +958,12 @@ local function watch(overview)
       overview:render()
     end
   end)
+  -- The adopt key follows the pr-agent items.
+  overview.subscriptions[#overview.subscriptions + 1] = events.on(events.agent, function(data)
+    if data.session == overview.session.id then
+      overview:sync_adopt()
+    end
+  end)
 end
 
 ---Build a new overview for a session.
@@ -978,6 +997,7 @@ local function make(session, on_close)
   if state and state.session == session then
     overview.current = state.path
   end
+  overview:sync_adopt()
   watch(overview)
   return overview
 end

@@ -13,8 +13,12 @@
 --- file loses it behind the hints.
 ---
 --- Set `hints.enabled` to false to leave the row out.
+---
+--- The adopt key reads only while the session holds pr-agent items, because
+--- the key exists only then. See |codeview.agent|.
 
 local config = require("codeview.config")
+local events = require("codeview.events")
 
 local api = vim.api
 
@@ -122,16 +126,21 @@ end
 
 ---Chunks of the hint row of one surface.
 ---@param name string
+---@param session codeview.Session? Session of the row. The adopt key reads only when its pull request holds pr-agent items.
 ---@return { text: string, hl: string }[] chunks
-function M.chunks(name)
+function M.chunks(name, session)
   local cfg = config.get()
   local actions = (cfg.hints.actions or {})[name] or M.actions[name] or {}
   local keys = cfg.keymaps
+  local agent = require("codeview.agent").has_items(session)
 
   ---@type { text: string, hl: string }[]
   local out = {}
   for _, entry in ipairs(actions) do
     local lhs = config.keys(keys[entry.action])[1]
+    if entry.action == "adopt" and not agent then
+      lhs = nil
+    end
     if lhs then
       if #out > 0 then
         out[#out + 1] = { text = "  ", hl = "CodeViewHint" }
@@ -149,7 +158,7 @@ local function render(name)
   if not state or not api.nvim_buf_is_valid(state.buf) then
     return
   end
-  local chunks = name and M.chunks(name) or {}
+  local chunks = name and M.chunks(name, state.session) or {}
   local text = table.concat(vim.tbl_map(function(chunk)
     return chunk.text
   end, chunks))
@@ -263,6 +272,13 @@ function M.close()
     pcall(api.nvim_buf_delete, held.buf, { force = true })
   end
 end
+
+-- The adopt key comes and goes with the pr-agent items of the session.
+events.on(events.agent, function(data)
+  if state and state.session.id == data.session then
+    M.refresh()
+  end
+end)
 
 ---Report whether the hint row is open.
 ---@return boolean

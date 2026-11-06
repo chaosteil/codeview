@@ -249,6 +249,27 @@ function Panel:buffer()
   return nil
 end
 
+---Set one normal mode map of the panel, or remove it.
+---
+--- The map goes into the buffer at once when the panel is open, and into
+--- each later buffer of the panel.
+---@param lhs string Key of the map.
+---@param map false|codeview.panel.Keymap False removes the map.
+function Panel:set_keymap(lhs, map)
+  self.keymaps[lhs] = map
+  local buf = self:buffer()
+  if not buf or lhs == "" then
+    return
+  end
+  if map then
+    vim.keymap.set("n", lhs, function()
+      map.fn(self)
+    end, { buffer = buf, nowait = true, silent = true, desc = "codeview: " .. map.desc })
+  else
+    require("codeview.config").unmap(buf, lhs)
+  end
+end
+
 ---Open the panel and render it.
 ---@param opts? { focus?: boolean } `focus = true` puts the cursor in the panel.
 ---@return integer win Window of the panel.

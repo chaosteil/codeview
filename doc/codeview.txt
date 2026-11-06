@@ -754,7 +754,8 @@ diff buffer maps them to the comment editor: >
     <leader>cr  resolve the comment under the cursor, or open it again
     <leader>co  open or close the comment overview
     K           show the comment under the cursor in a float
-    <leader>ca  adopt the pr-agent item of the line, see |codeview-agent-adopt|
+    <leader>ca  adopt the pr-agent item of the line, see |codeview-agent-adopt|.
+                Only while the review holds pr-agent items.
 <
 `i` and `a` read the line first. A line that already holds a comment opens
 that comment in the editor, the way `i` changes the text that a normal buffer
@@ -1047,7 +1048,8 @@ The overview buffer holds these maps. |codeview-config| names the keys: >
     <leader>ce  edit the comment under the cursor
     <leader>cd  delete the comment under the cursor, after a question
     <leader>cr  resolve the comment under the cursor, or open it again
-    <leader>ca  adopt the pr-agent item under the cursor as a comment
+    <leader>ca  adopt the pr-agent item under the cursor as a comment, only
+                while the review holds pr-agent items
     <leader>cx  show the markdown of the comments in a scratch buffer
     <leader>cy  write the markdown of the comments into the register
     <leader>cR  read the review again from the repository
@@ -1371,6 +1373,13 @@ chaoshub runs pr-agent on a pull request and writes the results to JSON
 files. pr-agent writes nothing to GitHub. A review of the pull request reads
 these files. The results are read-only.
 
+                                                     *codeview-agent-without*
+codeview does nothing for a pull request without result files. It creates no
+file and no directory under the root. Without the root, it starts no
+watcher. The review then shows no "Agent" node, no overview section, no sign,
+and no box. It sends no `CodeViewAgentLoaded` event, and it maps no adopt key.
+A missing file gives no warning.
+
 The files of a pull request are in `<root>/<owner>/<repo>/<number>/`, one
 file per tool: `review.json`, `improve.json`, `describe.json`, and
 `ask.json`. The root is the first of these:
@@ -1397,9 +1406,18 @@ A file of another `version` gives one warning, and the review leaves it out.
 
 The results load with the review of the pull request. They load again after
 each refresh of the review, and after each change of the directory: a watcher
-follows the directory, so a run of chaoshub reaches the open review. Each
-read, and each adopt of |codeview-agent-adopt|, sends the |User| event
-`CodeViewAgentLoaded`.
+follows the directory, so a run of chaoshub reaches the open review.
+
+When the directory of the pull request does not exist, the watcher follows
+the deepest directory of the path that exists: the root, `<owner>`, or
+`<repo>`. When the next part of the path comes to exist, the watcher moves
+down. The first run of chaoshub then reaches the open review without a
+refresh. When the root does not exist at the open, a refresh starts the
+watcher after chaoshub made the root.
+
+A read that finds a change of the results sends the |User| event
+`CodeViewAgentLoaded`, and so does each adopt of |codeview-agent-adopt|. A
+read without a change sends no event and draws nothing again.
 
                                                    *codeview-agent-documents*
 The sidebar lists the review, the describe, and the ask result as documents,
@@ -1426,8 +1444,8 @@ A comment on a pr-agent document stays local. A submit does not send it.
                                                      *codeview-agent-diff*
 The improve suggestions, and the review key issues that name a file and
 lines, show in the diff like the comments of GitHub: a sign of the
-`comments.agent_sign` option on each line, and virtual lines under the last
-line. The header of an item reads: >
+`comments.agent_sign` option on each line, and a box of virtual lines under
+the last line. The header of an item reads: >
 
     pr-agent · possible issue · score 8 · L12-14 · read-only
 <
@@ -1455,6 +1473,12 @@ the diff on a line of the item, in the float of `K`, and in the comment
 overview on the line of the item. It adds a local comment on the same lines,
 and opens it in the editor, so that you can change the text. The item then
 shows as "adopted".
+
+The adopt key exists only while the review holds pr-agent items. Without
+them, codeview maps no `<leader>ca`, so the key keeps your own map, for
+example the code action of your LSP client. The hint row shows the key only
+then too. When results arrive in an open review, the key comes to the open
+diff and to the comment overview.
 
 The body of a suggestion is its text, then a `suggestion` block with the
 improved code: >
@@ -2256,7 +2280,7 @@ The table names the surface of each action: >
     delete_comment    <leader>cd       O D  delete the comment
     resolve_comment   <leader>cr       O D  resolve the comment, or reopen it
     show_comment      K                  D  show the comment in a float
-    adopt             <leader>ca       O D  adopt a pr-agent item as a comment
+    adopt             <leader>ca       O D  adopt a pr-agent item as a comment **
     toggle_overview   <leader>co     S O D  open or close the overview
     refresh           <leader>cR     S O D  read the review again
     export            <leader>cx       O    show the export in a buffer
@@ -2270,6 +2294,9 @@ The table names the surface of each action: >
 (*) The load key maps on a diff that a size limit stopped, and on
 no other diff. `<CR>` keeps its own action in every diff that the view shows.
 See |codeview-diff-limit|.
+
+(**) The adopt key maps only while the review holds pr-agent items. See
+|codeview-agent-adopt|.
 
 The comment editor also saves with `:w`. That write runs from an autocmd, not
 from a map, so it works with any key of your own.

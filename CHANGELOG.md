@@ -102,6 +102,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - A review of a pull request reads the pr-agent results of chaoshub. The new
   `github.agent_dir` option names their root. See `:help codeview-agent`.
+  codeview does nothing for a pull request without results: no directory, no
+  watcher without the root, no event, no key, and no hint.
 - The sidebar lists the pr-agent review, describe, and ask results under
   the node "Agent".
 - The diff and the comment overview show the pr-agent suggestions and key
@@ -109,7 +111,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   In the diff an item shows as a box with its own tint, from the new groups
   `CodeViewAgentBox` and `CodeViewAgentBorder`.
 - `<leader>ca` (the new `adopt` key) takes a pr-agent item as a local
-  comment, with a `suggestion` block for a suggestion.
+  comment, with a `suggestion` block for a suggestion. The key exists only
+  while the review holds pr-agent items.
 - The `rex-codeview` skill starts when the user asks to review the changes,
   for example "I want to review this". It does not start when the user asks
   an agent to review the code.

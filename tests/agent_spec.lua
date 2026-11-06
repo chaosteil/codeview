@@ -635,6 +635,208 @@ describe("codeview.agent in a pull request review", function()
     require("codeview.view").close()
   end)
 
+  describe("without results", function()
+    ---@type string
+    local root
+    ---@type string
+    local adopt_key
+
+    before_each(function()
+      -- The root of the results is a directory that does not exist.
+      root = vim.fs.joinpath(dir, "agent")
+      assert(config.setup({ github = { agent_dir = root }, comments = { dir = vim.fs.joinpath(dir, "comments") } }))
+      adopt_key = config.get().keymaps.adopt
+    end)
+
+    after_each(function()
+      require("codeview.hints").close()
+      require("codeview.overview").close()
+      require("codeview.sidebar").close()
+      require("codeview.view").close()
+    end)
+
+    ---Write one result file of the pull request ada/demo#12 under the root.
+    ---@param tool string
+    ---@param record table
+    local function write_result(tool, record)
+      local path = vim.fs.joinpath(root, "ada", "demo", "12", tool .. ".json")
+      vim.fn.mkdir(vim.fs.dirname(path), "p")
+      vim.fn.writefile({ vim.json.encode(record) }, path)
+    end
+
+    ---Map of the adopt key in one buffer, from |maparg()|.
+    ---@param buf integer
+    ---@return table map Empty without a map.
+    local function adopt_map(buf)
+      return vim.api.nvim_buf_call(buf, function()
+        return vim.fn.maparg(adopt_key, "n", false, true)
+      end)
+    end
+
+    ---Every surface of a review: the sidebar, the diff, the overview, and
+    ---the hint row, with the cursor in the diff.
+    ---@param review codeview.Session
+    ---@return { bar: table, state: codeview.view.State, overview: codeview.Overview }
+    local function open_surfaces(review)
+      local bar = assert(require("codeview.sidebar").open({ session = review }))
+      local state = open_diff(review)
+      local overview = assert(require("codeview.overview").open({ session = review }))
+      assert.is_true(require("codeview.hints").open({ session = review }))
+      vim.api.nvim_set_current_win(state.win)
+      require("codeview.hints").refresh()
+      return { bar = bar, state = state, overview = overview }
+    end
+
+    ---Text of the hint row.
+    ---@return string
+    local function hint_text()
+      require("codeview.hints").refresh()
+      return assert(require("codeview.hints").text())
+    end
+
+    it("creates nothing, sends nothing, and maps nothing", function()
+      local seen, autocmds, messages = 0, 0, {}
+      events.on(events.agent, function()
+        seen = seen + 1
+      end)
+      vim.api.nvim_create_autocmd("User", {
+        pattern = "CodeViewAgentLoaded",
+        callback = function()
+          autocmds = autocmds + 1
+        end,
+      })
+      local notify = vim.notify
+      vim.notify = function(msg) ---@diagnostic disable-line: duplicate-set-field
+        messages[#messages + 1] = msg
+      end
+
+      local review = open_session()
+      local surfaces = open_surfaces(review)
+      local files = vim.deepcopy(review.files)
+      local sidebar_lines = surfaces.bar.panel:lines()
+      local renders = 0
+      local render = surfaces.bar.render
+      surfaces.bar.render = function(self)
+        renders = renders + 1
+        return render(self)
+      end
+
+      local results = assert(agent.attach(review))
+      agent.load(review)
+      assert.are.equal(0, renders, "a load without results draws the sidebar again")
+      -- The sidebar draws itself again on a refresh. The read of the
+      -- refresh must still create nothing.
+      vim.api.nvim_exec_autocmds("User", { pattern = "CodeViewSessionRefreshed", data = { id = review.id } })
+      vim.notify = notify
+
+      -- No directory under the root, and no watcher.
+      assert.are.equal(0, vim.fn.isdirectory(root))
+      local watched, timer = agent.watched(review)
+      assert.is_nil(watched)
+      assert.is_false(timer)
+      -- No event, no notification.
+      assert.are.equal(0, seen)
+      assert.are.equal(0, autocmds)
+      assert.are.same({}, messages)
+      assert.is_false(agent.holds_records(results))
+      -- The file list and the sidebar are the same as without the module.
+      assert.are.same(files, review.files)
+      assert.are.same(sidebar_lines, surfaces.bar.panel:lines())
+      assert.is_nil(table.concat(surfaces.bar.panel:lines(), "\n"):find("Agent", 1, true))
+      -- No adopt key, and no hint of it.
+      assert.is_false(agent.has_items(review))
+      assert.are.same({}, adopt_map(surfaces.state.buf))
+      assert.are.same({}, adopt_map(assert(surfaces.overview.panel:buffer())))
+      assert.is_nil(hint_text():find("adopt", 1, true))
+      -- No section, no sign, and no box.
+      assert.is_nil(table.concat(surfaces.overview.panel:lines(), "\n"):find("agent suggestion", 1, true))
+      assert.are.equal(0, #agent_marks(surfaces.state.buf))
+    end)
+
+    it("keeps a map of the user on the adopt key", function()
+      local review = open_session()
+      local state = open_diff(review)
+      local used = false
+      vim.keymap.set("n", adopt_key, function()
+        used = true
+      end, { buffer = state.buf, desc = "code action" })
+      require("codeview.comments").set_adopt_keymap(review, state.buf)
+      assert.are.equal("code action", adopt_map(state.buf).desc)
+      vim.api.nvim_buf_call(state.buf, function()
+        vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(adopt_key, true, false, true), "x", false)
+      end)
+      assert.is_true(used)
+    end)
+
+    ---Report whether the review shows the results: the adopt key, the hint,
+    ---the group of the sidebar, and the signs of the diff.
+    ---@param review codeview.Session
+    ---@param surfaces { bar: table, state: codeview.view.State, overview: codeview.Overview }
+    local function assert_shown(review, surfaces)
+      assert.is_true(agent.has_items(review))
+      assert.are.equal("codeview: adopt the pr-agent item of the line as a comment", adopt_map(surfaces.state.buf).desc)
+      assert.is_truthy(adopt_map(assert(surfaces.overview.panel:buffer())).desc)
+      assert.is_truthy(hint_text():find("adopt", 1, true))
+      local message = require("codeview.message")
+      assert.is_truthy(review:index_of(message.agent_path("review")))
+      assert.is_truthy(table.concat(surfaces.bar.panel:lines(), "\n"):find("Agent", 1, true))
+      local found = agent_marks(surfaces.state.buf)
+      assert.are.equal(1, #found)
+      assert.are.equal("✦", vim.trim(found[1][4].sign_text))
+      assert.is_truthy(table.concat(surfaces.overview.panel:lines(), "\n"):find("1 agent suggestion", 1, true))
+    end
+
+    it("follows the first run of chaoshub down from the root", function()
+      vim.fn.mkdir(root, "p")
+      local seen = 0
+      events.on(events.agent, function()
+        seen = seen + 1
+      end)
+      local review = open_session()
+      local surfaces = open_surfaces(review)
+      agent.attach(review)
+      assert.are.equal(root, (agent.watched(review)))
+      assert.are.equal(0, seen)
+
+      -- The watcher moves down as each part of the path comes to exist.
+      vim.fn.mkdir(vim.fs.joinpath(root, "ada"))
+      assert.is_true(
+        vim.wait(5000, function()
+          return agent.watched(review) == vim.fs.joinpath(root, "ada")
+        end, 20),
+        "the watcher did not move to the owner"
+      )
+      assert.are.equal(0, seen)
+
+      write_result("review", review_record())
+      assert.is_true(
+        vim.wait(5000, function()
+          return agent.has_items(review)
+        end, 20),
+        "the watcher did not read the new file"
+      )
+      assert.are.equal(vim.fs.joinpath(root, "ada", "demo", "12"), (agent.watched(review)))
+      assert.are.equal(1, seen)
+      assert_shown(review, surfaces)
+
+      -- A read without a change sends no event.
+      agent.load(review)
+      assert.are.equal(1, seen)
+    end)
+
+    it("shows the results after a refresh when the root came to exist", function()
+      local review = open_session()
+      local surfaces = open_surfaces(review)
+      agent.attach(review)
+      assert.is_nil(agent.watched(review))
+
+      write_result("review", review_record())
+      vim.api.nvim_exec_autocmds("User", { pattern = "CodeViewSessionRefreshed", data = { id = review.id } })
+      assert.are.equal(vim.fs.joinpath(root, "ada", "demo", "12"), (agent.watched(review)))
+      assert_shown(review, surfaces)
+    end)
+  end)
+
   it("removes the fixture", function()
     fixture.cleanup()
     assert.are.equal(0, vim.fn.isdirectory(fixture.dir))

@@ -460,6 +460,21 @@ function M.keys(value)
   return out
 end
 
+---Remove a normal mode map of a buffer, but only a map that codeview set.
+---
+--- A map of the user or of another plugin on the same key stays. codeview
+--- knows its own maps by the `codeview: ` start of their description.
+---@param buf integer
+---@param lhs string
+function M.unmap(buf, lhs)
+  local ok, map = pcall(vim.api.nvim_buf_call, buf, function()
+    return vim.fn.maparg(lhs, "n", false, true)
+  end)
+  if ok and map.buffer == 1 and vim.startswith(map.desc or "", "codeview: ") then
+    pcall(vim.keymap.del, "n", lhs, { buffer = buf })
+  end
+end
+
 ---Reset the configuration to the defaults.
 function M.reset()
   M.options = vim.deepcopy(M.defaults)

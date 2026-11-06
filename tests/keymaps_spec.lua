@@ -56,7 +56,9 @@ describe("codeview keymaps", function()
     delete_comment = { { surface = "view", mode = "n" }, { surface = "overview", mode = "n" } },
     resolve_comment = { { surface = "view", mode = "n" }, { surface = "overview", mode = "n" } },
     show_comment = { { surface = "view", mode = "n" } },
-    -- The adopt key also maps in the float of a pr-agent item.
+    -- The adopt key also maps in the float of a pr-agent item. It maps only
+    -- while the session holds pr-agent items, so the audit gives every
+    -- session items.
     adopt = { { surface = "view", mode = "n" }, { surface = "overview", mode = "n" } },
     toggle_overview = {
       { surface = "sidebar", mode = "n" },
@@ -168,6 +170,9 @@ describe("codeview keymaps", function()
     session_mod = require("codeview.session")
     sidebar = require("codeview.sidebar")
     view = require("codeview.view")
+    require("codeview.agent").has_items = function()
+      return true
+    end
     store_dir = fixtures.tempdir("codeview-keymaps")
     -- The load key maps on a diff above the line limit only. A limit of one
     -- line makes every diff of the fixture such a diff.

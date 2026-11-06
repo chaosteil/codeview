@@ -709,6 +709,45 @@ end
 
 --- Keymaps ---------------------------------------------------------------------
 
+---View of a session, while the session runs.
+---@param session codeview.Session
+---@return codeview.view.State?
+local function view_of(session)
+  if not session:is_active() then
+    return nil
+  end
+  local view = require("codeview.view").current()
+  return view and view.session == session and view or nil
+end
+
+---Map the adopt key in a diff buffer, or remove the map.
+---
+--- The key exists only while the session holds pr-agent items. A review
+--- without pr-agent results keeps the key free, for example for the code
+--- action of an LSP client.
+---@param session codeview.Session Session that owns the buffer.
+---@param buf integer Buffer of a diff.
+function M.set_adopt_keymap(session, buf)
+  if not api.nvim_buf_is_valid(buf) then
+    return
+  end
+  local on = require("codeview.agent").has_items(session)
+  for _, lhs in ipairs(config.keys(config.get().keymaps.adopt)) do
+    if on then
+      vim.keymap.set("n", lhs, function()
+        require("codeview.agent").adopt({ view = view_of(session), session = session })
+      end, {
+        buffer = buf,
+        nowait = true,
+        silent = true,
+        desc = "codeview: adopt the pr-agent item of the line as a comment",
+      })
+    else
+      config.unmap(buf, lhs)
+    end
+  end
+end
+
 ---Set the comment keymaps of a diff buffer.
 ---
 --- The maps are buffer-local, so they never reach a normal file buffer. Every
@@ -737,16 +776,6 @@ function M.set_keymaps(session, buf)
     end
   end
 
-  ---View of the session, while the session runs.
-  ---@return codeview.view.State?
-  local function view_of()
-    if not session:is_active() then
-      return nil
-    end
-    local view = require("codeview.view").current()
-    return view and view.session == session and view or nil
-  end
-
   ---Leave visual mode and comment on the lines of the selection.
   local function visual()
     local first, last = vim.fn.line("v"), vim.fn.line(".")
@@ -754,16 +783,16 @@ function M.set_keymaps(session, buf)
       first, last = last, first
     end
     api.nvim_feedkeys(api.nvim_replace_termcodes("<Esc>", true, false, true), "nx", false)
-    M.add({ first = first, last = last, view = view_of() })
+    M.add({ first = first, last = last, view = view_of(session) })
   end
 
   local function normal()
-    M.add({ view = view_of() })
+    M.add({ view = view_of(session) })
   end
 
   ---Edit the comment of the line, or write the first one.
   local function edit_or_add()
-    M.edit_or_add({ view = view_of() })
+    M.edit_or_add({ view = view_of(session) })
   end
 
   add("n", keys.comment, edit_or_add, "edit or write the comment of the line")
@@ -772,20 +801,18 @@ function M.set_keymaps(session, buf)
   add("x", keys.comment, visual, "comment on the selected lines")
   add("x", keys.comment_visual, visual, "comment on the selected lines")
   add("n", keys.edit_comment, function()
-    M.edit({ view = view_of() })
+    M.edit({ view = view_of(session) })
   end, "edit the comment")
   add("n", keys.delete_comment, function()
-    M.remove({ view = view_of() })
+    M.remove({ view = view_of(session) })
   end, "delete the comment")
   add("n", keys.resolve_comment, function()
-    M.set_state({ view = view_of() })
+    M.set_state({ view = view_of(session) })
   end, "resolve the comment")
   add("n", keys.show_comment, function()
-    M.show({ view = view_of() })
+    M.show({ view = view_of(session) })
   end, "show the comment")
-  add("n", keys.adopt, function()
-    require("codeview.agent").adopt({ view = view_of(), session = session })
-  end, "adopt the pr-agent item of the line as a comment")
+  M.set_adopt_keymap(session, buf)
   add("n", keys.toggle_overview, function()
     require("codeview.overview").toggle({ session = session, focus = true })
   end, "open or close the comment overview")
@@ -798,6 +825,18 @@ end
 -- overview into this module.
 events.on(events.comment, function()
   M.refresh()
+end)
+
+-- The adopt key follows the pr-agent items. Results that arrive after the
+-- open add the key to the diff buffers of the session.
+events.on(events.agent, function(data)
+  local view = require("codeview.view").current()
+  if not view or view.session.id ~= data.session then
+    return
+  end
+  for _, buf in ipairs({ view.buf, view.old_buf }) do
+    M.set_adopt_keymap(view.session, buf)
+  end
 end)
 
 return M
