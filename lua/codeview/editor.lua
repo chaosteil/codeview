@@ -8,7 +8,9 @@
 --- A write of the buffer saves the comment: `:w`, `:wq`, `:x`, `ZZ`, and every
 --- other command that writes. The `editor_cancel` keys discard it, and a close
 --- of the window without a write discards it too. An empty body counts as a
---- discard, so a save of an empty buffer writes nothing.
+--- discard, so a save of an empty buffer writes nothing. An editor with an
+--- `on_empty` handler calls it instead: a save of an emptied comment deletes
+--- that comment.
 ---
 --- One editor is open at a time. A second |codeview.editor.open()| discards
 --- the editor that is open. When that editor holds a change, the call asks
@@ -37,6 +39,7 @@ M.filetype = "markdown"
 ---@field on_save fun(body: string) Handler of a save. The call trims the body.
 ---@field on_send fun(body: string)? Handler of the send key. Without it the key reports that the comment has no pull request.
 ---@field on_cancel fun()? Handler of a discard.
+---@field on_empty fun()? Handler of a save with an empty body. Without it the save is a discard.
 ---@field anchor codeview.editor.Anchor? Row that the inline style opens under.
 ---@field id string? Id of the comment that the editor edits. Nil for a new comment.
 
@@ -47,6 +50,7 @@ M.filetype = "markdown"
 ---@field on_save fun(body: string)
 ---@field on_send fun(body: string)?
 ---@field on_cancel fun()?
+---@field on_empty fun()?
 ---@field done boolean True after a save or a discard.
 ---@field style codeview.editor.Style Style that the editor opened with.
 ---@field anchor codeview.editor.Anchor? Anchor of the inline style.
@@ -168,7 +172,7 @@ end
 ---Save the comment and close the editor.
 ---
 --- An empty body discards the comment, because a comment without text says
---- nothing.
+--- nothing. An editor with an `on_empty` handler calls the handler instead.
 ---@return boolean saved False when the editor is closed or the body is empty.
 function M.submit()
   local editor = M.current()
@@ -177,6 +181,13 @@ function M.submit()
   end
   local body = M.body() or ""
   if body == "" then
+    if editor.on_empty then
+      editor.done = true
+      local on_empty = editor.on_empty
+      unmount(editor)
+      on_empty()
+      return false
+    end
     M.cancel()
     return false
   end
@@ -212,7 +223,9 @@ local function write(editor)
     end
   end)
   if body == "" then
-    if editor.on_cancel then
+    if editor.on_empty then
+      editor.on_empty()
+    elseif editor.on_cancel then
       editor.on_cancel()
     end
     return
@@ -409,6 +422,7 @@ function M.open(opts)
   vim.validate("opts.on_save", opts.on_save, "callable")
   vim.validate("opts.on_send", opts.on_send, "callable", true)
   vim.validate("opts.on_cancel", opts.on_cancel, "callable", true)
+  vim.validate("opts.on_empty", opts.on_empty, "callable", true)
   vim.validate("opts.title", opts.title, "string", true)
   vim.validate("opts.text", opts.text, "string", true)
   vim.validate("opts.anchor", opts.anchor, "table", true)
@@ -495,6 +509,7 @@ function M.open(opts)
     on_save = opts.on_save,
     on_send = opts.on_send,
     on_cancel = opts.on_cancel,
+    on_empty = opts.on_empty,
     done = false,
     style = style,
     anchor = anchor,

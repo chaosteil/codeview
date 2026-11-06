@@ -12,6 +12,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `Normal` and `NormalFloat` have no background, the tint goes on black for a
   dark 'background' and on white for a light one. The inline comment editor
   takes the colors of the box.
+- A save of an edit with an empty body deletes the comment. Before, the save
+  kept the old text.
 - A file with few but very long lines no longer blocks the editor. The new
   `diff.max_bytes` limit stops it, and the load key lifts the limit.
 - Syntax highlighting skips a side of more than 1 MB and a line of more than

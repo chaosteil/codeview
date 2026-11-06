@@ -495,6 +495,14 @@ function M.edit(opts)
     on_save = save,
     on_send = send_handler(session, save),
     on_cancel = release,
+    -- A save of an empty body deletes the comment. The reviewer removed every
+    -- word and saved, so the call asks no question.
+    on_empty = function()
+      release()
+      if M.remove({ id = comment.id, session = session, confirm = false }) then
+        notify.info("deleted the comment")
+      end
+    end,
   })
   if not buf then
     return false

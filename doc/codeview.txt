@@ -800,7 +800,8 @@ In the editor: >
     <leader>cs  send the comment to the pull request
 <
 An empty body counts as a discard. A close of the window without a write
-discards the comment too.
+discards the comment too. To delete a comment, edit it, remove all of its
+text, and save. The plugin deletes the comment and asks no question.
 
 One editor is open at a time. A second open, for example `o` on another line,
 replaces the editor. When the open editor holds typed text, the plugin first
