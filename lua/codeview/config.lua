@@ -69,6 +69,7 @@ local M = {}
 ---@field sign string Sign text for a commented line.
 ---@field resolved_sign string Sign text for a line with a resolved comment.
 ---@field remote_sign string Sign text for a line with a comment from GitHub.
+---@field agent_sign string Sign text for a line with a suggestion of pr-agent.
 ---@field border string Border of the comment editor, of the comment float, and of the loading view.
 ---@field width integer Width of the comment editor, in columns. The float style only.
 ---@field height integer Height of the comment editor, in lines.
@@ -142,6 +143,7 @@ M.defaults = {
     sign = "▌",
     resolved_sign = "✓",
     remote_sign = "▏",
+    agent_sign = "✦",
     border = "rounded",
     width = 72,
     height = 10,
@@ -336,6 +338,7 @@ function M.validate(opts)
     vim.validate("comments.sign", opts.comments.sign, "string")
     vim.validate("comments.resolved_sign", opts.comments.resolved_sign, "string")
     vim.validate("comments.remote_sign", opts.comments.remote_sign, "string")
+    vim.validate("comments.agent_sign", opts.comments.agent_sign, "string")
     vim.validate("comments.border", opts.comments.border, "string")
     vim.validate("comments.width", opts.comments.width, positive_integer, "positive integer")
     vim.validate("comments.height", opts.comments.height, positive_integer, "positive integer")

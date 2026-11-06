@@ -52,7 +52,8 @@ local M = {}
 
 ---@class codeview.overview.Item
 ---@field kind "dir"|"file"|"comment"|"remote-file"|"remote" Kind of the line.
----@field path string Path of the file, or of the directory. A remote line prefixes it with `remote:`.
+---@field path string Path of the file, or of the directory. A line of a read-only section prefixes it with the name of its source, for example `remote:`.
+---@field source string? Name of the source of a line of a read-only section, see |codeview.remote.sources|.
 ---@field node codeview.tree.Node? Tree node of a directory line or a file line.
 ---@field comment codeview.store.Comment? Comment of a comment line.
 ---@field remote codeview.remote.Comment? Comment of a remote line.
@@ -237,23 +238,25 @@ local function comment_line(item, depth, width)
   return line.build({ hl = resolved and "CodeViewComment" or nil, data = item })
 end
 
----Key of the expanded state of a file of the remote section.
+---Key of the expanded state of a file of a read-only section.
+---@param source codeview.remote.Source
 ---@param path string Path of the file.
 ---@return string
-local function remote_key(path)
-  return "remote:" .. path
+local function remote_key(source, path)
+  return source.name .. ":" .. path
 end
 
----Comments of the pull request of the session, by file.
+---Read-only items of one source of the session, by file.
 ---@param self codeview.Overview
+---@param source codeview.remote.Source
 ---@return table<string, codeview.remote.Comment[]> by_file
----@return string[] files Paths of the files that hold a remote comment.
----@return integer count Number of remote comments.
-local function remote_group(self)
+---@return string[] files Paths of the files that hold an item.
+---@return integer count Number of items.
+local function remote_group(self, source)
   ---@type table<string, codeview.remote.Comment[]>
   local by_file = {}
   local files, count = {}, 0
-  for _, comment in ipairs(require("codeview.remote").list(self.session)) do
+  for _, comment in ipairs(source.list(self.session)) do
     if not by_file[comment.file] then
       by_file[comment.file] = {}
       files[#files + 1] = comment.file
@@ -267,19 +270,20 @@ local function remote_group(self)
       if a.start_line ~= b.start_line then
         return a.start_line < b.start_line
       end
-      return a.id < b.id
+      return tostring(a.id) < tostring(b.id)
     end)
   end
   table.sort(files)
   return by_file, files, count
 end
 
----Build the line of one file of the remote section.
+---Build the line of one file of a read-only section.
+---@param source codeview.remote.Source
 ---@param path string Path of the file.
----@param count integer Number of remote comments of the file.
+---@param count integer Number of items of the file.
 ---@param expanded boolean
 ---@return codeview.panel.Line
-local function remote_file_line(path, count, expanded)
+local function remote_file_line(source, path, count, expanded)
   local icons = config.get().sidebar.icons
   local line = panel.builder()
   line.add("  ")
@@ -289,24 +293,31 @@ local function remote_file_line(path, count, expanded)
   line.add(path)
   line.add(" " .. tostring(count), "CodeViewCount")
   return line.build({
-    data = { kind = "remote-file", path = remote_key(path), count = count, resolved = 0, expanded = expanded },
+    data = {
+      kind = "remote-file",
+      path = remote_key(source, path),
+      source = source.name,
+      count = count,
+      resolved = 0,
+      expanded = expanded,
+    },
   })
 end
 
----Build the line of one remote comment.
+---Build the line of one read-only item.
+---@param source codeview.remote.Source
 ---@param comment codeview.remote.Comment
 ---@param width integer Width of the panel, in columns.
 ---@return codeview.panel.Line
-local function remote_comment_line(comment, width)
-  local remote_mod = require("codeview.remote")
+local function remote_comment_line(source, comment, width)
   local icons = config.get().sidebar.icons
   local line = panel.builder()
 
   line.add("  ")
   line.add(string.rep(icons.guide .. " ", 2), "CodeViewIndent")
-  local sign = remote_mod.sign()
+  local sign = source.sign()
   if sign ~= "" then
-    line.add(sign .. " ", comment.outdated and "CodeViewRemoteOutdated" or "CodeViewRemoteSign")
+    line.add(sign .. " ", comment.outdated and source.hl.outdated or source.hl.sign)
   end
   -- An outdated comment that no line of the current version holds keeps the
   -- lines of an older version. Those numbers name other text now, so the line
@@ -315,11 +326,12 @@ local function remote_comment_line(comment, width)
   if unanchored then
     line.add(comment.side, "CodeViewHint")
   else
-    line.add(range_text(comment), "CodeViewRemoteHeader")
+    line.add(range_text(comment), source.hl.header)
     line.add(" " .. comment.side, "CodeViewHint")
   end
-  if comment.author ~= "" then
-    line.add(" @" .. comment.author, "CodeViewCount")
+  local who = source.who(comment)
+  if who ~= "" then
+    line.add(" " .. who, "CodeViewCount")
   end
   if comment.outdated or unanchored then
     line.add(" outdated", "CodeViewRemoteOutdated")
@@ -333,43 +345,44 @@ local function remote_comment_line(comment, width)
   ---@type codeview.overview.Item
   local item = {
     kind = "remote",
-    path = remote_key(comment.file),
+    path = remote_key(source, comment.file),
+    source = source.name,
     remote = comment,
     count = 1,
     resolved = 0,
   }
-  return line.build({ hl = "CodeViewRemote", data = item })
+  return line.build({ hl = source.hl.body, data = item })
 end
 
----Build the lines of the comments that the pull request holds.
+---Build the lines of the read-only items of the pull request.
 ---
---- The section comes after the local comments, because it is read-only: the
---- reviewer works in the local section and reads this one.
+--- Each source gets a section after the local comments, because it is
+--- read-only: the reviewer works in the local section and reads these. The
+--- comments of GitHub come first, then the suggestions of pr-agent.
 ---@param self codeview.Overview
 ---@param lines codeview.panel.Line[] Lines of the render, in place.
----@return integer count Number of remote comments.
+---@return integer count Number of read-only items.
 local function render_remote(self, lines)
-  local by_file, files, count = remote_group(self)
-  if count == 0 then
-    return 0
-  end
-
-  lines[#lines + 1] = { text = "" }
-  lines[#lines + 1] = {
-    text = string.format("%d remote %s", count, count == 1 and "comment" or "comments"),
-    hl = "CodeViewRemoteHeader",
-  }
-  for _, path in ipairs(files) do
-    local list = by_file[path]
-    local expanded = self.expanded[remote_key(path)] ~= false
-    lines[#lines + 1] = remote_file_line(path, #list, expanded)
-    if expanded then
-      for _, comment in ipairs(list) do
-        lines[#lines + 1] = remote_comment_line(comment, self.panel.width)
+  local total = 0
+  for _, source in ipairs(require("codeview.remote").sources) do
+    local by_file, files, count = remote_group(self, source)
+    if count > 0 then
+      total = total + count
+      lines[#lines + 1] = { text = "" }
+      lines[#lines + 1] = { text = source.section(count), hl = source.hl.header }
+      for _, path in ipairs(files) do
+        local list = by_file[path]
+        local expanded = self.expanded[remote_key(source, path)] ~= false
+        lines[#lines + 1] = remote_file_line(source, path, #list, expanded)
+        if expanded then
+          for _, comment in ipairs(list) do
+            lines[#lines + 1] = remote_comment_line(source, comment, self.panel.width)
+          end
+        end
       end
     end
   end
-  return count
+  return total
 end
 
 ---Build every line of the overview.
@@ -459,7 +472,7 @@ local function same_item(a, b)
     return a.comment ~= nil and b.comment ~= nil and a.comment.id == b.comment.id
   end
   if a.remote or b.remote then
-    return a.remote ~= nil and b.remote ~= nil and a.remote.id == b.remote.id
+    return a.remote ~= nil and b.remote ~= nil and a.source == b.source and a.remote.id == b.remote.id
   end
   return true
 end
@@ -556,19 +569,24 @@ function Overview:cursor_remote()
     return item.remote
   end
   if item.kind == "remote-file" then
-    local by_file = remote_group(self)
-    return (by_file[item.path:gsub("^remote:", "")] or {})[1]
+    local source = require("codeview.remote").source(item.source)
+    if not source then
+      return nil
+    end
+    local by_file = remote_group(self, source)
+    return (by_file[item.path:sub(#source.name + 2)] or {})[1]
   end
   return nil
 end
 
----Report that a remote comment does not change.
+---Report that a read-only item does not change.
 ---@param self codeview.Overview
----@return boolean remote True when the cursor is on a line of the remote section.
+---@return boolean remote True when the cursor is on a line of a read-only section.
 local function read_only(self)
   local item = self:cursor_item()
   if item and (item.kind == "remote" or item.kind == "remote-file") then
-    report("the review comments of GitHub are read-only")
+    local source = require("codeview.remote").source(item.source)
+    report(source and source.read_only or "the item is read-only")
     return true
   end
   return false
@@ -718,9 +736,11 @@ function Overview:collapse_all()
   tree.each(self.tree, function(node)
     self.expanded[node.path] = false
   end)
-  local _, files = remote_group(self)
-  for _, path in ipairs(files) do
-    self.expanded[remote_key(path)] = false
+  for _, source in ipairs(require("codeview.remote").sources) do
+    local _, files = remote_group(self, source)
+    for _, path in ipairs(files) do
+      self.expanded[remote_key(source, path)] = false
+    end
   end
   self:render()
 end
@@ -900,8 +920,8 @@ local function watch(overview)
       overview:render()
     end
   end)
-  -- The comments of a pull request arrive after the session opens. The remote
-  -- section shows them as soon as the answer is there.
+  -- The comments of a pull request and the results of pr-agent arrive after
+  -- the session opens. Their sections show them as soon as they are there.
   overview.subscriptions[#overview.subscriptions + 1] = events.on(events.remote, function(data)
     if data.session == nil or data.session == overview.session.id then
       overview:render()

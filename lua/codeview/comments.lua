@@ -372,9 +372,10 @@ end
 local function nothing_here(ctx)
   if ctx.view then
     local target = M.target(ctx.view)
-    local remote = target and require("codeview.remote").at(ctx.session, target.file, target.side, target.start_line)
-    if remote and #remote > 0 then
-      return "the review comments of GitHub are read-only"
+    local found = target
+      and require("codeview.remote").items_at(ctx.session, target.file, target.side, target.start_line)
+    if found and #found > 0 then
+      return found[1].source.read_only
     end
   end
   return "no comment on this line"
@@ -597,7 +598,8 @@ end
 --- The float closes on the next cursor move. It is the display for the
 --- `comments.display = "float"` option, and it also works next to the virtual
 --- lines. The float holds the local comments of the line first, and the
---- read-only comments of a pull request after them.
+--- read-only items of a pull request after them: the comments of GitHub and
+--- the suggestions of pr-agent.
 ---@param opts? { view?: codeview.view.State }
 ---@return integer? buf Buffer of the float.
 ---@return integer? win Window of the float.
@@ -609,7 +611,7 @@ function M.show(opts)
   end
   local remote_mod = require("codeview.remote")
   local found, target = M.at_cursor(view)
-  local remote = target and remote_mod.at(view.session, target.file, target.side, target.start_line) or {}
+  local remote = target and remote_mod.items_at(view.session, target.file, target.side, target.start_line) or {}
   if #found == 0 and #remote == 0 then
     notify.info("no comment on this line")
     return nil, nil
@@ -624,13 +626,13 @@ function M.show(opts)
     lines[#lines + 1] = ""
     vim.list_extend(lines, vim.split(comment.body, "\n", { plain = true }))
   end
-  for _, comment in ipairs(remote) do
+  for _, entry in ipairs(remote) do
     if #lines > 0 then
       lines[#lines + 1] = "---"
     end
-    lines[#lines + 1] = "### " .. remote_mod.header(comment)
+    lines[#lines + 1] = "### " .. entry.source.header(entry.item)
     lines[#lines + 1] = ""
-    vim.list_extend(lines, vim.split(comment.body, "\n", { plain = true }))
+    vim.list_extend(lines, vim.split(entry.item.body, "\n", { plain = true }))
   end
 
   local cfg = config.get().comments

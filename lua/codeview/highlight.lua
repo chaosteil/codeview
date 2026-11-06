@@ -40,6 +40,9 @@ M.links = {
   CodeViewRemoteHeader = "DiagnosticInfo",
   CodeViewRemoteSign = "DiagnosticInfo",
   CodeViewRemoteOutdated = "DiagnosticWarn",
+  CodeViewAgent = "Comment",
+  CodeViewAgentHeader = "DiagnosticHint",
+  CodeViewAgentSign = "DiagnosticHint",
   CodeViewLoadingDone = "DiagnosticOk",
   CodeViewLoadingFailed = "DiagnosticError",
   CodeViewAdded = "Added",
@@ -101,6 +104,7 @@ M.diff_words = {
 M.comment_boxes = {
   CodeViewCommentBox = { tint = "DiagnosticInfo", border = "CodeViewCommentBorder" },
   CodeViewRemoteBox = { tint = "Comment", border = "CodeViewRemoteBorder" },
+  CodeViewAgentBox = { tint = "DiagnosticHint", border = "CodeViewAgentBorder" },
 }
 
 ---Define every group.
@@ -212,8 +216,9 @@ end
 --- local comment takes 15 percent of the foreground of `DiagnosticInfo`,
 --- which is blue in most colorschemes. The box of a GitHub comment takes 15
 --- percent of the foreground of `Comment`, a grey, so the two kinds of
---- comment look different. The box groups carry no foreground, so the text
---- keeps the color of its own group.
+--- comment look different. The box of a pr-agent item takes 15 percent of
+--- the foreground of `DiagnosticHint`. The box groups carry no foreground, so
+--- the text keeps the color of its own group.
 ---
 --- The border group of a box takes the foreground of `FloatBorder` on the
 --- background of the box. When `FloatBorder` has no foreground, the border

@@ -367,6 +367,189 @@ describe("codeview.agent in a pull request review", function()
     assert.are.equal(0, #plan.notes)
   end)
 
+  ---An improve result with one suggestion on call.lua.
+  ---@param fields? table Fields of the suggestion that replace the defaults.
+  ---@param head? string Head commit of the run.
+  ---@return table
+  local function improve_record(fields, head)
+    return {
+      version = 1,
+      tool = "improve",
+      pr = 12,
+      head_sha = head or fixture.ids.change,
+      data = {
+        code_suggestions = {
+          vim.tbl_extend("force", {
+            relevant_file = "call.lua",
+            relevant_lines_start = 2,
+            relevant_lines_end = 2,
+            existing_code = "local b = 22",
+            improved_code = "local b = 23",
+            suggestion_content = "Use the next number.",
+            one_sentence_summary = "Next number",
+            label = "possible issue",
+            score = 8,
+          }, fields or {}),
+        },
+      },
+    }
+  end
+
+  ---Show the diff of call.lua. Row 4 of the inline render holds the new
+  ---line 2.
+  ---@param review codeview.Session
+  ---@return codeview.view.State
+  local function open_diff(review)
+    local view = require("codeview.view")
+    local state = assert(view.open(review, assert(review:index_of("call.lua"))))
+    vim.api.nvim_set_current_win(state.win)
+    return state
+  end
+
+  ---Extmarks of the pr-agent namespace in a buffer.
+  ---@param buf integer
+  ---@return table[]
+  local function agent_marks(buf)
+    return vim.api.nvim_buf_get_extmarks(buf, agent.ns, 0, -1, { details = true })
+  end
+
+  it("marks the lines of a suggestion in the diff", function()
+    write("improve", improve_record())
+    local review = open_session()
+    agent.attach(review)
+    local state = open_diff(review)
+
+    local found = agent_marks(state.buf)
+    assert.are.equal(1, #found)
+    assert.are.equal(3, found[1][2])
+    local details = found[1][4]
+    assert.are.equal("✦", vim.trim(details.sign_text))
+    assert.are.equal("CodeViewAgentSign", details.sign_hl_group)
+    local lines = details.virt_lines
+    assert.are.same({ "╭─ ", "CodeViewAgentBorder" }, lines[1][1])
+    assert.are.same({
+      "pr-agent · possible issue · score 8 · L2 · read-only",
+      { "CodeViewAgentHeader", "CodeViewAgentBox" },
+    }, lines[1][2])
+    assert.are.same({ "│", "CodeViewAgentBorder" }, lines[2][1])
+    assert.are.equal("Use the next number.", vim.trim(lines[2][2][1]))
+    assert.are.same({ "CodeViewAgent", "CodeViewAgentBox" }, lines[2][2][2])
+    assert.are.equal("local b = 23", vim.trim(lines[4][2][1]))
+    assert.are.equal(0, #require("codeview.remote").marks(state.buf))
+
+    -- The box of a suggestion has its own tint, not the grey of GitHub.
+    local agent_box = vim.api.nvim_get_hl(0, { name = "CodeViewAgentBox" })
+    local remote_box = vim.api.nvim_get_hl(0, { name = "CodeViewRemoteBox" })
+    assert.is_number(agent_box.bg)
+    assert.are_not.equal(remote_box.bg, agent_box.bg)
+    require("codeview.view").close()
+  end)
+
+  it("marks a key issue of the review that names a file and lines", function()
+    write("review", review_record())
+    local review = open_session()
+    agent.attach(review)
+    local state = open_diff(review)
+
+    local found = agent_marks(state.buf)
+    assert.are.equal(1, #found)
+    assert.are.equal("pr-agent · Possible Bug · L2 · read-only", found[1][4].virt_lines[1][2][1])
+    require("codeview.view").close()
+  end)
+
+  it("finds the existing code of an outdated suggestion in the current file", function()
+    write("improve", improve_record({ relevant_lines_start = 9, relevant_lines_end = 9 }, "3a1f2c0e9b"))
+    local review = open_session()
+    agent.attach(review)
+    local state = open_diff(review)
+
+    local found = agent_marks(state.buf)
+    assert.are.equal(1, #found)
+    assert.are.equal(3, found[1][2])
+    assert.are.equal("CodeViewRemoteOutdated", found[1][4].sign_hl_group)
+    assert.is_truthy(found[1][4].virt_lines[1][2][1]:find("outdated", 1, true))
+    require("codeview.view").close()
+  end)
+
+  it("leaves out an outdated suggestion whose code the file does not hold", function()
+    write("improve", improve_record({ existing_code = "local z = 0" }, "3a1f2c0e9b"))
+    local review = open_session()
+    agent.attach(review)
+    local state = open_diff(review)
+    assert.are.equal(0, #agent_marks(state.buf))
+    assert.are.equal(1, #agent.items(review))
+    require("codeview.view").close()
+  end)
+
+  it("shows a suggestion in the float and keeps it read-only", function()
+    write("improve", improve_record())
+    local review = open_session()
+    agent.attach(review)
+    local state = open_diff(review)
+    vim.api.nvim_win_set_cursor(state.win, { 4, 0 })
+
+    local comments_mod = require("codeview.comments")
+    local buf = assert(comments_mod.show())
+    local text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
+    assert.is_truthy(text:find("pr-agent · possible issue", 1, true), text)
+    assert.is_truthy(text:find("Use the next number.", 1, true), text)
+
+    local seen = {}
+    local notify = vim.notify
+    vim.notify = function(msg) ---@diagnostic disable-line: duplicate-set-field
+      seen[#seen + 1] = msg
+    end
+    local edited = comments_mod.edit()
+    vim.notify = notify
+    assert.is_false(edited)
+    assert.is_truthy(seen[1]:find("pr-agent suggestions are read-only", 1, true), seen[1])
+    require("codeview.view").close()
+  end)
+
+  it("lists the items in the overview, after the comments of GitHub", function()
+    write("improve", improve_record())
+    write("review", review_record())
+    local review = open_session()
+    local overview = require("codeview.overview")
+    local bar = assert(overview.open({ session = review }))
+    require("codeview.remote").attach(review, {
+      {
+        id = 501,
+        file = "call.lua",
+        start_line = 2,
+        end_line = 2,
+        side = "new",
+        author = "grace",
+        body = "a remote note",
+        outdated = false,
+      },
+    })
+    agent.attach(review)
+
+    local text = table.concat(bar.panel:lines(), "\n")
+    local remote_at = text:find("1 remote comment", 1, true)
+    local agent_at = text:find("2 agent suggestions", 1, true)
+    assert.is_truthy(remote_at and agent_at and remote_at < agent_at, text)
+    assert.is_truthy(text:find("possible issue", 1, true), text)
+
+    local lnum = assert(bar.panel:find(function(item)
+      return item.kind == "remote" and item.source == "agent"
+    end))
+    assert.is_true(bar.panel:set_cursor(lnum))
+    local item = assert(bar:cursor_remote())
+    assert.are.equal("call.lua", item.file)
+
+    local seen = {}
+    local notify = vim.notify
+    vim.notify = function(msg) ---@diagnostic disable-line: duplicate-set-field
+      seen[#seen + 1] = msg
+    end
+    assert.is_false(bar:edit())
+    vim.notify = notify
+    assert.is_truthy(seen[1]:find("pr-agent suggestions are read-only", 1, true), seen[1])
+    overview.close()
+  end)
+
   it("removes the fixture", function()
     fixture.cleanup()
     assert.are.equal(0, vim.fn.isdirectory(fixture.dir))

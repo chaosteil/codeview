@@ -898,7 +898,8 @@ background. A border name that the box does not know draws a "single" frame.
 The background comes from |hl-CodeViewCommentBox|, a light blue tint in most
 colorschemes, and the frame from |hl-CodeViewCommentBorder|. A comment from
 GitHub takes |hl-CodeViewRemoteBox| and |hl-CodeViewRemoteBorder|, a grey
-tint, so it looks different from your own comments.
+tint, so it looks different from your own comments. A pr-agent item takes
+|hl-CodeViewAgentBox| and |hl-CodeViewAgentBorder|. See |codeview-agent|.
 
                                                      *codeview-comments-state*
 A comment holds a state: "open" or "resolved". The resolve key changes the
@@ -1418,6 +1419,32 @@ head of the pull request says so in its first line: >
     Outdated: pr-agent ran on 3a1f2c0, the head is now 9bd2e11.
 <
 A comment on a pr-agent document stays local. A submit does not send it.
+
+                                                     *codeview-agent-diff*
+The improve suggestions, and the review key issues that name a file and
+lines, show in the diff like the comments of GitHub: a sign of the
+`comments.agent_sign` option on each line, and virtual lines under the last
+line. The header of an item reads: >
+
+    pr-agent · possible issue · score 8 · L12-14 · read-only
+<
+The virtual lines of a suggestion hold its text and the improved code. `K`
+shows the item in the float, next to the comments of the line. An item is
+read-only: the edit key, the delete key, and the resolve key report that.
+
+A result of an older head is outdated. The diff then looks for the
+`existing_code` of a suggestion in the current file. With one clear match the
+item shows on those lines, with the word "outdated". Without one, no row of
+the diff holds the item. A key issue holds no code, so an outdated issue
+shows in the overview only.
+
+The comment overview lists the items in a section "N agent suggestions",
+after the section of the comments of GitHub. `<CR>` on an item opens its line
+in the diff. The |hl-CodeViewAgent|, |hl-CodeViewAgentHeader|, and
+|hl-CodeViewAgentSign| groups color the items. An item in the diff shows as a
+box, the same as a comment of GitHub, with its own tint from
+|hl-CodeViewAgentBox| and |hl-CodeViewAgentBorder|. See
+|codeview-comments-box|.
 
 ==============================================================================
 12. SUBMIT                                                     *codeview-submit*
@@ -2008,6 +2035,7 @@ Defaults: >lua
         sign = "▌",                  -- sign of a commented line
         resolved_sign = "✓",         -- sign of a resolved comment
         remote_sign = "▏",           -- sign of a comment from GitHub
+        agent_sign = "✦",            -- sign of a suggestion of pr-agent
         border = "rounded",          -- border of the editor, the float, the
                                      -- comment boxes, and the loading view
         width = 72,                  -- width of the editor, in columns
@@ -2256,6 +2284,8 @@ again after a colorscheme change.
                                                         *hl-CodeViewRemote*
                                                         *hl-CodeViewRemoteBox*
                                                         *hl-CodeViewRemoteBorder*
+                                                        *hl-CodeViewAgentBox*
+                                                        *hl-CodeViewAgentBorder*
                                                     *hl-CodeViewLoadingDone*
                                                   *hl-CodeViewLoadingFailed*
 >
@@ -2297,6 +2327,11 @@ again after a colorscheme change.
     CodeViewRemoteOutdated DiagnosticWarn sign of an outdated remote comment
     CodeViewRemoteBox      computed     background of a remote comment box
     CodeViewRemoteBorder   computed     frame of a remote comment box
+    CodeViewAgent          Comment      body of a pr-agent item in the diff
+    CodeViewAgentHeader    DiagnosticHint header line of a pr-agent item
+    CodeViewAgentSign      DiagnosticHint sign of a pr-agent item
+    CodeViewAgentBox       computed     background of a pr-agent item box
+    CodeViewAgentBorder    computed     frame of a pr-agent item box
     CodeViewLoadingDone    DiagnosticOk mark of a step that ended, in the
                                         loading view
     CodeViewLoadingFailed  DiagnosticError mark and text of an error, in the
@@ -2307,11 +2342,13 @@ colorscheme, and so do |hl-CodeViewDiffAdd| and |hl-CodeViewDiffDelete| while
 `diff.syntax` is on. To keep your own colors for these groups, set them from
 your own |ColorScheme| autocmd, which runs after the one of the plugin.
 
-The four box groups take no link either. |hl-CodeViewCommentBox| is 15
+The six box groups take no link either. |hl-CodeViewCommentBox| is 15
 percent of the foreground of `DiagnosticInfo` on the background of `Normal`.
-|hl-CodeViewRemoteBox| is 15 percent of the foreground of `Comment`. The
-box groups carry a background only, so the text of a box keeps the color of
-|hl-CodeViewComment| or |hl-CodeViewRemote|. The border groups take the
+|hl-CodeViewRemoteBox| is 15 percent of the foreground of `Comment`.
+|hl-CodeViewAgentBox| is 15 percent of the foreground of `DiagnosticHint`.
+The box groups carry a background only, so the text of a box keeps the color
+of |hl-CodeViewComment|, |hl-CodeViewRemote|, or |hl-CodeViewAgent|. The
+border groups take the
 foreground of `FloatBorder`, or of the tint when `FloatBorder` has none, on
 the background of the box. When the colorscheme has no such colors, the box
 groups link to `NormalFloat` and the border groups link to `FloatBorder`.

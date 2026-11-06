@@ -29,6 +29,12 @@
 ---
 --- `side` is LEFT for the old side of the diff and RIGHT for the new side.
 --- |codeview.position.from_api()| maps these fields to the lines of an anchor.
+---
+--- The render path draws more than the comments of GitHub. Each source of
+--- read-only items in |codeview.remote.sources| gets the same anchor, the same
+--- search for the lines of an outdated item, the same virtual lines, and the
+--- same float. The pr-agent suggestions of |codeview.agent| are the second
+--- source.
 
 local box = require("codeview.box")
 local config = require("codeview.config")
@@ -453,6 +459,28 @@ function M.for_file(session, file)
   return out
 end
 
+---Items of a list that cover one line of a file.
+---@param list codeview.remote.Comment[]
+---@param file string Path of the file in the review.
+---@param side codeview.linemap.Side Side that holds the line.
+---@param line integer Line in the file, from 1.
+---@return codeview.remote.Comment[] items
+local function covering(list, file, side, line)
+  local out = {}
+  for _, comment in ipairs(list) do
+    if
+      comment.file == file
+      and comment.anchored ~= false
+      and comment.side == side
+      and comment.start_line <= line
+      and line <= comment.end_line
+    then
+      out[#out + 1] = comment
+    end
+  end
+  return out
+end
+
 ---Comments that cover one line of a file.
 ---@param session codeview.Session
 ---@param file string Path of the file in the review.
@@ -460,15 +488,20 @@ end
 ---@param line integer Line in the file, from 1.
 ---@return codeview.remote.Comment[] comments
 function M.at(session, file, side, line)
+  return covering(M.list(session), file, side, line)
+end
+
+---Items of every source that cover one line of a file.
+---@param session codeview.Session
+---@param file string Path of the file in the review.
+---@param side codeview.linemap.Side Side that holds the line.
+---@param line integer Line in the file, from 1.
+---@return { source: codeview.remote.Source, item: codeview.remote.Comment }[] found In the order of the sources.
+function M.items_at(session, file, side, line)
   local out = {}
-  for _, comment in ipairs(M.for_file(session, file)) do
-    if
-      comment.anchored ~= false
-      and comment.side == side
-      and comment.start_line <= line
-      and line <= comment.end_line
-    then
-      out[#out + 1] = comment
+  for _, source in ipairs(M.sources) do
+    for _, item in ipairs(covering(source.list(session), file, side, line)) do
+      out[#out + 1] = { source = source, item = item }
     end
   end
   return out
@@ -544,14 +577,21 @@ end
 
 --- Decoration -------------------------------------------------------------------
 
----Sign text of a remote comment.
+---Sign text that fits the sign column: at most two cells.
+---@param text string? Value of a sign option.
 ---@return string text Empty when the option holds no sign.
-function M.sign()
-  local text = config.get().comments.remote_sign or ""
+function M.sign_text(text)
+  text = text or ""
   while vim.fn.strdisplaywidth(text) > 2 do
     text = vim.fn.strcharpart(text, 0, vim.fn.strchars(text) - 1)
   end
   return text
+end
+
+---Sign text of a remote comment.
+---@return string text Empty when the option holds no sign.
+function M.sign()
+  return M.sign_text(config.get().comments.remote_sign)
 end
 
 ---Text of the line range of a comment.
@@ -583,21 +623,94 @@ function M.header(comment)
   return text .. " · read-only"
 end
 
----Virtual lines of one remote comment.
+---@class codeview.remote.Source
+---@field name string Name of the source, for example "remote". The overview keys its lines with it.
+---@field ns integer Namespace of the extmarks of the source.
+---@field list fun(session: codeview.Session): codeview.remote.Comment[] Items of a session.
+---@field sign fun(): string Sign text of an item.
+---@field header fun(item: codeview.remote.Comment): string Header line of an item.
+---@field hl { body: string, header: string, sign: string, outdated: string, box: string, border: string } Highlight groups.
+---@field section fun(count: integer): string Title of the section of the overview.
+---@field who fun(item: codeview.remote.Comment): string Short text after the lines of an item in the overview.
+---@field read_only string Message for a key that would change an item.
+
+---Sources of read-only items, in the order of the overview.
 ---
---- The comment shows as a box, the same as a local comment. A grey tint
---- tells it apart from a local comment. |codeview.box| builds it.
+--- The comments of GitHub come first. |codeview.remote.register()| adds a
+--- source.
+---@type codeview.remote.Source[]
+M.sources = {
+  {
+    name = "remote",
+    ns = M.ns,
+    list = function(session)
+      return M.list(session)
+    end,
+    sign = function()
+      return M.sign()
+    end,
+    header = function(item)
+      return M.header(item)
+    end,
+    hl = {
+      body = "CodeViewRemote",
+      header = "CodeViewRemoteHeader",
+      sign = "CodeViewRemoteSign",
+      outdated = "CodeViewRemoteOutdated",
+      box = "CodeViewRemoteBox",
+      border = "CodeViewRemoteBorder",
+    },
+    section = function(count)
+      return string.format("%d remote %s", count, count == 1 and "comment" or "comments")
+    end,
+    who = function(item)
+      return (item.author or "") ~= "" and ("@" .. item.author) or ""
+    end,
+    read_only = "the review comments of GitHub are read-only",
+  },
+}
+
+---Add a source of read-only items, or replace the source with the same name.
+---@param source codeview.remote.Source
+function M.register(source)
+  for index, held in ipairs(M.sources) do
+    if held.name == source.name then
+      M.sources[index] = source
+      return
+    end
+  end
+  M.sources[#M.sources + 1] = source
+end
+
+---Source with a name.
+---@param name string?
+---@return codeview.remote.Source? source
+function M.source(name)
+  for _, source in ipairs(M.sources) do
+    if source.name == name then
+      return source
+    end
+  end
+  return nil
+end
+
+---Virtual lines of one item.
+---
+--- The item shows as a box, the same as a local comment. The groups of the
+--- source give the box its own tint, so each source looks different.
+--- |codeview.box| builds it.
+---@param source codeview.remote.Source
 ---@param comment codeview.remote.Comment
 ---@param width integer Width of the box, in screen cells.
 ---@return table[][] lines Chunks of every virtual line.
-local function virt_lines(comment, width)
+local function virt_lines(source, comment, width)
   return box.lines({
-    header = M.header(comment),
-    header_hl = "CodeViewRemoteHeader",
+    header = source.header(comment),
+    header_hl = source.hl.header,
     body = comment.body,
-    body_hl = "CodeViewRemote",
-    box_hl = "CodeViewRemoteBox",
-    border_hl = "CodeViewRemoteBorder",
+    body_hl = source.hl.body,
+    box_hl = source.hl.box,
+    border_hl = source.hl.border,
     border = config.get().comments.border,
     width = width,
   })
@@ -614,10 +727,12 @@ local function blank_lines(count)
   return out
 end
 
----Find the lines of an outdated comment in the file of a view.
+---Find the lines of an outdated item in the file of a view.
 ---
---- A comment that the call finds gets the lines of the current file and
---- counts as anchored from then on.
+--- An item that the call finds gets the lines of the current file and counts
+--- as anchored from then on. The `hunk` of a comment of GitHub holds the last
+--- lines of its `diff_hunk`. The `hunk` of a pr-agent suggestion holds its
+--- `existing_code`.
 ---@param view codeview.view.State
 ---@param comment codeview.remote.Comment
 local function relocate(view, comment)
@@ -635,12 +750,13 @@ local function relocate(view, comment)
   comment.anchored = true
 end
 
----Place the marks of one remote comment.
+---Place the marks of one item.
 ---@param view codeview.view.State
+---@param source codeview.remote.Source
 ---@param comment codeview.remote.Comment
 ---@param display "virtual"|"float"
 ---@return boolean placed False when the render hides the lines of the comment, or when the comment has no lines in the file.
-local function place(view, comment, display)
+local function place(view, source, comment, display)
   relocate(view, comment)
   if comment.anchored == false then
     return false
@@ -651,25 +767,25 @@ local function place(view, comment, display)
     return false
   end
 
-  local sign = M.sign()
+  local sign = source.sign()
   for _, row in ipairs(rows) do
     local opts = {
       sign_text = sign ~= "" and sign or nil,
-      sign_hl_group = comment.outdated and "CodeViewRemoteOutdated" or "CodeViewRemoteSign",
+      sign_hl_group = comment.outdated and source.hl.outdated or source.hl.sign,
       priority = 190,
     }
     if display == "virtual" and row == rows[#rows] then
-      opts.virt_lines = virt_lines(comment, box.width_for(buf, view.win))
+      opts.virt_lines = virt_lines(source, comment, box.width_for(buf, view.win))
       opts.virt_lines_above = false
     end
-    local ok = pcall(api.nvim_buf_set_extmark, buf, M.ns, row - 1, 0, opts)
+    local ok = pcall(api.nvim_buf_set_extmark, buf, source.ns, row - 1, 0, opts)
     if not ok then
       opts.sign_text, opts.sign_hl_group = nil, nil
-      pcall(api.nvim_buf_set_extmark, buf, M.ns, row - 1, 0, opts)
+      pcall(api.nvim_buf_set_extmark, buf, source.ns, row - 1, 0, opts)
     end
     local other = opts.virt_lines and comments_mod.mirror(view, comment.side) or nil
     if other then
-      pcall(api.nvim_buf_set_extmark, other, M.ns, row - 1, 0, {
+      pcall(api.nvim_buf_set_extmark, other, source.ns, row - 1, 0, {
         virt_lines = blank_lines(#opts.virt_lines),
         virt_lines_above = false,
         priority = 190,
@@ -679,13 +795,13 @@ local function place(view, comment, display)
   return true
 end
 
----Draw the remote comments of the file that a view shows.
+---Draw the read-only items of every source on the file that a view shows.
 ---
---- The call only writes extmarks, in the namespace of this module. The local
+--- The call only writes extmarks, in the namespace of each source. The local
 --- comments of |codeview.comments| keep their own marks.
 ---@param view? codeview.view.State View to decorate. The open file by default.
----@return integer count Number of comments that the view shows.
----@return integer hidden Number of comments that the render holds no row for.
+---@return integer count Number of items that the view shows.
+---@return integer hidden Number of items that the render holds no row for.
 function M.decorate(view)
   view = view or require("codeview.view").current()
   if not view or not api.nvim_buf_is_valid(view.buf) then
@@ -693,18 +809,21 @@ function M.decorate(view)
   end
 
   highlight.setup()
-  api.nvim_buf_clear_namespace(view.buf, M.ns, 0, -1)
-  if view.old_buf and api.nvim_buf_is_valid(view.old_buf) then
-    api.nvim_buf_clear_namespace(view.old_buf, M.ns, 0, -1)
-  end
-
   local display = config.get().comments.display
   local count, hidden = 0, 0
-  for _, comment in ipairs(M.for_file(view.session, view.path)) do
-    if place(view, comment, display) then
-      count = count + 1
-    else
-      hidden = hidden + 1
+  for _, source in ipairs(M.sources) do
+    api.nvim_buf_clear_namespace(view.buf, source.ns, 0, -1)
+    if view.old_buf and api.nvim_buf_is_valid(view.old_buf) then
+      api.nvim_buf_clear_namespace(view.old_buf, source.ns, 0, -1)
+    end
+    for _, comment in ipairs(source.list(view.session)) do
+      if comment.file == view.path then
+        if place(view, source, comment, display) then
+          count = count + 1
+        else
+          hidden = hidden + 1
+        end
+      end
     end
   end
   if count > 0 and display == "virtual" then
@@ -725,8 +844,8 @@ function M.marks(buf)
   return api.nvim_buf_get_extmarks(buf, M.ns, 0, -1, { details = true })
 end
 
--- The diff follows the comments that arrive from GitHub. The fetch runs after
--- the session opens, so the marks come in when the answer is there.
+-- The diff follows the comments that arrive from GitHub and the results of
+-- pr-agent. Both come in after the session opens.
 events.on(events.remote, function()
   M.decorate()
 end)

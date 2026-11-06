@@ -46,9 +46,10 @@ M.autocmds = {
 ---@type codeview.events.Name[]
 M.comment = { "comment_added", "comment_changed", "comment_deleted", "review_submitted" }
 
----Every event of the remote comments of a pull request.
+---Every event of the read-only items of a pull request: the review comments
+---of GitHub and the results of pr-agent.
 ---@type codeview.events.Name[]
-M.remote = { "remote_loaded" }
+M.remote = { "remote_loaded", "agent_loaded" }
 
 ---Every event of the pr-agent results of a pull request.
 ---@type codeview.events.Name[]
