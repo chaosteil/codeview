@@ -28,6 +28,9 @@
 --- lines show in the diff, through the render path of |codeview.remote|: a
 --- sign of the `comments.agent_sign` option, virtual lines, and the float.
 --- The comment overview lists them in a section of their own.
+---
+--- The adopt key takes one item as a local comment of your own, see
+--- |codeview.agent.adopt()|. Only such a comment reaches GitHub.
 
 local config = require("codeview.config")
 local events = require("codeview.events")
@@ -121,6 +124,7 @@ end
 ---@field score number? Score of a suggestion.
 ---@field suggestion table? Suggestion of pr-agent.
 ---@field issue table? Key issue of pr-agent.
+---@field adopted boolean? True after the adopt key took the item as a local comment.
 
 ---Items of each pull request, by the key of |codeview.agent.key()|.
 ---
@@ -128,6 +132,11 @@ end
 --- stay the same tables until the next read.
 ---@type table<string, codeview.agent.Item[]>
 local items_cache = {}
+
+---Ids of the adopted items of each pull request, by the key of
+---|codeview.agent.key()|.
+---@type table<string, table<string, boolean>>
+local adopted = {}
 
 ---Namespace of the decorations of the pr-agent items.
 ---@type integer
@@ -177,6 +186,7 @@ local function build_items(info, results)
     fields.side = "new"
     fields.author = ""
     fields.anchored = not fields.outdated
+    fields.adopted = (adopted[M.key(info)] or {})[fields.id] == true
     out[#out + 1] = fields
   end
 
@@ -259,7 +269,7 @@ function M.header(item)
   if item.outdated then
     parts[#parts + 1] = "outdated"
   end
-  parts[#parts + 1] = "read-only"
+  parts[#parts + 1] = item.adopted and "adopted" or "read-only"
   return table.concat(parts, " · ")
 end
 
@@ -287,9 +297,9 @@ require("codeview.remote").register({
     return string.format("%d agent %s", count, count == 1 and "suggestion" or "suggestions")
   end,
   who = function(item)
-    return item.label or ""
+    return (item.label or "") .. (item.adopted and " adopted" or "")
   end,
-  read_only = "the pr-agent suggestions are read-only",
+  read_only = "the pr-agent suggestions are read-only. The adopt key takes one as your comment",
 })
 
 --- Read ------------------------------------------------------------------------
@@ -413,6 +423,94 @@ function M.sync_files(session, results)
   end
 end
 
+--- Adopt ---------------------------------------------------------------------
+
+---Body of the local comment that an item gives.
+---
+--- A suggestion gives its text and a `suggestion` block with the improved
+--- code. GitHub shows that block as a change that the author can apply. A key
+--- issue gives its text.
+---@param item codeview.agent.Item
+---@return string body
+function M.body_of(item)
+  if item.kind == "suggestion" and item.suggestion then
+    local text = vim.trim(tostring(item.suggestion.suggestion_content or ""))
+    local code = table.concat(lines_of(item.suggestion.improved_code), "\n")
+    return string.format("%s\n\n```suggestion\n%s\n```", text, code)
+  end
+  return vim.trim(tostring(item.issue and item.issue.issue_content or item.body or ""))
+end
+
+---Item under the cursor of a view.
+---@param view codeview.view.State
+---@return codeview.agent.Item? item
+local function item_at_cursor(view)
+  local target = require("codeview.comments").target(view)
+  if not target then
+    return nil
+  end
+  for _, found in ipairs(require("codeview.remote").items_at(view.session, target.file, target.side, target.start_line)) do
+    if found.source.name == "agent" then
+      return found.item --[[@as codeview.agent.Item]]
+    end
+  end
+  return nil
+end
+
+---Take a pr-agent item as a local comment of your own.
+---
+--- The call adds a comment on the lines of the item to the store of the
+--- session, and opens it in the editor, so that you can change the text. The
+--- item then shows as "adopted". |:Codeview-submit| posts the comment like
+--- any other.
+---@param opts? { item?: codeview.agent.Item, view?: codeview.view.State, session?: codeview.Session }
+---@return codeview.store.Comment? comment Nil when no item covers the cursor.
+function M.adopt(opts)
+  opts = opts or {}
+  local view = opts.view or require("codeview.view").current()
+  local session = opts.session or (view and view.session) or require("codeview.session").current()
+  if not session or session.closed then
+    notify.warn("no review session")
+    return nil
+  end
+  if view and view.session ~= session then
+    view = nil
+  end
+  local item = opts.item or (view and item_at_cursor(view))
+  if not item then
+    notify.info("no pr-agent item on this line")
+    return nil
+  end
+  if item.anchored == false then
+    notify.info("the pr-agent item is outdated, and the diff holds none of its lines")
+    return nil
+  end
+
+  local comments_mod = require("codeview.comments")
+  local commit = (view and view.path == item.file and view.new_rev) or (session.range and session.range.to) or ""
+  local comment = comments_mod.create(session, {
+    file = item.file,
+    start_line = item.start_line,
+    end_line = item.end_line,
+    side = item.side,
+    commit = commit,
+    body = M.body_of(item),
+  })
+  if not comment then
+    return nil
+  end
+  item.adopted = true
+  local info = require("codeview.pr").current(session)
+  if info then
+    local key = M.key(info)
+    adopted[key] = adopted[key] or {}
+    adopted[key][item.id] = true
+  end
+  events.emit("agent_loaded", { session = session.id })
+  comments_mod.edit({ id = comment.id, session = session, view = view })
+  return comment
+end
+
 --- Watch -----------------------------------------------------------------------
 
 ---Close one libuv handle, without an error on a handle that closes already.
@@ -519,6 +617,7 @@ end
 function M.clear()
   cache = {}
   items_cache = {}
+  adopted = {}
 end
 
 return M

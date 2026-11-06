@@ -108,6 +108,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   issues, read-only, with the sign of the new `comments.agent_sign` option.
   In the diff an item shows as a box with its own tint, from the new groups
   `CodeViewAgentBox` and `CodeViewAgentBorder`.
+- `<leader>ca` (the new `adopt` key) takes a pr-agent item as a local
+  comment, with a `suggestion` block for a suggestion.
 - The `rex-codeview` skill starts when the user asks to review the changes,
   for example "I want to review this". It does not start when the user asks
   an agent to review the code.

@@ -205,6 +205,8 @@ M.defaults = {
     delete_comment = "<leader>cd",
     resolve_comment = "<leader>cr",
     show_comment = "K",
+    -- The key takes a pr-agent suggestion as a comment of your own.
+    adopt = "<leader>ca",
     toggle_overview = "<leader>co",
     -- The key reads the review again from the repository. It sits next to the
     -- reload of the working copy, which runs by itself.

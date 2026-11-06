@@ -56,6 +56,8 @@ describe("codeview keymaps", function()
     delete_comment = { { surface = "view", mode = "n" }, { surface = "overview", mode = "n" } },
     resolve_comment = { { surface = "view", mode = "n" }, { surface = "overview", mode = "n" } },
     show_comment = { { surface = "view", mode = "n" } },
+    -- The adopt key also maps in the float of a pr-agent item.
+    adopt = { { surface = "view", mode = "n" }, { surface = "overview", mode = "n" } },
     toggle_overview = {
       { surface = "sidebar", mode = "n" },
       { surface = "view", mode = "n" },

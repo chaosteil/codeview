@@ -283,6 +283,29 @@ local function send_handler(session, save)
   end
 end
 
+---Add a comment to the store of a session, write the store, and send the
+---event.
+---
+--- The adopt key of |codeview.agent| writes its comment through this call.
+---@param session codeview.Session
+---@param fields table Fields of |codeview.store.Store:add()|.
+---@return codeview.store.Comment? comment Nil after an error. The error reaches the user.
+function M.create(session, fields)
+  local store, err = M.store(session)
+  if not store then
+    notify.error(tostring(err))
+    return nil
+  end
+  local comment, add_err = store:add(fields)
+  if not comment then
+    notify.error(tostring(add_err))
+    return nil
+  end
+  persist(store)
+  announce("comment_added", session, comment)
+  return comment
+end
+
 ---Open the editor for a new comment.
 ---
 --- In normal mode the comment covers the line under the cursor. In visual mode
@@ -645,6 +668,20 @@ function M.show(opts)
   vim.bo[buf].modifiable = false
   vim.bo[buf].bufhidden = "wipe"
 
+  -- The adopt key works in the float too, on the first pr-agent item of the
+  -- line.
+  for _, entry in ipairs(remote) do
+    if entry.source.name == "agent" then
+      local item = entry.item
+      for _, lhs in ipairs(config.keys(config.get().keymaps.adopt)) do
+        vim.keymap.set("n", lhs, function()
+          require("codeview.agent").adopt({ item = item, view = view, session = view.session })
+        end, { buffer = buf, nowait = true, silent = true, desc = "codeview: adopt the pr-agent item" })
+      end
+      break
+    end
+  end
+
   local win = api.nvim_open_win(buf, false, {
     relative = "cursor",
     row = 1,
@@ -746,6 +783,9 @@ function M.set_keymaps(session, buf)
   add("n", keys.show_comment, function()
     M.show({ view = view_of() })
   end, "show the comment")
+  add("n", keys.adopt, function()
+    require("codeview.agent").adopt({ view = view_of(), session = session })
+  end, "adopt the pr-agent item of the line as a comment")
   add("n", keys.toggle_overview, function()
     require("codeview.overview").toggle({ session = session, focus = true })
   end, "open or close the comment overview")

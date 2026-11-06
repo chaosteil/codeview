@@ -725,6 +725,21 @@ function Overview:toggle_node(item)
   return true
 end
 
+---Take the pr-agent item under the cursor as a local comment.
+---@return codeview.store.Comment? comment Nil without a pr-agent item on the line.
+function Overview:adopt()
+  local item = self:cursor_item()
+  local agent_item = item and item.source == "agent" and self:cursor_remote() or nil
+  if not agent_item then
+    report("no pr-agent item on this line")
+    return nil
+  end
+  return require("codeview.agent").adopt({
+    item = agent_item --[[@as codeview.agent.Item]],
+    session = self.session,
+  })
+end
+
 ---Show the comments of every file.
 function Overview:expand_all()
   self.expanded = {}
@@ -872,6 +887,9 @@ local function keymaps(overview)
   add(keys.resolve_comment, function()
     overview:set_state()
   end, "resolve the comment under the cursor, or open it again")
+  add(keys.adopt, function()
+    overview:adopt()
+  end, "adopt the pr-agent item under the cursor as a comment")
   add(keys.export, function()
     overview:export()
   end, "show the markdown of the comments in a scratch buffer")

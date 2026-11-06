@@ -754,6 +754,7 @@ diff buffer maps them to the comment editor: >
     <leader>cr  resolve the comment under the cursor, or open it again
     <leader>co  open or close the comment overview
     K           show the comment under the cursor in a float
+    <leader>ca  adopt the pr-agent item of the line, see |codeview-agent-adopt|
 <
 `i` and `a` read the line first. A line that already holds a comment opens
 that comment in the editor, the way `i` changes the text that a normal buffer
@@ -1046,6 +1047,7 @@ The overview buffer holds these maps. |codeview-config| names the keys: >
     <leader>ce  edit the comment under the cursor
     <leader>cd  delete the comment under the cursor, after a question
     <leader>cr  resolve the comment under the cursor, or open it again
+    <leader>ca  adopt the pr-agent item under the cursor as a comment
     <leader>cx  show the markdown of the comments in a scratch buffer
     <leader>cy  write the markdown of the comments into the register
     <leader>cR  read the review again from the repository
@@ -1396,7 +1398,8 @@ A file of another `version` gives one warning, and the review leaves it out.
 The results load with the review of the pull request. They load again after
 each refresh of the review, and after each change of the directory: a watcher
 follows the directory, so a run of chaoshub reaches the open review. Each
-read sends the |User| event `CodeViewAgentLoaded`.
+read, and each adopt of |codeview-agent-adopt|, sends the |User| event
+`CodeViewAgentLoaded`.
 
                                                    *codeview-agent-documents*
 The sidebar lists the review, the describe, and the ask result as documents,
@@ -1445,6 +1448,27 @@ in the diff. The |hl-CodeViewAgent|, |hl-CodeViewAgentHeader|, and
 box, the same as a comment of GitHub, with its own tint from
 |hl-CodeViewAgentBox| and |hl-CodeViewAgentBorder|. See
 |codeview-comments-box|.
+
+                                                    *codeview-agent-adopt*
+`<leader>ca` takes a pr-agent item as a comment of your own. The key works in
+the diff on a line of the item, in the float of `K`, and in the comment
+overview on the line of the item. It adds a local comment on the same lines,
+and opens it in the editor, so that you can change the text. The item then
+shows as "adopted".
+
+The body of a suggestion is its text, then a `suggestion` block with the
+improved code: >
+
+    Trim the name before the greeting uses it.
+
+    ```suggestion
+    format!("Hello {}", name.trim())
+    ```
+<
+GitHub shows such a block as a change that the author can apply. The body of
+a key issue is the text of the issue. |:Codeview-submit| posts the comment
+like any other comment. An outdated item that the diff holds no line for
+cannot be adopted.
 
 ==============================================================================
 12. SUBMIT                                                     *codeview-submit*
@@ -2083,6 +2107,7 @@ Defaults: >lua
         delete_comment = "<leader>cd",
         resolve_comment = "<leader>cr",
         show_comment = "K",
+        adopt = "<leader>ca",
         toggle_overview = "<leader>co",
         refresh = "<leader>cR",
         export = "<leader>cx",
@@ -2231,6 +2256,7 @@ The table names the surface of each action: >
     delete_comment    <leader>cd       O D  delete the comment
     resolve_comment   <leader>cr       O D  resolve the comment, or reopen it
     show_comment      K                  D  show the comment in a float
+    adopt             <leader>ca       O D  adopt a pr-agent item as a comment
     toggle_overview   <leader>co     S O D  open or close the overview
     refresh           <leader>cR     S O D  read the review again
     export            <leader>cx       O    show the export in a buffer

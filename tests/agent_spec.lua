@@ -153,7 +153,9 @@ describe("codeview.agent in a pull request review", function()
     session_mod = require("codeview.session")
     dir = fixtures.tempdir("codeview-agent")
     config.reset()
-    assert(config.setup({ github = { agent_dir = dir } }))
+    -- The comment files go to the temporary directory too, so an adopt of one
+    -- test leaves no comment for the next one.
+    assert(config.setup({ github = { agent_dir = dir }, comments = { dir = vim.fs.joinpath(dir, "comments") } }))
   end)
 
   after_each(function()
@@ -548,6 +550,89 @@ describe("codeview.agent in a pull request review", function()
     vim.notify = notify
     assert.is_truthy(seen[1]:find("pr-agent suggestions are read-only", 1, true), seen[1])
     overview.close()
+  end)
+
+  it("adopts the suggestion of the line as a local comment with a suggestion block", function()
+    write("improve", improve_record())
+    local review = open_session()
+    agent.attach(review)
+    local state = open_diff(review)
+    vim.api.nvim_win_set_cursor(state.win, { 4, 0 })
+
+    local comment = assert(agent.adopt())
+    assert.are.equal("call.lua", comment.file)
+    assert.are.equal(2, comment.start_line)
+    assert.are.equal(2, comment.end_line)
+    assert.are.equal("new", comment.side)
+    assert.are.equal("Use the next number.\n\n```suggestion\nlocal b = 23\n```", comment.body)
+    local store = assert(require("codeview.comments").store(review))
+    assert.are.equal(1, #store.comments)
+
+    local editor = require("codeview.editor")
+    assert.is_truthy(editor.current(), "the editor holds the new comment")
+    editor.cancel()
+
+    assert.is_true(agent.items(review)[1].adopted)
+    local found = agent_marks(state.buf)
+    assert.is_truthy(found[1][4].virt_lines[1][2][1]:find("· adopted", 1, true), found[1][4].virt_lines[1][2][1])
+    require("codeview.view").close()
+  end)
+
+  it("adopts a key issue with the text of the issue", function()
+    write("review", review_record())
+    local review = open_session()
+    agent.attach(review)
+    local comment = assert(agent.adopt({ item = agent.items(review)[1], session = review }))
+    assert.are.equal("The value changed.", comment.body)
+    require("codeview.editor").cancel()
+  end)
+
+  it("adopts from the key of the diff and from the overview", function()
+    write("improve", improve_record())
+    local review = open_session()
+    agent.attach(review)
+    local state = open_diff(review)
+    vim.api.nvim_win_set_cursor(state.win, { 4, 0 })
+    local lhs = vim.api.nvim_replace_termcodes(
+      (config.get().keymaps.adopt:gsub("<leader>", vim.g.mapleader or "\\")),
+      true,
+      false,
+      true
+    )
+    vim.api.nvim_feedkeys(lhs, "x", false)
+    local store = assert(require("codeview.comments").store(review))
+    assert.are.equal(1, #store.comments)
+    require("codeview.editor").cancel()
+    require("codeview.view").close()
+
+    local overview = require("codeview.overview")
+    local bar = assert(overview.open({ session = review }))
+    local lnum = assert(bar.panel:find(function(item)
+      return item.kind == "remote" and item.source == "agent"
+    end))
+    assert.is_true(bar.panel:set_cursor(lnum))
+    assert(bar:adopt())
+    assert.are.equal(2, #store.comments)
+    require("codeview.editor").cancel()
+    local text = table.concat(bar.panel:lines(), "\n")
+    assert.is_truthy(text:find("possible issue adopted", 1, true), text)
+    overview.close()
+  end)
+
+  it("adopts nothing on a line without a pr-agent item", function()
+    local review = open_session()
+    agent.attach(review)
+    local state = open_diff(review)
+    vim.api.nvim_win_set_cursor(state.win, { 2, 0 })
+    local seen = {}
+    local notify = vim.notify
+    vim.notify = function(msg) ---@diagnostic disable-line: duplicate-set-field
+      seen[#seen + 1] = msg
+    end
+    assert.is_nil(agent.adopt())
+    vim.notify = notify
+    assert.is_truthy(seen[1]:find("no pr-agent item on this line", 1, true), seen[1])
+    require("codeview.view").close()
   end)
 
   it("removes the fixture", function()
