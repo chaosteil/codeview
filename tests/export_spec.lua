@@ -199,6 +199,33 @@ describe("codeview.export", function()
       assert.are.equal(expected, text)
     end)
 
+    it("names the thread of a draft reply", function()
+      local review = open_session()
+      add_comment({ file = "call.lua", start_line = 2, end_line = 2, reply_to = "501", body = "a reply" })
+      add_comment({ file = "call.lua", start_line = 3, end_line = 3, reply_to = "999", body = "a lost reply" })
+      require("codeview.remote").attach(review, {
+        {
+          id = 501,
+          file = "call.lua",
+          start_line = 2,
+          end_line = 2,
+          side = "new",
+          commit = fixture.ids.change,
+          author = "grace",
+          body = "this line needs a test",
+          url = "",
+          review_id = "",
+          created_at = 0,
+          outdated = false,
+          reactions = {},
+        },
+      })
+
+      local text = assert(export.render())
+      assert.is_truthy(text:find("### L2 · new · reply to @grace · " .. short(fixture.ids.change), 1, true), text)
+      assert.is_truthy(text:find("### L3 · new · reply to #999 · " .. short(fixture.ids.change), 1, true), text)
+    end)
+
     it("reports a session without comments", function()
       open_session()
       local text = assert(export.render())

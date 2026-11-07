@@ -292,6 +292,73 @@ describe("codeview.gh", function()
     end)
   end)
 
+  describe("allow_empty", function()
+    it("reads an empty answer as an empty table", function()
+      respond(function()
+        return { stdout = "HTTP/2.0 204 No Content\r\n\r\n" }
+      end)
+      local value, err = gh.api("repos/o/n/pulls/comments/7", { method = "DELETE", allow_empty = true })
+      assert.is_nil(err)
+      assert.are.same({}, value)
+    end)
+
+    it("reports an empty answer without the option", function()
+      respond(function()
+        return { stdout = "HTTP/2.0 204 No Content\r\n\r\n" }
+      end)
+      local value, err = gh.api("repos/o/n/pulls/comments/7", { method = "DELETE" })
+      assert.is_nil(value)
+      assert.are.equal(errors.codes.NOT_FOUND, err.code)
+    end)
+  end)
+
+  describe("graphql", function()
+    it("sends the query and the variables as the body of a POST", function()
+      respond(function()
+        return { stdout = '{"data":{"viewer":{"login":"ada"}}}' }
+      end)
+      local data = assert(gh.graphql("query { viewer { login } }", { a = 1 }, { hostname = "github.acme.com" }))
+      assert.are.equal("ada", data.viewer.login)
+      assert.are.same({
+        "gh",
+        "api",
+        "graphql",
+        "--include",
+        "--hostname",
+        "github.acme.com",
+        "--method",
+        "POST",
+        "--input",
+        "-",
+      }, calls[1].cmd)
+      assert.are.same(
+        { query = "query { viewer { login } }", variables = { a = 1 } },
+        vim.json.decode(calls[1].opts.stdin)
+      )
+    end)
+
+    it("reports the errors of the answer", function()
+      respond(function()
+        return { stdout = '{"data":null,"errors":[{"message":"Could not resolve to a node"}]}' }
+      end)
+      local data, err = gh.graphql('query { node(id: "x") { id } }', nil)
+      assert.is_nil(data)
+      assert.are.equal(errors.codes.COMMAND_FAILED, err.code)
+      assert.is_truthy(tostring(err):find("Could not resolve to a node", 1, true))
+    end)
+
+    it("answers through a callback", function()
+      respond(function()
+        return { stdout = '{"data":{"ok":true}}' }
+      end)
+      local data, err = await(function(cb)
+        gh.graphql("mutation { ok }", {}, nil, cb)
+      end)
+      assert.is_nil(err)
+      assert.is_true(data.ok)
+    end)
+  end)
+
   describe("host", function()
     it("reads the host of a pull request address", function()
       assert.are.equal("github.com", gh.host("https://github.com/ada/demo/pull/12"))

@@ -290,7 +290,8 @@ end
 ---Draw the comments of the file that a view shows.
 ---
 --- The call only writes extmarks. The text and the line count of the diff
---- buffers do not change, so the line map stays correct.
+--- buffers do not change, so the line map stays correct. |codeview.stack|
+--- draws every box of the view, the remote ones too.
 ---@param view? codeview.view.State View to decorate. The open file by default.
 ---@return integer count Number of comments that the view shows.
 ---@return integer hidden Number of comments that the render holds no row for.
@@ -299,7 +300,8 @@ function M.decorate(view)
   if not view or not api.nvim_buf_is_valid(view.buf) then
     return 0, 0
   end
-  return marks.decorate(view, (M.store(view.session)))
+  local result = require("codeview.stack").decorate(view)
+  return result.comments.count, result.comments.hidden
 end
 
 ---Draw the comments of the file that is open again.
@@ -564,7 +566,31 @@ local function comment_anchor(view, comment)
   return { win = win, buf = buf, row = row }
 end
 
+---Anchor of the inline editor under the last row of an anchor.
+---
+--- |codeview.thread| opens the editor of a comment of GitHub with it.
+---@param view codeview.view.State?
+---@param anchor { file: string, start_line: integer, end_line: integer, side: codeview.linemap.Side }
+---@return codeview.editor.Anchor? anchor Nil when the view does not show the lines.
+function M.editor_anchor(view, anchor)
+  return comment_anchor(view, anchor --[[@as codeview.store.Comment]])
+end
+
+---Report whether a GitHub thread covers the cursor of a context.
+---
+--- An action that the cursor line holds no local comment for then goes to
+--- the thread, see |codeview.thread|.
+---@param ctx codeview.comments.Context
+---@param opts { id?: string }
+---@return boolean
+local function on_thread(ctx, opts)
+  return opts.id == nil and ctx.view ~= nil and #M.threads_at_cursor(ctx.view) > 0
+end
+
 ---Open the editor for the comment under the cursor.
+---
+--- On a line without a local comment and with a GitHub thread, the call edits
+--- a comment of your own in that thread, see |codeview.thread.edit()|.
 ---@param opts? { id?: string, view?: codeview.view.State, session?: codeview.Session }
 ---@return boolean opened False when no comment covers the cursor, or when the reviewer keeps the open editor.
 function M.edit(opts)
@@ -577,6 +603,9 @@ function M.edit(opts)
   local session = ctx.session
 
   local comment = pick(ctx, opts)
+  if not comment and on_thread(ctx, opts) then
+    return require("codeview.thread").edit({ view = ctx.view, session = session })
+  end
   if not comment then
     notify.warn(nothing_here(ctx))
     return false
@@ -652,6 +681,139 @@ function M.edit(opts)
   return true
 end
 
+---Threads of GitHub under the cursor.
+---@param view? codeview.view.State View to read. The open file by default.
+---@return codeview.remote.Thread[] threads
+function M.threads_at_cursor(view)
+  view = view or require("codeview.view").current()
+  if not view then
+    return {}
+  end
+  local target = M.target(view)
+  if not target then
+    return {}
+  end
+  return require("codeview.remote").threads_at(view.session, target.file, target.side, target.start_line)
+end
+
+---Take one thread of a list.
+---
+--- One thread goes to the callback at once. For more than one thread,
+--- |vim.ui.select()| asks which one.
+---@param threads codeview.remote.Thread[]
+---@param prompt string Question of the picker.
+---@param cb fun(thread: codeview.remote.Thread) Handler of the choice. It does not run when the user cancels.
+---@return boolean found False for an empty list.
+function M.pick_thread(threads, prompt, cb)
+  if #threads == 0 then
+    return false
+  end
+  if #threads == 1 then
+    cb(threads[1])
+    return true
+  end
+  local remote = require("codeview.remote")
+  vim.ui.select(threads, {
+    prompt = "codeview: " .. prompt,
+    format_item = function(thread)
+      return remote.thread_header(thread)
+    end,
+  }, function(choice)
+    if choice then
+      cb(choice)
+    end
+  end)
+  return true
+end
+
+---Open the editor for a draft reply to a GitHub thread.
+---
+--- The reply is a local comment with the field `reply_to`: the id of the
+--- first comment of the thread. It takes the file, the lines, the side, and
+--- the commit of that comment. The send key of the editor posts it at once,
+--- and a submit of the session posts it with the other comments.
+---
+--- Without `thread`, the call takes the thread under the cursor. When more
+--- than one thread covers the line, |vim.ui.select()| asks which one.
+---@param opts? { thread?: codeview.remote.Thread, view?: codeview.view.State, session?: codeview.Session }
+---@return boolean started False when no thread can take the reply.
+function M.reply(opts)
+  opts = opts or {}
+  local ctx, ctx_err = context(opts)
+  if not ctx then
+    notify.warn(tostring(ctx_err))
+    return false
+  end
+  local remote = require("codeview.remote")
+
+  ---@param thread codeview.remote.Thread
+  ---@return boolean opened
+  local function open(thread)
+    if not thread.id then
+      notify.warn(remote.no_state)
+      return false
+    end
+    if not thread.can_reply then
+      notify.warn("GitHub does not let you reply to this thread")
+      return false
+    end
+    local root = thread.root
+    local key = remote.thread_key(thread)
+
+    ---Write the new reply into the store.
+    ---@param body string
+    ---@return codeview.store.Comment? comment Nil after an error.
+    local function save(body)
+      -- The store comes again from the session, because a session that closes
+      -- while the editor is open drops its store.
+      local live, live_err = M.store(ctx.session)
+      if not live then
+        notify.error(tostring(live_err))
+        return nil
+      end
+      local comment, add_err = live:add({
+        file = thread.file,
+        start_line = thread.start_line,
+        end_line = thread.end_line,
+        side = thread.side,
+        commit = root.commit,
+        reply_to = key,
+        body = body,
+      })
+      if not comment then
+        notify.error(tostring(add_err))
+        return nil
+      end
+      persist(live)
+      announce("comment_added", ctx.session, comment)
+      return comment
+    end
+
+    local who = (root.author or "") ~= "" and ("@" .. root.author) or "the thread"
+    local buf = require("codeview.editor").open({
+      title = "Reply to " .. who,
+      anchor = comment_anchor(ctx.view, thread --[[@as codeview.store.Comment]]),
+      on_save = save,
+      on_send = send_handler(ctx.session, save),
+    })
+    return buf ~= nil
+  end
+
+  if opts.thread then
+    return open(opts.thread)
+  end
+  local threads = ctx.view and M.threads_at_cursor(ctx.view) or {}
+  local opened = false
+  local found = M.pick_thread(threads, "reply to which thread?", function(thread)
+    opened = open(thread)
+  end)
+  if not found then
+    notify.warn("no thread of GitHub on this line")
+    return false
+  end
+  return #threads > 1 or opened
+end
+
 ---Edit the comment under the cursor, or write a new one.
 ---
 --- The insert keys land here. A line that already holds a comment opens that
@@ -677,6 +839,10 @@ end
 ---
 --- An open editor of the same comment closes without a question, and a
 --- message reports the close.
+---
+--- On a line without a local comment and with a GitHub thread, the call
+--- deletes a comment of your own in that thread, see
+--- |codeview.thread.delete()|.
 ---@param opts? { id?: string, confirm?: boolean, view?: codeview.view.State, session?: codeview.Session } `confirm = false` skips the question.
 ---@return boolean removed False when no comment went away.
 function M.remove(opts)
@@ -689,6 +855,9 @@ function M.remove(opts)
   local store = ctx.store
 
   local comment = pick(ctx, opts)
+  if not comment and on_thread(ctx, opts) then
+    return require("codeview.thread").delete({ view = ctx.view, session = ctx.session, confirm = opts.confirm })
+  end
   if not comment then
     notify.warn(nothing_here(ctx))
     return false
@@ -729,6 +898,11 @@ end
 ---
 --- The state lives in the `state` field of the comment, so it survives a
 --- restart with the rest of the comment.
+---
+--- On a line without a local comment and with a GitHub thread, the call
+--- resolves the thread on GitHub, or opens it again, see
+--- |codeview.thread.resolve()|. The answer is then nil, because GitHub
+--- answers later.
 ---@param opts? { id?: string, state?: codeview.store.State, view?: codeview.view.State, session?: codeview.Session } Without a state the call takes the other state.
 ---@return codeview.store.Comment? comment The comment after the change.
 function M.set_state(opts)
@@ -740,6 +914,10 @@ function M.set_state(opts)
   end
 
   local comment = pick(ctx, opts)
+  if not comment and on_thread(ctx, opts) then
+    require("codeview.thread").resolve({ view = ctx.view, session = ctx.session })
+    return nil
+  end
   if not comment then
     notify.warn(nothing_here(ctx))
     return nil
@@ -764,8 +942,9 @@ end
 --- The float closes on the next cursor move. It is the display for the
 --- `comments.display = "float"` option, and it also works next to the virtual
 --- lines. The float holds the local comments of the line first, and the
---- read-only items of a pull request after them: the comments of GitHub and
---- the suggestions of pr-agent.
+--- items of a pull request after them: the suggestions of pr-agent, and the
+--- threads of GitHub. A thread shows in full, oldest comment first, with
+--- the reactions, also when it is resolved.
 ---@param opts? { view?: codeview.view.State }
 ---@return integer? buf Buffer of the float.
 ---@return integer? win Window of the float.
@@ -793,12 +972,31 @@ function M.show(opts)
     vim.list_extend(lines, vim.split(comment.body, "\n", { plain = true }))
   end
   for _, entry in ipairs(remote) do
-    if #lines > 0 then
-      lines[#lines + 1] = "---"
+    if entry.source.name ~= "remote" then
+      if #lines > 0 then
+        lines[#lines + 1] = "---"
+      end
+      lines[#lines + 1] = "### " .. entry.source.header(entry.item)
+      lines[#lines + 1] = ""
+      vim.list_extend(lines, vim.split(entry.item.body, "\n", { plain = true }))
     end
-    lines[#lines + 1] = "### " .. entry.source.header(entry.item)
-    lines[#lines + 1] = ""
-    vim.list_extend(lines, vim.split(entry.item.body, "\n", { plain = true }))
+  end
+  local threads = target and remote_mod.threads_at(view.session, target.file, target.side, target.start_line) or {}
+  for _, thread in ipairs(threads) do
+    for index, comment in ipairs(thread.comments) do
+      if #lines > 0 then
+        lines[#lines + 1] = "---"
+      end
+      local who = (comment.author or "") ~= "" and ("@" .. comment.author) or "remote"
+      lines[#lines + 1] = "### " .. (index == 1 and remote_mod.thread_header(thread) or who)
+      lines[#lines + 1] = ""
+      vim.list_extend(lines, vim.split(comment.body, "\n", { plain = true }))
+      local reactions = remote_mod.reactions_text(comment.reactions)
+      if reactions ~= "" then
+        lines[#lines + 1] = ""
+        lines[#lines + 1] = reactions
+      end
+    end
   end
 
   local cfg = config.get().comments
@@ -955,6 +1153,18 @@ function M.set_keymaps(session, buf)
   add("n", keys.show_comment, function()
     M.show({ view = view_of(session) })
   end, "show the comment")
+  add("n", keys.reply, function()
+    M.reply({ view = view_of(session), session = session })
+  end, "reply to the GitHub thread of the line")
+  add("n", keys.toggle_thread, function()
+    require("codeview.thread").toggle({ view = view_of(session), session = session })
+  end, "show or hide the comments of the resolved thread")
+  add("n", keys.react, function()
+    require("codeview.thread").react({ view = view_of(session), session = session })
+  end, "add or remove a reaction on a comment of the thread")
+  add("n", keys.open_remote, function()
+    require("codeview.thread").open({ view = view_of(session), session = session })
+  end, "open the thread in the browser")
   M.set_adopt_keymap(session, buf)
   add("n", keys.toggle_overview, function()
     require("codeview.overview").toggle({ session = session, focus = true })

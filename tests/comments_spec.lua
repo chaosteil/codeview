@@ -95,6 +95,13 @@ describe("codeview.comments", function()
     return comments.marks(buf)
   end
 
+  ---Extmarks of the boxes of a buffer.
+  ---@param buf integer
+  ---@return table[]
+  local function box_marks_of(buf)
+    return require("codeview.stack").marks(buf)
+  end
+
   ---Rows that hold a comment sign, from 1.
   ---@param buf integer
   ---@return integer[]
@@ -114,7 +121,7 @@ describe("codeview.comments", function()
   ---@return string[] lines
   local function box_lines(buf)
     local out = {}
-    for _, mark in ipairs(marks_of(buf)) do
+    for _, mark in ipairs(box_marks_of(buf)) do
       for _, line in ipairs(mark[4].virt_lines or {}) do
         local text = ""
         for _, chunk in ipairs(line) do
@@ -130,12 +137,12 @@ describe("codeview.comments", function()
   ---@param text string
   ---@return string
   local function content(text)
-    for _, char in ipairs({ "╭", "│", "╰" }) do
+    for _, char in ipairs({ "╭", "│", "╰", "├" }) do
       if vim.startswith(text, char) then
         text = text:sub(#char + 1)
       end
     end
-    for _, char in ipairs({ "╮", "│", "╯" }) do
+    for _, char in ipairs({ "╮", "│", "╯", "┤" }) do
       if vim.endswith(text, char) then
         text = text:sub(1, -#char - 1)
       end
@@ -172,7 +179,7 @@ describe("codeview.comments", function()
   ---@return integer count
   local function virt_line_count(buf)
     local count = 0
-    for _, mark in ipairs(marks_of(buf)) do
+    for _, mark in ipairs(box_marks_of(buf)) do
       count = count + #(mark[4].virt_lines or {})
     end
     return count
@@ -253,7 +260,7 @@ describe("codeview.comments", function()
 
       -- The body sits below the last row of the range, and only there.
       local last = nil
-      for _, mark in ipairs(marks_of(state.buf)) do
+      for _, mark in ipairs(box_marks_of(state.buf)) do
         if mark[4].virt_lines then
           last = mark[2] + 1
         end
@@ -813,7 +820,7 @@ describe("codeview.comments", function()
       ---@return integer
       local function bodies()
         local count = 0
-        for _, mark in ipairs(api.nvim_buf_get_extmarks(state.buf, comments.ns, 0, -1, { details = true })) do
+        for _, mark in ipairs(box_marks_of(state.buf)) do
           if mark[4] and mark[4].virt_lines then
             count = count + 1
           end
@@ -1157,7 +1164,7 @@ describe("codeview.comments", function()
     ---@param buf integer
     ---@return table[][]
     local function chunks_of(buf)
-      for _, mark in ipairs(marks_of(buf)) do
+      for _, mark in ipairs(box_marks_of(buf)) do
         if mark[4].virt_lines then
           return mark[4].virt_lines
         end
@@ -1477,6 +1484,187 @@ describe("codeview.comments", function()
       assert.is_nil(store)
       assert.are.equal("invalid_arg", err.code)
       assert.are.same({}, comments.list())
+    end)
+  end)
+
+  describe("replies to a GitHub thread", function()
+    ---Thread state that lets the user reply.
+    ---@type codeview.remote.ThreadState
+    local open_thread = {
+      id = "PRRT_1",
+      resolved = false,
+      resolved_by = "",
+      can_resolve = true,
+      can_unresolve = false,
+      can_reply = true,
+    }
+
+    ---One comment of GitHub on the new line 2 of call.lua.
+    ---@param fields? table
+    ---@return codeview.remote.Comment
+    local function remote_comment(fields)
+      return vim.tbl_extend("force", {
+        id = 501,
+        file = "call.lua",
+        start_line = 2,
+        end_line = 2,
+        side = "new",
+        commit = fixture.ids.change,
+        author = "grace",
+        body = "this line needs a test",
+        url = "https://github.com/ada/demo/pull/12#discussion_r501",
+        created_at = 10,
+        outdated = false,
+        reactions = {},
+        thread = open_thread,
+      }, fields or {})
+    end
+
+    ---Title of the open editor.
+    ---@return string
+    local function editor_title()
+      local title = api.nvim_win_get_config(assert(editor.current()).win).title
+      local text = ""
+      for _, chunk in ipairs(type(title) == "table" and title or { { title } }) do
+        text = text .. chunk[1]
+      end
+      return vim.trim(text)
+    end
+
+    ---Catch the warnings of a call.
+    ---@param fn fun(): any
+    ---@return string[] messages
+    ---@return any value
+    local function warnings(fn)
+      local seen = {}
+      local notify = vim.notify
+      vim.notify = function(msg) ---@diagnostic disable-line: duplicate-set-field
+        seen[#seen + 1] = msg
+      end
+      local ok, value = pcall(fn)
+      vim.notify = notify
+      assert(ok, value)
+      return seen, value
+    end
+
+    it("writes a draft reply under the thread of the line", function()
+      local state = open_diff()
+      require("codeview.remote").attach(assert(opened), { remote_comment() })
+      api.nvim_win_set_cursor(state.win, { 4, 0 })
+
+      assert.is_true(comments.reply())
+      assert.are.equal("Reply to @grace", editor_title())
+      write_comment("a reply of mine")
+
+      local store = assert(comments.store())
+      assert.are.equal(1, #store.comments)
+      local reply = store.comments[1]
+      assert.are.equal("501", reply.reply_to)
+      assert.are.equal("call.lua", reply.file)
+      assert.are.equal(2, reply.start_line)
+      assert.are.equal("new", reply.side)
+      assert.are.equal(fixture.ids.change, reply.commit)
+
+      -- The reply is a section of the box of the thread, not a box of its own.
+      assert.are.equal(1, #require("codeview.stack").marks(state.buf))
+      assert.are.same({
+        "@grace L2 (new)",
+        "this line needs a test",
+        "comment L2 (new) · draft",
+        "a reply of mine",
+      }, virt_lines(state.buf))
+    end)
+
+    it("edits and deletes a draft reply with the keys of a local comment", function()
+      local state = open_diff()
+      require("codeview.remote").attach(assert(opened), { remote_comment() })
+      local store = assert(comments.store())
+      local reply = assert(store:add({
+        file = "call.lua",
+        start_line = 2,
+        end_line = 2,
+        side = "new",
+        reply_to = "501",
+        body = "a draft",
+      }))
+      api.nvim_win_set_cursor(state.win, { 4, 0 })
+
+      assert.is_true(comments.edit_or_add({ view = state }))
+      assert.are.same({ "a draft" }, api.nvim_buf_get_lines(assert(editor.current()).buf, 0, -1, false))
+      write_comment("a better draft")
+      assert.are.equal("a better draft", assert(store:get(reply.id)).body)
+
+      api.nvim_win_set_cursor(state.win, { 4, 0 })
+      assert.is_true(comments.remove({ view = state, confirm = false }))
+      assert.are.equal(0, #store.comments)
+    end)
+
+    it("asks which thread takes the reply when more than one covers the line", function()
+      local state = open_diff()
+      require("codeview.remote").attach(assert(opened), {
+        remote_comment(),
+        remote_comment({ id = 600, author = "ada", created_at = 20 }),
+      })
+      api.nvim_win_set_cursor(state.win, { 4, 0 })
+      local select = vim.ui.select
+      local offered
+      vim.ui.select = function(items, opts, cb) ---@diagnostic disable-line: duplicate-set-field
+        offered = vim.tbl_map(opts.format_item, items)
+        cb(items[2])
+      end
+      local started = comments.reply()
+      vim.ui.select = select
+
+      assert.is_true(started)
+      assert.are.same({ "@grace L2 (new)", "@ada L2 (new)" }, offered)
+      assert.are.equal("Reply to @ada", editor_title())
+      write_comment("to ada")
+      assert.are.equal("600", assert(comments.store()).comments[1].reply_to)
+    end)
+
+    it("does not open the editor for a thread without a reply right", function()
+      local state = open_diff()
+      require("codeview.remote").attach(
+        assert(opened),
+        { remote_comment({ thread = vim.tbl_extend("force", open_thread, { can_reply = false }) }) }
+      )
+      api.nvim_win_set_cursor(state.win, { 4, 0 })
+
+      local seen, started = warnings(function()
+        return comments.reply()
+      end)
+      assert.is_false(started)
+      assert.is_false(editor.is_open())
+      assert.is_truthy(seen[1]:find("reply", 1, true), seen[1])
+    end)
+
+    it("says that the thread state is missing", function()
+      local state = open_diff()
+      local stateless = remote_comment()
+      stateless.thread = nil
+      require("codeview.remote").attach(assert(opened), { stateless })
+      api.nvim_win_set_cursor(state.win, { 4, 0 })
+
+      local seen, started = warnings(function()
+        return comments.reply()
+      end)
+      assert.is_false(started)
+      assert.is_truthy(seen[1]:find("thread state of GitHub is not available", 1, true), seen[1])
+    end)
+
+    it("draws a reply to a thread that the session does not hold as its own box", function()
+      local state = open_diff()
+      local store = assert(comments.store())
+      assert(store:add({
+        file = "call.lua",
+        start_line = 2,
+        end_line = 2,
+        side = "new",
+        reply_to = "999",
+        body = "a lost reply",
+      }))
+      comments.decorate(state)
+      assert.are.same({ "comment L2 (new) · reply", "a lost reply" }, virt_lines(state.buf))
     end)
   end)
 

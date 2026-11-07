@@ -37,7 +37,8 @@
 ---       "error": ""
 ---     }
 --- <
---- `skipped` holds the comments that stay local, with the reason.
+--- A chosen draft reply goes into its thread on GitHub, and `posted` counts
+--- it. `skipped` holds the comments that stay local, with the reason.
 --- `already_sent` holds the chosen comments that went out already. When every
 --- chosen comment went out already, the call posts nothing, and the result has
 --- `ok = true` and `posted = 0`. When another codeview holds the lock of the

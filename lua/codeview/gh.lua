@@ -128,6 +128,7 @@ local SIGNS = {
 ---@field per_page integer? Number of items of one page in a list call.
 ---@field max_pages integer? Highest number of pages that a list call reads.
 ---@field max integer? Highest number of items that a list call keeps.
+---@field allow_empty boolean? True when an empty answer is a success, for example the HTTP 204 of a DELETE call. The value is then `{}`.
 
 ---Name or path of the gh executable, from the configuration.
 ---@return string binary
@@ -335,6 +336,9 @@ local function run_json(args, opts, cb, body)
       return nil, decode_err
     end
     if value == nil then
+      if opts and opts.allow_empty then
+        return {}, nil
+      end
       return nil, errors.new(errors.codes.NOT_FOUND, "gh: the answer is empty", { command = result.command })
     end
     return value, nil
@@ -427,6 +431,65 @@ function M.api(path, opts, cb)
   return run_json(api_args(path, opts), opts, cb, function(stdout)
     return M.response(stdout).body
   end)
+end
+
+---Run one query or mutation of the GraphQL API.
+---
+--- The call sends the query and the variables as the JSON body of
+--- `POST graphql`. An answer that holds `errors` gives an error with the
+--- message of the first entry, also when it holds data too.
+---@param query string Text of the query.
+---@param variables table? Values of the variables of the query.
+---@param opts? { hostname?: string, cwd?: string, timeout?: integer }
+---@param cb? fun(data: table?, err: codeview.Error?) Callback for the async form.
+---@return table? data Value of the `data` field of the answer.
+---@return codeview.Error? err
+function M.graphql(query, variables, opts, cb)
+  if type(opts) == "function" then
+    cb, opts = opts, nil
+  end
+  opts = opts or {}
+  local body = { query = query }
+  if variables and next(variables) ~= nil then
+    body.variables = variables
+  end
+
+  ---@param value any
+  ---@param err codeview.Error?
+  ---@return table?, codeview.Error?
+  local function handle(value, err)
+    if value == nil then
+      return nil, err
+    end
+    if type(value) ~= "table" or vim.islist(value) then
+      return nil, errors.new(errors.codes.COMMAND_FAILED, "gh: the GraphQL answer is not an object")
+    end
+    if type(value.errors) == "table" and #value.errors > 0 then
+      local first = value.errors[1]
+      local text = type(first) == "table" and type(first.message) == "string" and first.message or "the query failed"
+      return nil, errors.new(errors.codes.COMMAND_FAILED, "gh: " .. text)
+    end
+    if type(value.data) ~= "table" then
+      return nil, errors.new(errors.codes.COMMAND_FAILED, "gh: the GraphQL answer holds no data")
+    end
+    return value.data, nil
+  end
+
+  local api_opts = {
+    method = "POST",
+    input = "-",
+    stdin = vim.json.encode(body),
+    hostname = opts.hostname,
+    cwd = opts.cwd,
+    timeout = opts.timeout,
+  }
+  if cb then
+    M.api("graphql", api_opts, function(value, err)
+      cb(handle(value, err))
+    end)
+    return nil, nil
+  end
+  return handle(M.api("graphql", api_opts))
 end
 
 ---Add a query parameter to a path.

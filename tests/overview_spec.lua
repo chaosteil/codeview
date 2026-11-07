@@ -568,6 +568,112 @@ describe("codeview.overview", function()
     end)
   end)
 
+  describe("the threads of GitHub", function()
+    ---One comment of GitHub on the new line 2 of call.lua.
+    ---@param fields? table
+    ---@return codeview.remote.Comment
+    local function remote_comment(fields)
+      return vim.tbl_extend("force", {
+        id = 501,
+        file = "call.lua",
+        start_line = 2,
+        end_line = 2,
+        side = "new",
+        commit = fixture.ids.change,
+        author = "grace",
+        body = "this line needs a test",
+        url = "https://github.com/ada/demo/pull/12#discussion_r501",
+        created_at = 10,
+        outdated = false,
+        reactions = {},
+      }, fields or {})
+    end
+
+    ---Line of the thread with the first comment 501.
+    ---@param bar codeview.Overview
+    ---@return integer lnum
+    local function thread_line(bar)
+      return assert(bar.panel:find(function(item)
+        return item.kind == "remote" and item.remote.id == 501
+      end))
+    end
+
+    it("lists one line per thread with the number of replies", function()
+      local bar = open_overview()
+      require("codeview.remote").attach(assert(opened), {
+        remote_comment({ thread = { id = "PRRT_1", resolved = true } }),
+        remote_comment({ id = 502, reply_to = 501, created_at = 20, body = "one" }),
+        remote_comment({ id = 503, reply_to = 501, created_at = 30, body = "two" }),
+        remote_comment({ id = 600, start_line = 3, end_line = 3, body = "another thread" }),
+      })
+
+      local text = table.concat(bar.panel:lines(), "\n")
+      assert.is_truthy(text:find("4 remote comments", 1, true), text)
+      assert.are.equal(2, #bar:remote())
+      local line = bar.panel:lines()[thread_line(bar)]
+      assert.is_truthy(line:find("@grace this line", 1, true), line)
+      assert.is_true(vim.endswith(line, " · 2 replies ✓"), line)
+      assert.is_truthy(text:find("another thread", 1, true), text)
+      assert.is_nil(text:find("one", 1, true), text)
+
+      assert.is_true(bar.panel:set_cursor(thread_line(bar)))
+      assert.are.equal(501, assert(bar:cursor_remote()).id)
+      assert.are.equal(3, #assert(bar:cursor_thread()).comments)
+    end)
+
+    it("sends the keys of a thread line to the thread actions", function()
+      local bar = open_overview()
+      require("codeview.remote").attach(assert(opened), { remote_comment() })
+      assert.is_true(bar.panel:set_cursor(thread_line(bar)))
+
+      local thread_mod = require("codeview.thread")
+      local seen = {}
+      for _, name in ipairs({ "resolve", "edit", "delete", "react", "open" }) do
+        thread_mod[name] = function(opts) ---@diagnostic disable-line: duplicate-set-field
+          seen[#seen + 1] = { name = name, root = opts.thread.root.id, session = opts.session }
+          return true
+        end
+      end
+      comments.reply = function(opts) ---@diagnostic disable-line: duplicate-set-field
+        seen[#seen + 1] = { name = "reply", root = opts.thread.root.id, session = opts.session }
+        return true
+      end
+
+      assert.is_nil(bar:set_state())
+      assert.is_true(bar:edit())
+      assert.is_true(bar:remove({ confirm = false }))
+      assert.is_true(bar:reply())
+      assert.is_true(bar:react())
+      assert.is_true(bar:open_remote())
+      assert.are.same(
+        { "resolve", "edit", "delete", "reply", "react", "open" },
+        vim.tbl_map(function(entry)
+          return entry.name
+        end, seen)
+      )
+      for _, entry in ipairs(seen) do
+        assert.are.equal(501, entry.root)
+        assert.are.equal(opened, entry.session)
+      end
+    end)
+
+    it("reports a line without a thread for the thread keys", function()
+      add_comment({ file = "call.lua", start_line = 1, end_line = 1 })
+      local bar = open_overview()
+      bar.panel:set_cursor(1)
+      assert.is_false(bar:reply())
+      assert.is_false(bar:react())
+      assert.is_false(bar:open_remote())
+    end)
+
+    it("marks a local reply", function()
+      local comment =
+        add_comment({ file = "call.lua", start_line = 2, end_line = 2, reply_to = "501", body = "a draft" })
+      local bar = open_overview()
+      assert.are.equal("  │ ▌ L2 new " .. rev() .. " · reply a draft", bar.panel:lines()[line_of(bar, comment.id)])
+    end)
+  end)
+
   describe("the export keys", function()
     ---Set the register of the export to a register that needs no clipboard.
     local function with_register()

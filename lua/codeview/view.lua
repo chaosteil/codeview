@@ -535,10 +535,9 @@ local function rerender(view, anchor)
   end
   draw(view)
   -- The comments are extmarks over the new rows. They never change the text of
-  -- the buffer, so the line map of the render stays correct. The comments of a
-  -- pull request use their own namespace, next to the local ones.
-  require("codeview.comments").decorate(view)
-  require("codeview.remote").decorate(view)
+  -- the buffer, so the line map of the render stays correct. One call draws
+  -- the local comments and the comments of a pull request.
+  require("codeview.stack").decorate(view)
   place(view, anchor)
   return view
 end
@@ -646,8 +645,7 @@ local function watch_size(view)
           return
         end
       end
-      require("codeview.comments").decorate(view)
-      require("codeview.remote").decorate(view)
+      require("codeview.stack").decorate(view)
     end,
   })
 end

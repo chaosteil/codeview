@@ -197,6 +197,23 @@ describe("codeview.remote", function()
       assert.are.equal(1, comments[2].reply_to)
     end)
 
+    it("reads the counts of the reactions of the REST answer", function()
+      local comments = remote.parse({
+        {
+          id = 1,
+          path = "a.lua",
+          line = 3,
+          side = "RIGHT",
+          body = "one",
+          reactions = { total_count = 3, ["+1"] = 2, hooray = 1, eyes = 0 },
+        },
+      })
+      assert.are.same({
+        { content = "THUMBS_UP", count = 2, mine = false },
+        { content = "HOORAY", count = 1, mine = false },
+      }, comments[1].reactions)
+    end)
+
     it("maps a comment of the old side", function()
       local comments = remote.parse({ { id = 5, path = "a.lua", line = 9, side = "LEFT", body = "gone" } })
       assert.are.equal("old", comments[1].side)
@@ -235,27 +252,63 @@ describe("codeview.remote", function()
     describe("with a gh stub", function()
       ---@type string[][]
       local calls
+      ---Request bodies of the GraphQL calls.
+      ---@type table[]
+      local graphql
+      ---Answer of the GraphQL call with one number.
+      ---@type fun(index: integer): string
+      local threads_answer
+
+      ---Answer of one page of threads.
+      ---@param nodes table[]
+      ---@param cursor string?
+      ---@return string
+      local function threads_page(nodes, cursor)
+        return vim.json.encode({
+          data = {
+            repository = {
+              pullRequest = {
+                reviewThreads = {
+                  pageInfo = { hasNextPage = cursor ~= nil, endCursor = cursor or vim.NIL },
+                  nodes = nodes,
+                },
+              },
+            },
+          },
+        })
+      end
 
       before_each(function()
         calls = {}
+        graphql = {}
+        threads_answer = function()
+          return threads_page({})
+        end
         local gh = require("codeview.gh")
         gh.available = function() ---@diagnostic disable-line: duplicate-set-field
           return true
         end
         -- Every page is full, so the fetch only stops at a limit.
-        require("codeview.exec").capture = function(cmd, _, cb) ---@diagnostic disable-line: duplicate-set-field
+        require("codeview.exec").capture = function(cmd, opts, cb) ---@diagnostic disable-line: duplicate-set-field
           calls[#calls + 1] = cmd
-          local page = tonumber(cmd[3]:match("[?&]page=(%d+)"))
-          local per_page = tonumber(cmd[3]:match("per_page=(%d+)"))
-          local entries = {}
-          for index = 1, per_page do
-            entries[index] = { id = page * 1000 + index, path = "a.lua", line = index, side = "RIGHT", body = "one" }
+          local stdout
+          if cmd[3] == "graphql" then
+            graphql[#graphql + 1] = vim.json.decode(opts.stdin)
+            stdout = threads_answer(#graphql)
+          else
+            local page = tonumber(cmd[3]:match("[?&]page=(%d+)"))
+            local per_page = tonumber(cmd[3]:match("per_page=(%d+)"))
+            local entries = {}
+            for index = 1, per_page do
+              entries[index] = { id = page * 1000 + index, path = "a.lua", line = index, side = "RIGHT", body = "one" }
+            end
+            stdout = vim.json.encode(entries)
           end
           local result = {
             command = cmd,
             code = 0,
             signal = 0,
-            stdout = vim.json.encode(entries),
+            stdout = stdout,
             stderr = "",
           }
           if cb then
@@ -307,6 +360,106 @@ describe("codeview.remote", function()
         assert.are.equal(1, #seen)
         assert.are.equal(vim.log.levels.WARN, seen[1].level)
         assert.is_truthy(seen[1].msg:find("oldest 3", 1, true), seen[1].msg)
+      end)
+
+      it("joins the review threads to the comments", function()
+        threads_answer = function(index)
+          if index == 1 then
+            return threads_page({
+              {
+                id = "PRRT_1",
+                isResolved = true,
+                resolvedBy = { login = "ada" },
+                viewerCanResolve = false,
+                viewerCanUnresolve = true,
+                viewerCanReply = true,
+                comments = {
+                  nodes = {
+                    {
+                      databaseId = 1001,
+                      id = "PRRC_1001",
+                      viewerCanUpdate = true,
+                      viewerCanDelete = true,
+                      reactionGroups = {
+                        { content = "THUMBS_UP", viewerHasReacted = true, reactors = { totalCount = 2 } },
+                        { content = "LAUGH", viewerHasReacted = false, reactors = { totalCount = 0 } },
+                      },
+                    },
+                  },
+                },
+              },
+            }, "cursor-1")
+          end
+          return threads_page({})
+        end
+        local comments = assert(remote.fetch({ repo = "ada/demo", number = 12, max = 2 }))
+        assert.are.equal(2, #graphql)
+        assert.are.same({ owner = "ada", name = "demo", number = 12 }, graphql[1].variables)
+        assert.are.equal("cursor-1", graphql[2].variables.cursor)
+        assert.is_nil(comments.thread_error)
+
+        local first = comments[1]
+        assert.are.equal(1001, first.id)
+        assert.are.equal("PRRC_1001", first.node_id)
+        assert.is_true(first.can_update)
+        assert.is_true(first.can_delete)
+        assert.are.same({ { content = "THUMBS_UP", count = 2, mine = true } }, first.reactions)
+        assert.are.same({
+          id = "PRRT_1",
+          resolved = true,
+          resolved_by = "ada",
+          can_resolve = false,
+          can_unresolve = true,
+          can_reply = true,
+        }, first.thread)
+        assert.is_nil(comments[2].thread)
+        assert.is_nil(comments[2].node_id)
+      end)
+
+      it("stops after the last page of threads", function()
+        threads_answer = function(index)
+          return threads_page({}, "cursor-" .. index)
+        end
+        assert(remote.fetch({ repo = "ada/demo", number = 12, max = 1 }))
+        assert.are.equal(remote.thread_pages, #graphql)
+      end)
+
+      it("keeps the comments when the GraphQL call fails", function()
+        threads_answer = function()
+          return vim.json.encode({ errors = { { message = "Something went wrong" } } })
+        end
+        local comments = assert(remote.fetch({ repo = "ada/demo", number = 12, max = 2 }))
+        assert.are.equal(2, #comments)
+        assert.is_truthy(tostring(comments.thread_error):find("Something went wrong", 1, true))
+        assert.is_nil(comments[1].thread)
+
+        local seen = {}
+        local notify = vim.notify
+        vim.notify = function(msg, level) ---@diagnostic disable-line: duplicate-set-field
+          seen[#seen + 1] = { msg = msg, level = level }
+        end
+        local finished = false
+        local session = {
+          id = 998,
+          is_active = function()
+            return false
+          end,
+        }
+        remote.load(session --[[@as codeview.Session]], { repo = "ada/demo", number = 12, max = 200 }, function(loaded)
+          finished = loaded ~= nil
+        end)
+        local ok = vim.wait(5000, function()
+          return finished
+        end, 5)
+        vim.notify = notify
+
+        assert.is_true(ok, "the load gave no comments")
+        -- Every page of the stub is full, so the fetch also stops at the limit.
+        local warned = vim.tbl_filter(function(entry)
+          return entry.msg:find("without the thread state", 1, true) ~= nil
+        end, seen)
+        assert.are.equal(1, #warned)
+        assert.are.equal(vim.log.levels.WARN, warned[1].level)
       end)
     end)
   end)
@@ -392,11 +545,18 @@ describe("codeview.remote in the review", function()
     return text
   end
 
+  ---Extmarks of the boxes in a buffer.
+  ---@param buf integer
+  ---@return table[]
+  local function box_marks(buf)
+    return require("codeview.stack").marks(buf)
+  end
+
   ---Text of the virtual lines of the first mark with virtual lines.
   ---@param buf integer
   ---@return string[]
   local function virt_lines(buf)
-    for _, mark in ipairs(marks(buf)) do
+    for _, mark in ipairs(box_marks(buf)) do
       if mark[4].virt_lines then
         return vim.tbl_map(line_text, mark[4].virt_lines)
       end
@@ -436,6 +596,75 @@ describe("codeview.remote in the review", function()
     assert.are.equal(0, #remote.at(review, "call.lua", "old", 2))
   end)
 
+  it("groups the comments of a thread, oldest first", function()
+    local review = open_session()
+    remote.attach(review, {
+      remote_comment({ id = 503, reply_to = 501, created_at = 30, body = "third" }),
+      remote_comment({ id = 501, created_at = 10, body = "first" }),
+      remote_comment({ id = 600, start_line = 3, end_line = 3, created_at = 5, body = "other" }),
+      remote_comment({ id = 502, reply_to = 501, created_at = 30, body = "second" }),
+    })
+    local threads = remote.threads(review)
+    assert.are.equal(2, #threads)
+    assert.are.equal(600, threads[1].root.id)
+    local thread = threads[2]
+    assert.are.equal(501, thread.root.id)
+    assert.are.same(
+      { 501, 502, 503 },
+      vim.tbl_map(function(comment)
+        return comment.id
+      end, thread.comments)
+    )
+    assert.are.equal(2, thread.start_line)
+    assert.is_nil(thread.id)
+    assert.is_false(thread.resolved)
+
+    assert.are.equal(1, #remote.threads_at(review, "call.lua", "new", 2))
+    assert.are.equal(0, #remote.threads_at(review, "call.lua", "old", 2))
+    assert.are.equal(501, remote.threads_at(review, "call.lua", "new", 2)[1].root.id)
+  end)
+
+  it("takes the state of a thread from its comments", function()
+    local review = open_session()
+    local state = {
+      id = "PRRT_1",
+      resolved = true,
+      resolved_by = "ada",
+      can_resolve = false,
+      can_unresolve = true,
+      can_reply = true,
+    }
+    remote.attach(review, {
+      remote_comment({ id = 501, created_at = 10 }),
+      remote_comment({ id = 502, reply_to = 501, created_at = 20, thread = state }),
+    })
+    local thread = remote.threads(review)[1]
+    assert.are.equal("PRRT_1", thread.id)
+    assert.is_true(thread.resolved)
+    assert.are.equal("ada", thread.resolved_by)
+    assert.is_true(thread.can_unresolve)
+    assert.is_true(thread.can_reply)
+  end)
+
+  it("drops the copy of a comment with the same remote id", function()
+    local review = open_session()
+    local store = assert(comments_mod.store(review))
+    local comment = assert(store:add({
+      file = "call.lua",
+      start_line = 2,
+      end_line = 2,
+      side = "new",
+      body = "a reply of mine",
+    }))
+    assert(store:mark_synced(comment.id, { remote_id = 502 }))
+    assert(store:update(comment.id, { body = "a new text" }))
+    remote.attach(review, { remote_comment(), remote_comment({ id = 502, reply_to = 501, body = "a reply of mine" }) })
+
+    local held = remote.list(review)
+    assert.are.equal(1, #held)
+    assert.are.equal(501, held[1].id)
+  end)
+
   it("drops the comments when the session closes", function()
     local review = open_session()
     remote.attach(review, { remote_comment() })
@@ -456,9 +685,12 @@ describe("codeview.remote in the review", function()
     local details = found[1][4]
     assert.are.equal(config.get().comments.remote_sign, vim.trim(details.sign_text))
     assert.are.equal("CodeViewRemoteSign", details.sign_hl_group)
-    assert.is_truthy(details.virt_lines)
-    assert.is_truthy(line_text(details.virt_lines[1]):find("@grace", 1, true))
-    assert.is_truthy(line_text(details.virt_lines[1]):find("read-only", 1, true))
+    local box = box_marks(state.buf)
+    assert.are.equal(1, #box)
+    assert.are.equal(3, box[1][2])
+    local lines = box[1][4].virt_lines
+    assert.is_truthy(line_text(lines[1]):find("@grace", 1, true))
+    assert.is_nil(line_text(lines[1]):find("read-only", 1, true))
   end)
 
   it("draws a remote comment as a framed box with the grey tint", function()
@@ -469,7 +701,7 @@ describe("codeview.remote in the review", function()
     local width = api.nvim_win_get_width(state.win) - vim.fn.getwininfo(state.win)[1].textoff - 1
     local lines = virt_lines(state.buf)
     assert.are.equal(3, #lines)
-    assert.is_true(vim.startswith(lines[1], "╭─ @grace L2 (new) · read-only ─"))
+    assert.is_true(vim.startswith(lines[1], "╭─ @grace L2 (new) ─"))
     assert.is_true(vim.endswith(lines[1], "─╮"))
     assert.are.equal("│ this line needs a test" .. string.rep(" ", width - 26) .. " │", lines[2])
     assert.are.equal("╰" .. string.rep("─", width - 2) .. "╯", lines[3])
@@ -477,7 +709,7 @@ describe("codeview.remote in the review", function()
       assert.are.equal(width, vim.fn.strdisplaywidth(line))
     end
 
-    local chunks = marks(state.buf)[1][4].virt_lines
+    local chunks = box_marks(state.buf)[1][4].virt_lines
     assert.are.same({ "╭─ ", "CodeViewRemoteBorder" }, chunks[1][1])
     assert.are.same({ "CodeViewRemoteHeader", "CodeViewRemoteBox" }, chunks[1][2][2])
     assert.are.same({ "│", "CodeViewRemoteBorder" }, chunks[2][1])
@@ -497,12 +729,124 @@ describe("codeview.remote in the review", function()
     local state = open_diff("call.lua")
 
     local width = api.nvim_win_get_width(state.win) - vim.fn.getwininfo(state.win)[1].textoff - 1
-    local header = " @grace L2 (new) · read-only"
+    local header = " @grace L2 (new)"
     assert.are.same({
       header .. string.rep(" ", width - 1 - vim.fn.strdisplaywidth(header)) .. " ",
       " one" .. string.rep(" ", width - 5) .. " ",
       " two" .. string.rep(" ", width - 5) .. " ",
     }, virt_lines(state.buf))
+  end)
+
+  it("draws a thread as one box, oldest comment first", function()
+    local review = open_session()
+    remote.attach(review, {
+      remote_comment({ id = 502, reply_to = 501, created_at = 20, author = "ada", body = "a reply" }),
+      remote_comment({
+        id = 501,
+        created_at = 10,
+        reactions = {
+          { content = "THUMBS_UP", count = 2, mine = false },
+          { content = "HOORAY", count = 1, mine = true },
+        },
+      }),
+    })
+    local state = open_diff("call.lua")
+
+    local width = api.nvim_win_get_width(state.win) - vim.fn.getwininfo(state.win)[1].textoff - 1
+    local found = box_marks(state.buf)
+    assert.are.equal(1, #found)
+    local lines = virt_lines(state.buf)
+    assert.are.equal(6, #lines)
+    assert.is_true(vim.startswith(lines[1], "╭─ @grace L2 (new) ─"))
+    assert.is_truthy(lines[2]:find("this line needs a test", 1, true))
+    assert.is_truthy(lines[3]:find("👍 2  🎉 1", 1, true), lines[3])
+    assert.is_true(vim.startswith(lines[4], "├─ @ada ─"))
+    assert.is_true(vim.endswith(lines[4], "─┤"))
+    assert.is_truthy(lines[5]:find("a reply", 1, true))
+    assert.is_true(vim.startswith(lines[6], "╰"))
+    for _, line in ipairs(lines) do
+      assert.are.equal(width, vim.fn.strdisplaywidth(line))
+    end
+    local chunks = found[1][4].virt_lines
+    assert.are.same({ "CodeViewRemoteReactions", "CodeViewRemoteBox" }, chunks[3][2][2])
+  end)
+
+  it("shows a resolved thread as one header line", function()
+    local review = open_session()
+    local state = {
+      id = "PRRT_1",
+      resolved = true,
+      resolved_by = "ada",
+      can_resolve = false,
+      can_unresolve = true,
+      can_reply = true,
+    }
+    remote.attach(review, {
+      remote_comment({ id = 501, created_at = 10, thread = state }),
+      remote_comment({ id = 502, reply_to = 501, created_at = 20, thread = state }),
+    })
+    local diff = open_diff("call.lua")
+
+    local lines = virt_lines(diff.buf)
+    assert.are.equal(2, #lines)
+    assert.is_true(vim.startswith(lines[1], "╭─ ✓ resolved · @grace L2 (new) · 2 comments ─"), lines[1])
+    local chunks = box_marks(diff.buf)[1][4].virt_lines
+    assert.are.same({ "CodeViewRemoteResolved", "CodeViewRemoteBox" }, chunks[1][2][2])
+  end)
+
+  it("puts the boxes of one row into one extmark, oldest first", function()
+    local review = open_session()
+    local store = assert(comments_mod.store(review))
+    assert(store:add({ file = "call.lua", start_line = 2, end_line = 2, side = "new", body = "mine", created_at = 20 }))
+    remote.attach(review, { remote_comment({ created_at = 10 }) })
+    local state = open_diff("call.lua")
+
+    assert.are.equal(1, #box_marks(state.buf))
+    local lines = virt_lines(state.buf)
+    assert.is_true(vim.startswith(lines[1], "╭─ @grace L2 (new) ─"))
+    assert.is_true(vim.startswith(lines[4], "╭─ comment L2 (new) ─"))
+  end)
+
+  it("shows the boxes of one row in the order of their time on the screen", function()
+    config.setup({ comments = { border = "none" } })
+    local lines = vim.o.lines
+    vim.o.lines = 60
+    local review = open_session()
+    local store = assert(comments_mod.store(review))
+    -- The comments go in as A, B, C, D. Neovim does not keep that order for
+    -- marks with a sign on one row, so the stack must.
+    for index, body in ipairs({ "alpha", "bravo", "charlie", "delta" }) do
+      assert(
+        store:add({ file = "call.lua", start_line = 2, end_line = 2, side = "new", body = body, created_at = index })
+      )
+    end
+    local state = open_diff("call.lua")
+    vim.cmd("redraw")
+
+    local top = vim.fn.win_screenpos(state.win)[1]
+    local width = api.nvim_win_get_width(state.win)
+    local left = vim.fn.win_screenpos(state.win)[2]
+    ---@type table<string, integer>
+    local at = {}
+    for row = top, top + api.nvim_win_get_height(state.win) - 1 do
+      local text = {}
+      for col = left, left + width - 1 do
+        text[#text + 1] = vim.fn.screenstring(row, col)
+      end
+      local line = table.concat(text)
+      for _, body in ipairs({ "alpha", "bravo", "charlie", "delta" }) do
+        if line:find(body, 1, true) and not at[body] then
+          at[body] = row
+        end
+      end
+    end
+    vim.o.lines = lines
+
+    assert.is_truthy(at.alpha and at.bravo and at.charlie and at.delta, vim.inspect(at))
+    assert.is_true(at.alpha < at.bravo)
+    assert.is_true(at.bravo < at.charlie)
+    assert.is_true(at.charlie < at.delta)
+    assert.is_truthy(comments_mod.marks(state.buf)[1][4].sign_text)
   end)
 
   it("gives the other side of the split as many blank lines as the remote box", function()
@@ -515,7 +859,7 @@ describe("codeview.remote in the review", function()
     local count = #virt_lines(state.buf)
     assert.is_true(count > 3)
     local blank = 0
-    for _, mark in ipairs(marks(assert(state.old_buf))) do
+    for _, mark in ipairs(box_marks(assert(state.old_buf))) do
       blank = blank + #(mark[4].virt_lines or {})
     end
     assert.are.equal(count, blank)
@@ -590,7 +934,7 @@ describe("codeview.remote in the review", function()
 
     local details = marks(state.buf)[1][4]
     assert.are.equal("CodeViewRemoteOutdated", details.sign_hl_group)
-    assert.is_truthy(line_text(details.virt_lines[1]):find("outdated", 1, true))
+    assert.is_truthy(virt_lines(state.buf)[1]:find("outdated", 1, true))
   end)
 
   it("draws an outdated comment where the current file holds its lines", function()
@@ -664,7 +1008,7 @@ describe("codeview.remote in the review", function()
     assert.is_truthy(text:find("this line needs a test", 1, true), text)
   end)
 
-  it("says in the diff that a remote comment does not change", function()
+  it("sends the edit key on a remote comment to the thread actions", function()
     local review = open_session()
     remote.attach(review, { remote_comment() })
     local state = open_diff("call.lua")
@@ -678,9 +1022,10 @@ describe("codeview.remote in the review", function()
     local edited = comments_mod.edit()
     vim.notify = notify
 
+    -- The thread actions need a pull request. The fixture is a local review.
     assert.is_false(edited)
     assert.are.equal(1, #seen)
-    assert.is_truthy(seen[1]:find("read-only", 1, true), seen[1])
+    assert.is_truthy(seen[1]:find("does not review a pull request", 1, true), seen[1])
   end)
 
   it("lists the remote comments in the overview", function()
@@ -711,7 +1056,7 @@ describe("codeview.remote in the review", function()
     assert.is_truthy(text:find("no comments", 1, true), text)
   end)
 
-  it("does not edit, delete, or resolve a remote comment", function()
+  it("sends the edit, delete, and resolve keys of a thread line to the thread actions", function()
     local review = open_session()
     local bar = assert(overview.open({ session = review }))
     remote.attach(review, { remote_comment() })
@@ -732,11 +1077,14 @@ describe("codeview.remote in the review", function()
     local state = bar:set_state()
     vim.notify = notify
 
+    -- The thread actions need a pull request. The fixture is a local review.
     assert.is_false(edited)
     assert.is_false(removed)
     assert.is_nil(state)
     assert.are.equal(3, #seen)
-    assert.is_truthy(seen[1]:find("read-only", 1, true), seen[1])
+    for _, message in ipairs(seen) do
+      assert.is_truthy(message:find("does not review a pull request", 1, true), message)
+    end
   end)
 
   it("jumps from the overview to the line of a remote comment", function()

@@ -236,12 +236,18 @@ end
 
 ---Header line of one comment: the lines, the side, the commit, and the state.
 ---
---- An old-side comment on a renamed file also names the old path.
+--- An old-side comment on a renamed file also names the old path. A draft
+--- reply names the thread: `reply to @author`, or `reply to #<id>` when the
+--- session does not hold the thread.
 ---@param comment codeview.store.Comment
 ---@param file codeview.export.File File of the comment.
+---@param session codeview.Session Session of the comment.
 ---@return string
-local function locator(comment, file)
+local function locator(comment, file, session)
   local parts = { lines_text(comment), comment.side }
+  if (comment.reply_to or "") ~= "" then
+    parts[#parts + 1] = "reply to " .. require("codeview.remote").reply_target(session, comment.reply_to)
+  end
   if comment.side == "old" and file.old_path then
     parts[#parts + 1] = code(file.old_path)
   end
@@ -341,7 +347,7 @@ function M.markdown(data)
     out[#out + 1] = "## " .. name .. (file.changed and "" or " (outside the range)")
     for _, comment in ipairs(file.comments) do
       out[#out + 1] = ""
-      out[#out + 1] = "### " .. locator(comment, file)
+      out[#out + 1] = "### " .. locator(comment, file, data.session)
       out[#out + 1] = ""
       vim.list_extend(out, body_lines(comment.body))
     end

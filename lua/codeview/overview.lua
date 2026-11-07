@@ -19,6 +19,11 @@
 --- Each of them writes the session file and sends an event of
 --- |codeview.events|, so the diff view draws its extmarks again at once.
 ---
+--- The section of GitHub holds one line per thread: the first comment, the
+--- number of replies, and a `✓` for a resolved thread. On such a line, the
+--- keys for resolve, edit, delete, reply, react, and open act on the thread,
+--- see |codeview.thread|.
+---
 --- Two more keys act on the whole review. The export key shows the markdown
 --- of |codeview.export| in a scratch buffer. The copy key writes the same
 --- markdown into the register of the `export.register` option. That register
@@ -56,7 +61,8 @@ local M = {}
 ---@field source string? Name of the source of a line of a read-only section, see |codeview.remote.sources|.
 ---@field node codeview.tree.Node? Tree node of a directory line or a file line.
 ---@field comment codeview.store.Comment? Comment of a comment line.
----@field remote codeview.remote.Comment? Comment of a remote line.
+---@field remote codeview.remote.Comment? Comment of a remote line. The first comment of the thread for a thread of GitHub.
+---@field thread codeview.remote.Thread? Thread of GitHub of a remote line.
 ---@field count integer Number of comments below the line.
 ---@field resolved integer Number of resolved comments below the line.
 ---@field expanded boolean? True while a directory or a file shows its children.
@@ -230,6 +236,10 @@ local function comment_line(item, depth, width)
     line.add(" synced", "CodeViewCount")
   end
 
+  if (comment.reply_to or "") ~= "" then
+    line.add(" · reply", "CodeViewCount")
+  end
+
   local preview = preview_text(comment)
   if preview ~= "" then
     line.add(" " .. fit(preview, width - fn.strdisplaywidth(line.text()) - 1))
@@ -246,31 +256,52 @@ local function remote_key(source, path)
   return source.name .. ":" .. path
 end
 
----Read-only items of one source of the session, by file.
+---@class codeview.overview.RemoteEntry
+---@field item codeview.remote.Comment Item of the line. The first comment of a thread of GitHub.
+---@field thread codeview.remote.Thread? Thread of GitHub of the line.
+
+---Lines of one source of the session, by file.
+---
+--- The source of GitHub gives one line per thread. Every other source gives
+--- one line per item.
 ---@param self codeview.Overview
 ---@param source codeview.remote.Source
----@return table<string, codeview.remote.Comment[]> by_file
+---@return table<string, codeview.overview.RemoteEntry[]> by_file
 ---@return string[] files Paths of the files that hold an item.
 ---@return integer count Number of items.
 local function remote_group(self, source)
-  ---@type table<string, codeview.remote.Comment[]>
-  local by_file = {}
-  local files, count = {}, 0
-  for _, comment in ipairs(source.list(self.session)) do
-    if not by_file[comment.file] then
-      by_file[comment.file] = {}
-      files[#files + 1] = comment.file
+  ---@type codeview.overview.RemoteEntry[]
+  local entries = {}
+  local count = 0
+  if source.name == "remote" then
+    for _, thread in ipairs(require("codeview.remote").threads(self.session)) do
+      entries[#entries + 1] = { item = thread.root, thread = thread }
+      count = count + #thread.comments
     end
-    local list = by_file[comment.file]
-    list[#list + 1] = comment
-    count = count + 1
+  else
+    for _, comment in ipairs(source.list(self.session)) do
+      entries[#entries + 1] = { item = comment }
+      count = count + 1
+    end
+  end
+  ---@type table<string, codeview.overview.RemoteEntry[]>
+  local by_file = {}
+  local files = {}
+  for _, entry in ipairs(entries) do
+    local path = entry.item.file
+    if not by_file[path] then
+      by_file[path] = {}
+      files[#files + 1] = path
+    end
+    local list = by_file[path]
+    list[#list + 1] = entry
   end
   for _, list in pairs(by_file) do
     table.sort(list, function(a, b)
-      if a.start_line ~= b.start_line then
-        return a.start_line < b.start_line
+      if a.item.start_line ~= b.item.start_line then
+        return a.item.start_line < b.item.start_line
       end
-      return tostring(a.id) < tostring(b.id)
+      return tostring(a.item.id) < tostring(b.item.id)
     end)
   end
   table.sort(files)
@@ -304,12 +335,13 @@ local function remote_file_line(source, path, count, expanded)
   })
 end
 
----Build the line of one read-only item.
+---Build the line of one read-only item, or of one thread of GitHub.
 ---@param source codeview.remote.Source
----@param comment codeview.remote.Comment
+---@param comment codeview.remote.Comment Item, or the first comment of the thread.
 ---@param width integer Width of the panel, in columns.
+---@param thread codeview.remote.Thread? Thread of GitHub of the line.
 ---@return codeview.panel.Line
-local function remote_comment_line(source, comment, width)
+local function remote_comment_line(source, comment, width, thread)
   local icons = config.get().sidebar.icons
   local line = panel.builder()
 
@@ -337,9 +369,22 @@ local function remote_comment_line(source, comment, width)
     line.add(" outdated", "CodeViewRemoteOutdated")
   end
 
+  local tail = ""
+  if thread then
+    local replies = #thread.comments - 1
+    if replies > 0 then
+      tail = string.format(" · %d %s", replies, replies == 1 and "reply" or "replies")
+    end
+    if thread.resolved then
+      tail = tail .. " ✓"
+    end
+  end
   local preview = preview_text(comment)
   if preview ~= "" then
-    line.add(" " .. fit(preview, width - fn.strdisplaywidth(line.text()) - 1))
+    line.add(" " .. fit(preview, width - fn.strdisplaywidth(line.text()) - fn.strdisplaywidth(tail) - 1))
+  end
+  if tail ~= "" then
+    line.add(tail, "CodeViewCount")
   end
 
   ---@type codeview.overview.Item
@@ -348,8 +393,9 @@ local function remote_comment_line(source, comment, width)
     path = remote_key(source, comment.file),
     source = source.name,
     remote = comment,
-    count = 1,
-    resolved = 0,
+    thread = thread,
+    count = thread and #thread.comments or 1,
+    resolved = thread and thread.resolved and 1 or 0,
   }
   return line.build({ hl = source.hl.body, data = item })
 end
@@ -373,10 +419,14 @@ local function render_remote(self, lines)
       for _, path in ipairs(files) do
         local list = by_file[path]
         local expanded = self.expanded[remote_key(source, path)] ~= false
-        lines[#lines + 1] = remote_file_line(source, path, #list, expanded)
+        local size = 0
+        for _, entry in ipairs(list) do
+          size = size + (entry.thread and #entry.thread.comments or 1)
+        end
+        lines[#lines + 1] = remote_file_line(source, path, size, expanded)
         if expanded then
-          for _, comment in ipairs(list) do
-            lines[#lines + 1] = remote_comment_line(source, comment, self.panel.width)
+          for _, entry in ipairs(list) do
+            lines[#lines + 1] = remote_comment_line(source, entry.item, self.panel.width, entry.thread)
           end
         end
       end
@@ -558,7 +608,23 @@ function Overview:remote()
   return out
 end
 
+---First line of a file line of a read-only section.
+---@param self codeview.Overview
+---@param item codeview.overview.Item Item of a file line.
+---@return codeview.overview.RemoteEntry? entry
+local function first_entry(self, item)
+  local source = require("codeview.remote").source(item.source)
+  if not source then
+    return nil
+  end
+  local by_file = remote_group(self, source)
+  return (by_file[item.path:sub(#source.name + 2)] or {})[1]
+end
+
 ---Remote comment of the line under the cursor.
+---
+--- On the line of a thread of GitHub, the call gives the first comment of
+--- the thread.
 ---@return codeview.remote.Comment? comment Nil outside the remote section.
 function Overview:cursor_remote()
   local item = self:cursor_item()
@@ -569,22 +635,37 @@ function Overview:cursor_remote()
     return item.remote
   end
   if item.kind == "remote-file" then
-    local source = require("codeview.remote").source(item.source)
-    if not source then
-      return nil
-    end
-    local by_file = remote_group(self, source)
-    return (by_file[item.path:sub(#source.name + 2)] or {})[1]
+    local entry = first_entry(self, item)
+    return entry and entry.item or nil
+  end
+  return nil
+end
+
+---Thread of GitHub of the line under the cursor.
+---@return codeview.remote.Thread? thread Nil outside the section of GitHub.
+function Overview:cursor_thread()
+  local item = self:cursor_item()
+  if not item then
+    return nil
+  end
+  if item.thread then
+    return item.thread
+  end
+  if item.kind == "remote-file" then
+    local entry = first_entry(self, item)
+    return entry and entry.thread or nil
   end
   return nil
 end
 
 ---Report that a read-only item does not change.
+---
+--- A thread of GitHub is not read-only: the thread actions take it.
 ---@param self codeview.Overview
 ---@return boolean remote True when the cursor is on a line of a read-only section.
 local function read_only(self)
   local item = self:cursor_item()
-  if item and (item.kind == "remote" or item.kind == "remote-file") then
+  if item and (item.kind == "remote" or item.kind == "remote-file") and item.source ~= "remote" then
     local source = require("codeview.remote").source(item.source)
     report(source and source.read_only or "the item is read-only")
     return true
@@ -777,10 +858,17 @@ function Overview:collapse_all()
 end
 
 ---Open the editor for the comment under the cursor.
+---
+--- On the line of a thread of GitHub, the call edits a comment of your own
+--- in the thread, see |codeview.thread.edit()|.
 ---@return boolean opened False without a comment on the line.
 function Overview:edit()
   if read_only(self) then
     return false
+  end
+  local thread = self:cursor_thread()
+  if thread then
+    return require("codeview.thread").edit({ thread = thread, session = self.session })
   end
   local comment = self:cursor_comment()
   if not comment then
@@ -796,6 +884,14 @@ end
 function Overview:remove(opts)
   if read_only(self) then
     return false
+  end
+  local thread = self:cursor_thread()
+  if thread then
+    return require("codeview.thread").delete({
+      thread = thread,
+      session = self.session,
+      confirm = (opts or {}).confirm,
+    })
   end
   local comment = self:cursor_comment()
   if not comment then
@@ -816,12 +912,62 @@ function Overview:set_state(state)
   if read_only(self) then
     return nil
   end
+  local thread = self:cursor_thread()
+  if thread then
+    -- GitHub answers later, so the call gives no comment back.
+    require("codeview.thread").resolve({ thread = thread, session = self.session })
+    return nil
+  end
   local comment = self:cursor_comment()
   if not comment then
     report("no comment on this line")
     return nil
   end
   return comments_mod.set_state({ id = comment.id, state = state, session = self.session })
+end
+
+---Thread of GitHub under the cursor, with a report when the line holds none.
+---@param self codeview.Overview
+---@return codeview.remote.Thread? thread
+local function thread_here(self)
+  if read_only(self) then
+    return nil
+  end
+  local thread = self:cursor_thread()
+  if not thread then
+    report("no thread of GitHub on this line")
+  end
+  return thread
+end
+
+---Open the editor for a draft reply to the thread under the cursor.
+---@return boolean started False without a thread on the line.
+function Overview:reply()
+  local thread = thread_here(self)
+  if not thread then
+    return false
+  end
+  return comments_mod.reply({ thread = thread, session = self.session })
+end
+
+---Add or remove a reaction on a comment of the thread under the cursor.
+---@return boolean started False without a thread on the line.
+function Overview:react()
+  local thread = thread_here(self)
+  if not thread then
+    return false
+  end
+  return require("codeview.thread").react({ thread = thread, session = self.session })
+end
+
+---Open the thread under the cursor in the browser.
+---@return boolean started False without a thread on the line.
+function Overview:open_remote()
+  local thread = thread_here(self)
+  if not thread then
+    return false
+  end
+  return require("codeview.thread").open({ thread = thread, session = self.session })
 end
 
 ---Show the markdown of the comments in a scratch buffer.
@@ -903,6 +1049,15 @@ local function keymaps(overview)
   add(keys.resolve_comment, function()
     overview:set_state()
   end, "resolve the comment under the cursor, or open it again")
+  add(keys.reply, function()
+    overview:reply()
+  end, "reply to the GitHub thread under the cursor")
+  add(keys.react, function()
+    overview:react()
+  end, "add or remove a reaction on the GitHub thread under the cursor")
+  add(keys.open_remote, function()
+    overview:open_remote()
+  end, "open the GitHub thread under the cursor in the browser")
   add(keys.export, function()
     overview:export()
   end, "show the markdown of the comments in a scratch buffer")

@@ -43,6 +43,11 @@
 --- next submit changes the text of that comment on GitHub with a PATCH call,
 --- and posts no new comment.
 ---
+--- A draft reply holds a `reply_to`: the id of the first comment of a thread
+--- of GitHub. A submit posts it with
+--- `POST /pulls/<n>/comments/<reply_to>/replies`, after the review and the
+--- edits, so it goes into the thread and not onto a line.
+---
 --- A post that the time limit killed can still reach GitHub. Before a review
 --- post, the call lists the reviews of the pull request. A review of the user
 --- that is logged in, on the same commit, with the same text and the same
@@ -123,6 +128,7 @@ M.diff_opts = mapper.diff_opts
 ---@field entries codeview.submit.Entry[] Comments that the post carries.
 ---@field notes codeview.store.Comment[] Comments on the pull request document. They go into the text of the review.
 ---@field edits codeview.store.Comment[] Comments that went out and got a new text. The submit changes their text on GitHub.
+---@field replies codeview.store.Comment[] Draft replies to the threads of GitHub. They need no position.
 ---@field skipped codeview.submit.Skipped[] Comments that stay local.
 ---@field synced integer Number of comments that an earlier submit sent.
 ---@field total integer Number of comments of the session.
@@ -369,6 +375,7 @@ function M.plan(opts, cb)
     entries = {},
     notes = {},
     edits = {},
+    replies = {},
     skipped = {},
     synced = synced,
     total = #store.comments,
@@ -377,12 +384,15 @@ function M.plan(opts, cb)
 
   -- A comment on the pull request document is an overall comment. It takes no
   -- position of the diff, so it goes into the text of the review. A comment
-  -- with an id on GitHub went out before, so only its text changes.
+  -- with an id on GitHub went out before, so only its text changes. A reply
+  -- goes into its thread, so it takes no position either.
   local message = require("codeview.message")
   local on_lines = {}
   for _, comment in ipairs(chosen) do
     if (comment.remote_id or "") ~= "" then
       plan.edits[#plan.edits + 1] = comment
+    elseif (comment.reply_to or "") ~= "" then
+      plan.replies[#plan.replies + 1] = comment
     elseif message.is_pr(comment.file) then
       plan.notes[#plan.notes + 1] = comment
     else
@@ -500,7 +510,7 @@ end
 ---@param plan codeview.submit.Plan
 ---@return integer count
 local function outgoing(plan)
-  return #plan.entries + #plan.notes + #(plan.edits or {})
+  return #plan.entries + #plan.notes + #(plan.edits or {}) + #(plan.replies or {})
 end
 
 ---Lines of the summary of a plan.
@@ -544,6 +554,18 @@ function M.summary(plan)
       string.format("%s %s a new text on GitHub:", comment_count(#plan.edits), #plan.edits == 1 and "gets" or "get")
     for _, edit in ipairs(plan.edits) do
       out[#out + 1] = string.format("  %s %s %s  %s", edit.file, lines_text(edit), edit.side, preview(edit, 50))
+    end
+  end
+  if #(plan.replies or {}) > 0 then
+    out[#out + 1] = string.format(
+      "%s %s into the threads of GitHub:",
+      #plan.replies == 1 and "1 reply" or (#plan.replies .. " replies"),
+      #plan.replies == 1 and "goes" or "go"
+    )
+    local remote = require("codeview.remote")
+    for _, reply in ipairs(plan.replies) do
+      out[#out + 1] =
+        string.format("  reply to %s: %s", remote.reply_target(plan.session, reply.reply_to), preview(reply, 50))
     end
   end
   if #plan.skipped > 0 then
@@ -673,6 +695,16 @@ end
 function M.edit_payload(info, comment)
   local kind = require("codeview.message").is_pr(comment.file) and "issues" or "pulls"
   return string.format("repos/%s/%s/comments/%s", info.repo, kind, comment.remote_id), { body = comment.body }
+end
+
+---Endpoint and request body of a reply to a thread of GitHub.
+---@param info codeview.pr.Info Pull request that holds the thread.
+---@param comment codeview.store.Comment Comment of the session, with a `reply_to`.
+---@return string path Path of the endpoint.
+---@return table payload Request body.
+function M.reply_payload(info, comment)
+  return string.format("repos/%s/pulls/%d/comments/%s/replies", info.repo, math.floor(info.number), comment.reply_to),
+    { body = comment.body }
 end
 
 --- Post --------------------------------------------------------------------
@@ -1182,39 +1214,94 @@ function M.run(opts, cb)
     end)
   end
 
-  ---Change the edited comments, then report the end of the submit.
+  ---Post every draft reply into its thread on GitHub, one after the other.
+  ---
+  --- The first failure stops the rest. A reply that GitHub took is marked
+  --- as sent, with the id of the new comment. The call writes the session
+  --- file once at the end, and reads the threads of GitHub again.
   ---@param plan codeview.submit.Plan
-  ---@param review table? Review of GitHub. Nil when the plan holds edits only.
+  ---@param after fun(count: integer, err: codeview.Error?)
+  local function send_replies(plan, after)
+    local count = 0
+    ---@type codeview.Error?
+    local failed
+    local remote = require("codeview.remote")
+    each(plan.replies or {}, function(comment, step_cb)
+      if failed then
+        step_cb()
+        return
+      end
+      local path, payload = M.reply_payload(plan.pr, comment)
+      gh.api(path, api_opts(plan.pr, plan.dir, "POST", payload), function(answer, err)
+        if answer then
+          plan.store:mark_synced(comment.id, {
+            time = os.time(),
+            remote_id = id_of(answer),
+            review_id = remote.review_id(answer.pull_request_review_id),
+          })
+          count = count + 1
+        else
+          failed = err
+        end
+        step_cb()
+      end)
+    end, function()
+      if count > 0 then
+        local ok, save_err = plan.store:save()
+        if not ok and loud then
+          report_save(save_err --[[@as codeview.Error]], "the reply")
+        end
+        events.emit("review_submitted", { session = plan.session.id, count = count, review = "" })
+        remote.load(plan.session, { silent = true })
+      end
+      after(count, failed)
+    end)
+  end
+
+  ---Change the edited comments and post the replies, then report the end of
+  ---the submit.
+  ---@param plan codeview.submit.Plan
+  ---@param review table? Review of GitHub. Nil when the plan holds edits and replies only.
   ---@param existing boolean True when GitHub held the review already.
   ---@param count integer Number of comments that the review marked.
   local function after_review(plan, review, existing, count)
     send_edits(plan, function(edited, edit_err)
-      local total = count + edited
-      local url = review and type(review.html_url) == "string" and review.html_url or ""
-      if loud and total > 0 then
-        local message = string.format("%s went to PR #%d", comment_count(total), plan.pr.number)
-        if existing then
-          message = string.format(
-            "PR #%d holds this review already, so nothing new went out. %s marked as sent",
-            plan.pr.number,
-            comment_count(count)
-          )
+      ---@param replied integer
+      ---@param reply_err codeview.Error?
+      local function report(replied, reply_err)
+        local total = count + edited + replied
+        local url = review and type(review.html_url) == "string" and review.html_url or ""
+        if loud and total > 0 then
+          local message = string.format("%s went to PR #%d", comment_count(total), plan.pr.number)
+          if existing then
+            message = string.format(
+              "PR #%d holds this review already, so nothing new went out. %s marked as sent",
+              plan.pr.number,
+              comment_count(count)
+            )
+          end
+          notify.info(url ~= "" and (message .. ": " .. url) or message)
         end
-        notify.info(url ~= "" and (message .. ": " .. url) or message)
+        report_skipped(plan)
+        local failed = edit_err or reply_err
+        if failed then
+          finish(nil, failed)
+          return
+        end
+        finish({
+          posted = total,
+          skipped = #plan.skipped,
+          cancelled = false,
+          review = review,
+          url = url,
+          existing = existing,
+        }, nil)
       end
-      report_skipped(plan)
       if edit_err then
-        finish(nil, edit_err)
+        report(0, nil)
         return
       end
-      finish({
-        posted = total,
-        skipped = #plan.skipped,
-        cancelled = false,
-        review = review,
-        url = url,
-        existing = existing,
-      }, nil)
+      send_replies(plan, report)
     end)
   end
 
@@ -1332,6 +1419,12 @@ function M.run(opts, cb)
 
     if opts.event then
       with_event(M.normalize_event(opts.event))
+      return
+    end
+    if #plan.entries + #plan.notes == 0 then
+      -- A plan of edits and replies alone posts no review, so it needs no
+      -- event and no text.
+      with_event(plan.event)
       return
     end
     ask_event(plan, with_event)
@@ -1452,6 +1545,10 @@ function M.send(opts, cb)
         report_save(save_err --[[@as codeview.Error]], "the comment")
       end
       events.emit("review_submitted", { session = session.id, count = 1, review = id })
+      if (comment.reply_to or "") ~= "" then
+        -- The thread holds the reply now. A new read shows it there once.
+        require("codeview.remote").load(session, { silent = true })
+      end
       local url = type(answer.html_url) == "string" and answer.html_url or ""
       if loud then
         local message = method == "PATCH" and string.format("the new text went to PR #%d", info.number)
@@ -1464,6 +1561,11 @@ function M.send(opts, cb)
 
   if (comment.remote_id or "") ~= "" then
     write("PATCH", M.edit_payload(info, comment))
+    return
+  end
+
+  if (comment.reply_to or "") ~= "" then
+    write("POST", M.reply_payload(info, comment))
     return
   end
 

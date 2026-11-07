@@ -205,6 +205,15 @@ M.defaults = {
     delete_comment = "<leader>cd",
     resolve_comment = "<leader>cr",
     show_comment = "K",
+    -- The diff buffer is read-only, so `r` is free, the same as `i` and `a`.
+    -- It writes a draft reply to the GitHub thread of the line.
+    reply = "r",
+    -- The keys of a GitHub thread. `<leader>cz` shows or hides the comments
+    -- of a resolved thread, `<leader>c+` adds or removes a reaction, and `gx`
+    -- opens the thread in the browser.
+    toggle_thread = "<leader>cz",
+    react = "<leader>c+",
+    open_remote = "gx",
     -- The key takes a pr-agent suggestion as a comment of your own.
     adopt = "<leader>ca",
     toggle_overview = "<leader>co",

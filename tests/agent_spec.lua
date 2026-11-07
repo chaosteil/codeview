@@ -415,6 +415,14 @@ describe("codeview.agent in a pull request review", function()
     return vim.api.nvim_buf_get_extmarks(buf, agent.ns, 0, -1, { details = true })
   end
 
+  ---Virtual lines of the first box in a buffer.
+  ---@param buf integer
+  ---@return table[][]
+  local function box_lines(buf)
+    local found = require("codeview.stack").marks(buf)
+    return found[1] and found[1][4].virt_lines or {}
+  end
+
   it("marks the lines of a suggestion in the diff", function()
     write("improve", improve_record())
     local review = open_session()
@@ -427,7 +435,7 @@ describe("codeview.agent in a pull request review", function()
     local details = found[1][4]
     assert.are.equal("✦", vim.trim(details.sign_text))
     assert.are.equal("CodeViewAgentSign", details.sign_hl_group)
-    local lines = details.virt_lines
+    local lines = box_lines(state.buf)
     assert.are.same({ "╭─ ", "CodeViewAgentBorder" }, lines[1][1])
     assert.are.same({
       "pr-agent · possible issue · score 8 · L2 · read-only",
@@ -455,7 +463,7 @@ describe("codeview.agent in a pull request review", function()
 
     local found = agent_marks(state.buf)
     assert.are.equal(1, #found)
-    assert.are.equal("pr-agent · Possible Bug · L2 · read-only", found[1][4].virt_lines[1][2][1])
+    assert.are.equal("pr-agent · Possible Bug · L2 · read-only", box_lines(state.buf)[1][2][1])
     require("codeview.view").close()
   end)
 
@@ -469,7 +477,7 @@ describe("codeview.agent in a pull request review", function()
     assert.are.equal(1, #found)
     assert.are.equal(3, found[1][2])
     assert.are.equal("CodeViewRemoteOutdated", found[1][4].sign_hl_group)
-    assert.is_truthy(found[1][4].virt_lines[1][2][1]:find("outdated", 1, true))
+    assert.is_truthy(box_lines(state.buf)[1][2][1]:find("outdated", 1, true))
     require("codeview.view").close()
   end)
 
@@ -573,8 +581,8 @@ describe("codeview.agent in a pull request review", function()
     editor.cancel()
 
     assert.is_true(agent.items(review)[1].adopted)
-    local found = agent_marks(state.buf)
-    assert.is_truthy(found[1][4].virt_lines[1][2][1]:find("· adopted", 1, true), found[1][4].virt_lines[1][2][1])
+    local header = box_lines(state.buf)[1][2][1]
+    assert.is_truthy(header:find("· adopted", 1, true), header)
     require("codeview.view").close()
   end)
 

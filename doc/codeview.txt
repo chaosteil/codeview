@@ -757,6 +757,14 @@ diff buffer maps them to the comment editor: >
     <leader>ca  adopt the pr-agent item of the line, see |codeview-agent-adopt|.
                 Only while the review holds pr-agent items.
 <
+A pull request review has more keys for the threads of GitHub, see
+|codeview-github-threads|: >
+
+    r           write a draft reply to the thread of the line
+    <leader>cz  show or hide the comments of a resolved thread
+    <leader>c+  add a reaction to a comment of the thread, or remove it
+    gx          open the thread in the browser
+<
 `i` and `a` read the line first. A line that already holds a comment opens
 that comment in the editor, the way `i` changes the text that a normal buffer
 holds. A line without a comment starts a new one. `o` and `O` always start a
@@ -956,6 +964,10 @@ section with a field block and a markdown body: >
 
     The body of the comment.
 <
+A draft reply to a thread of GitHub holds one more field, after `remote_id`: >
+
+    - reply_to: 1680042137
+<
 The fields hold: >
 
     file          path of the file in the new revision
@@ -969,11 +981,17 @@ The fields hold: >
     created_at    time of the first save
     updated_at    time of the last change
     remote_id     id of the comment on GitHub
+    reply_to      id of the first comment of the GitHub thread that the
+                  comment replies to. Only a reply holds this field.
 <
 The three sync fields stay empty until a |:Codeview-submit| confirms the post.
 A comment that goes into the text of a review keeps an empty `remote_id`. A
 file of an older release has no `remote_id` field, and the plugin reads it
 with an empty one. See |codeview-submit-state|.
+
+The plugin writes the `reply_to` line only for a reply. A file without
+replies therefore stays the same as the file of an older release. A file
+without the field reads with an empty `reply_to`. The `version` stays 1.
 
 The plugin writes the file atomically. It writes a temporary file in the same
 directory and renames it over the target. A failed write keeps the file of the
@@ -1333,14 +1351,86 @@ empty comment file and your notes on the older push stay where they are. See
                                                      *codeview-github-remote*
 The review comments of the pull request come in after the session opens. The
 diff shows them under their line, with the sign of the `comments.remote_sign`
-option, the login of the author, and the word "read-only". Each one shows in
-a box with a grey tint, the same box as a local comment. See
-|codeview-comments-box|. The comment
-overview lists them in a section of their own, under the local comments.
+option and the login of the author. Each thread shows in one box with a grey
+tint, the same box as a local comment. See |codeview-comments-box|. The
+comment overview lists the threads in a section of their own, under the local
+comments.
 
-A remote comment is read-only. The edit key, the delete key, and the resolve
-key report that and change nothing. `<CR>` on a remote comment opens its line
-in the diff, like a local comment.
+                                                    *codeview-github-threads*
+A thread is the first review comment on a line and the replies to it. The box
+of a thread holds the first comment at the top, then the replies, oldest
+first. A line with a divider and the login of the author starts each reply. A
+comment with reactions ends with one line of them, for example `👍 2  🎉 1`.
+
+All boxes that end on one row of the diff share one extmark (a mark that
+Neovim keeps on a buffer row). The order of the boxes is the time of their
+first comment, oldest first. As a result, the order on the screen is always
+the order of time.
+
+A resolved thread shows one header line only: >
+
+    ✓ resolved · @alice L12 (new) · 3 comments
+<
+`<leader>cz` on the line shows every comment of the resolved thread, and a
+second `<leader>cz` hides them again. `K` always shows the whole thread in a
+float, oldest comment first, with the reactions.
+
+codeview reads the thread state with the GraphQL API of GitHub: the resolved
+state, your rights on each comment, and the reactions. If this read fails, the
+review shows the comments without the thread state, and one warning tells
+you. The thread keys then report "the thread state of GitHub is not
+available".
+
+                                                      *codeview-github-reply*
+To reply to a thread, do these steps:
+
+1. Put the cursor on the line of the thread.
+2. Press `r`. The editor opens under the thread, with the title
+   `Reply to @author`. If more than one thread covers the line, a picker asks
+   which one.
+3. Write the reply and save it with `:w`.
+
+The reply is a draft. It is a local comment with the field `reply_to` in the
+session file, see |codeview-comments-store|. It shows in the box of the
+thread, with the word "draft". `i`, `a`, `<leader>ce`, and `<leader>cd` edit
+and delete a draft reply, the same as any local comment.
+
+A draft reply goes to GitHub with the send key of the editor, with
+|:Codeview-submit|, or through the bridge of another tool, see
+|codeview-bridge|. After the send, the reply shows in the thread on GitHub and
+in codeview with the word "synced", once. A reply to a thread that the session
+does not hold shows in a box of its own, with the word "reply".
+
+                                                    *codeview-github-actions*
+The other thread actions go to GitHub at once. Only a reply waits for a send.
+On a line without a local comment, these keys act on the thread: >
+
+    <leader>cr  resolve the thread, or open it again
+    <leader>ce  edit the text of a comment of your own
+    <leader>cd  delete a comment of your own, after a question
+    <leader>c+  add a reaction to a comment, or remove your own reaction
+    gx          open the first comment of the thread in the browser
+<
+On a line with a local comment, `<leader>cr`, `<leader>ce`, and `<leader>cd`
+act on the local comment, as before. `<leader>c+` and `gx` always act on the
+thread, because they do not apply to a local comment. Without a thread under
+the cursor, `gx` opens the file name or the address under the cursor, the
+same as the default `gx` of Neovim.
+
+The edit key opens the editor with the text of your comment. If the thread
+holds more than one comment of yours, a picker asks which one. A save sends
+the new text to GitHub at once. A save of an empty text changes nothing.
+
+The reaction key asks for the comment when the thread holds more than one,
+then for the reaction. Your own reactions carry a `✓` in the picker. If you
+pick one of them, codeview removes it. Else codeview adds the reaction.
+
+GitHub decides who can resolve a thread, reply to it, or change a comment. A
+key that GitHub does not permit reports that and changes nothing. After a
+change, codeview reads the threads again.
+
+In the comment overview, the same keys act on the thread under the cursor:
+`<leader>cr`, `<leader>ce`, `<leader>cd`, `r`, `<leader>c+`, and `gx`.
 
 GitHub reports the lines of a comment in the newest version of the diff. A
 comment over lines of both sides keeps its last line only, because one anchor
@@ -1356,7 +1446,8 @@ the diff of the file, but moves the cursor to no line.
 
 A comment that a submit of this session sent lives on GitHub and in the
 session file. The review drops the copy of GitHub and keeps the local comment
-with the word "synced", so the comment shows once.
+with the word "synced", so the comment shows once. A local comment with a
+`remote_id` is the copy of the GitHub comment with that id.
 
 Set `github.comments` to false to leave the review comments out. The option
 `github.max_comments` limits the number of comments of one fetch. A pull
@@ -1591,6 +1682,13 @@ A move of the anchor (the file, the side, or the lines) also clears the sync
 time. GitHub cannot move a comment, so the move clears `remote_id` too, and the
 next submit posts a new comment.
 
+A draft reply holds a `reply_to` field, see |codeview-github-reply|. The
+submit posts it after the review and after the edits, one reply at a time,
+into its thread. The summary names it as `reply to @author: <text>`. A reply
+that GitHub took gets the three sync fields. The first failure stops the
+other replies, and they stay unsent. A submit of edits and replies alone asks
+for no event and no text, only for the confirmation.
+
                                                        *codeview-submit-guard*
 A post that the time limit stopped can still reach GitHub. Before a review
 post, the submit therefore lists the reviews of the pull request. A review of
@@ -1722,6 +1820,8 @@ The session file is a read interface for other tools, stable within version
 - A body line that starts with `\` loses that first character. The escape
   keeps a body line that reads as a comment heading out of the headings.
 - A comment is unsent while its `synced_at` value is empty.
+- A `- reply_to: <id>` line marks a draft reply to a thread of GitHub. Only a
+  reply holds this line. It belongs to the field block, not to the body.
 - A `file` of `codeview://pr/<number>` is a comment on the pull request
   document. It goes into the text of the review. A `file` of another
   `codeview://` form is a comment on a commit message. GitHub takes no such
@@ -2262,6 +2362,10 @@ Defaults: >lua
         delete_comment = "<leader>cd",
         resolve_comment = "<leader>cr",
         show_comment = "K",
+        reply = "r",
+        toggle_thread = "<leader>cz",
+        react = "<leader>c+",
+        open_remote = "gx",
         adopt = "<leader>ca",
         toggle_overview = "<leader>co",
         refresh = "<leader>cR",
@@ -2411,6 +2515,10 @@ The table names the surface of each action: >
     delete_comment    <leader>cd       O D  delete the comment
     resolve_comment   <leader>cr       O D  resolve the comment, or reopen it
     show_comment      K                  D  show the comment in a float
+    reply             r                O D  reply to the GitHub thread
+    toggle_thread     <leader>cz         D  show or hide a resolved thread
+    react             <leader>c+       O D  add or remove a reaction
+    open_remote       gx               O D  open the thread in the browser
     adopt             <leader>ca       O D  adopt a pr-agent item as a comment **
     toggle_overview   <leader>co     S O D  open or close the overview
     refresh           <leader>cR     S O D  read the review again
@@ -2509,6 +2617,8 @@ again after a colorscheme change.
     CodeViewRemoteHeader   DiagnosticInfo header line of a remote comment
     CodeViewRemoteSign     DiagnosticInfo sign of a remote comment
     CodeViewRemoteOutdated DiagnosticWarn sign of an outdated remote comment
+    CodeViewRemoteResolved DiagnosticOk header of a resolved thread
+    CodeViewRemoteReactions Comment     reactions of a remote comment
     CodeViewRemoteBox      computed     background of a remote comment box
     CodeViewRemoteBorder   computed     frame of a remote comment box
     CodeViewAgent          Comment      body of a pr-agent item in the diff

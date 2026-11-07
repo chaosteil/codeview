@@ -46,6 +46,11 @@
 --- A file of an older release has no `remote_id` field. The decoder reads such
 --- a comment with an empty `remote_id`.
 ---
+--- A reply to a thread of the review host holds one more field,
+--- `- reply_to: <id>`, with the id of the first comment of the thread. The
+--- file holds the field only for a reply, so a file without replies stays
+--- the same, and an older reader does not break.
+---
 --- |codeview.store.Store:save()| writes the file atomically: it writes a
 --- temporary file in the same directory and renames it over the target. A
 --- failed write leaves the file of the last save in place.
@@ -83,6 +88,7 @@ M.marker = "## codeview-comment "
 ---@field synced_at integer Time of the post to the review host, in seconds since the epoch. 0 while the comment is local.
 ---@field review_id string Id of the review that holds the comment on the host. Empty while the comment is local.
 ---@field remote_id string Id of the comment on the host. Empty while the comment is local, and for a comment in the text of a review.
+---@field reply_to string Id of the first comment of the thread on the host that the comment replies to. Empty for a comment that is no reply.
 ---@field created_at integer Time of the first save, in seconds since the epoch.
 ---@field updated_at integer Time of the last change, in seconds since the epoch.
 ---@field body string Markdown text of the comment.
@@ -114,6 +120,7 @@ local FIELDS = {
   created_at = "time",
   updated_at = "time",
   remote_id = "string",
+  reply_to = "string",
 }
 
 ---Order of the fields in the file.
@@ -130,6 +137,7 @@ local FIELD_ORDER = {
   "created_at",
   "updated_at",
   "remote_id",
+  "reply_to",
 }
 
 ---Number of ids that this Neovim made.
@@ -311,9 +319,12 @@ function M.encode(store)
       if FIELDS[name] == "time" then
         value = time_text(value)
       end
-      -- A field without a value keeps no trailing space, so that the file
-      -- holds no whitespace at the end of a line.
-      out[#out + 1] = vim.trim("- " .. name .. ": " .. flat(value))
+      -- A comment that is no reply writes no `reply_to` line.
+      if name ~= "reply_to" or flat(value) ~= "" then
+        -- A field without a value keeps no trailing space, so that the file
+        -- holds no whitespace at the end of a line.
+        out[#out + 1] = vim.trim("- " .. name .. ": " .. flat(value))
+      end
     end
     out[#out + 1] = ""
     for _, line in ipairs(vim.split(comment.body or "", "\n", { plain = true })) do
@@ -345,6 +356,7 @@ local function decode_comment(id, lines)
     created_at = 0,
     updated_at = 0,
     remote_id = "",
+    reply_to = "",
     body = "",
   }
 
@@ -624,6 +636,7 @@ local function build_comment(fields)
     created_at = tonumber(fields.created_at) or now,
     updated_at = tonumber(fields.updated_at) or now,
     remote_id = type(fields.remote_id) == "string" and fields.remote_id or "",
+    reply_to = type(fields.reply_to) == "string" and fields.reply_to or "",
     body = vim.trim(fields.body),
   },
     nil

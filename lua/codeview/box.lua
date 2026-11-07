@@ -5,6 +5,10 @@
 --- bottom border closes the box. Spaces fill each line to the full width, so
 --- the background of the box covers a rectangle.
 ---
+--- A box can hold more than one section, for example the comments of one
+--- review thread. Each section after the first starts with a divider line
+--- that holds its header.
+---
 --- The box is as wide as the space to the right of the line numbers of its
 --- window, minus one column. The inline comment editor has the same width,
 --- so the box and the editor line up.
@@ -27,6 +31,8 @@ M.min_width = 20
 ---@field bottom_right string
 ---@field horizontal string
 ---@field vertical string
+---@field left_tee string? Left end of a divider line. The vertical character without it.
+---@field right_tee string? Right end of a divider line. The vertical character without it.
 
 ---Characters of each border style that draws on all four sides.
 ---@type table<string, codeview.box.Chars>
@@ -38,6 +44,8 @@ M.chars = {
     bottom_right = "╯",
     horizontal = "─",
     vertical = "│",
+    left_tee = "├",
+    right_tee = "┤",
   },
   single = {
     top_left = "┌",
@@ -46,6 +54,8 @@ M.chars = {
     bottom_right = "┘",
     horizontal = "─",
     vertical = "│",
+    left_tee = "├",
+    right_tee = "┤",
   },
   double = {
     top_left = "╔",
@@ -54,6 +64,8 @@ M.chars = {
     bottom_right = "╝",
     horizontal = "═",
     vertical = "║",
+    left_tee = "╠",
+    right_tee = "╣",
   },
   bold = {
     top_left = "┏",
@@ -62,6 +74,8 @@ M.chars = {
     bottom_right = "┛",
     horizontal = "━",
     vertical = "┃",
+    left_tee = "┣",
+    right_tee = "┫",
   },
   solid = {
     top_left = " ",
@@ -70,6 +84,8 @@ M.chars = {
     bottom_right = " ",
     horizontal = " ",
     vertical = " ",
+    left_tee = " ",
+    right_tee = " ",
   },
 }
 
@@ -279,15 +295,60 @@ local function pad(text, width)
   return text .. string.rep(" ", math.max(width - api.nvim_strwidth(text), 0))
 end
 
----@class codeview.box.Spec
+---@class codeview.box.Section
 ---@field header string Text of the header.
 ---@field header_hl string Group of the header text.
----@field body string Text of the body. Lines split at "\n".
----@field body_hl string Group of the body text.
+---@field body string? Text of the body. Lines split at "\n". Nil gives no body lines.
+---@field body_hl string? Group of the body text.
+---@field footer string? Text of one more line after the body, for example the reactions of a comment.
+---@field footer_hl string? Group of the footer text.
+
+---@class codeview.box.Spec
+---@field sections codeview.box.Section[]? Sections of the box. Without it, `header` and `body` make one section.
+---@field header string? Text of the header of a box with one section.
+---@field header_hl string? Group of the header text.
+---@field body string? Text of the body of a box with one section. Lines split at "\n".
+---@field body_hl string? Group of the body text.
 ---@field box_hl string Group of the background of the box.
 ---@field border_hl string Group of the frame.
 ---@field border string Value of the `comments.border` option.
 ---@field width integer Width of the box, in screen cells.
+
+---Sections of a box spec.
+---@param spec codeview.box.Spec
+---@return codeview.box.Section[]
+local function sections_of(spec)
+  if spec.sections then
+    return spec.sections
+  end
+  return {
+    { header = spec.header or "", header_hl = spec.header_hl, body = spec.body or "", body_hl = spec.body_hl },
+  }
+end
+
+---Wrapped text lines of the body and the footer of one section.
+---@param section codeview.box.Section
+---@param inner integer Width of the text, in screen cells.
+---@return { text: string, hl: string? }[] lines
+local function text_lines(section, inner)
+  local out = {}
+  ---@param text string
+  ---@param hl string?
+  local function add(text, hl)
+    for _, raw in ipairs(vim.split(text, "\n", { plain = true })) do
+      for _, line in ipairs(M.wrap(raw, inner)) do
+        out[#out + 1] = { text = line, hl = hl }
+      end
+    end
+  end
+  if section.body then
+    add(section.body, section.body_hl)
+  end
+  if section.footer and section.footer ~= "" then
+    add(section.footer, section.footer_hl or section.body_hl)
+  end
+  return out
+end
 
 ---Virtual lines of one box.
 ---
@@ -295,43 +356,64 @@ end
 --- of the box. The text then keeps its color and takes the background of the
 --- box.
 ---
---- Without a frame, the box is the header line and the body lines, each with
---- one space of padding on both sides.
+--- The header of the first section goes into the top border. Each next
+--- section starts with a divider line `├─ header ─…┤`. A section without a
+--- body takes no body lines.
+---
+--- Without a frame, the box is the header line and the body lines of each
+--- section, each with one space of padding on both sides.
 ---@param spec codeview.box.Spec
 ---@return table[][] lines Chunks of every virtual line.
 function M.lines(spec)
   local width = math.max(spec.width, M.min_width)
   local chars = M.frame(spec.border)
-  local text_hl = { spec.body_hl, spec.box_hl }
-  local header_hl = { spec.header_hl, spec.box_hl }
   local out = {}
+
+  ---@param hl string?
+  ---@return string[]
+  local function with_box(hl)
+    return { hl, spec.box_hl }
+  end
 
   if not chars then
     local inner = width - 2
-    out[1] = { { " " .. pad(M.truncate(spec.header, inner), inner) .. " ", header_hl } }
-    for _, raw in ipairs(vim.split(spec.body, "\n", { plain = true })) do
-      for _, line in ipairs(M.wrap(raw, inner)) do
-        out[#out + 1] = { { " " .. pad(line, inner) .. " ", text_hl } }
+    for _, section in ipairs(sections_of(spec)) do
+      out[#out + 1] = { { " " .. pad(M.truncate(section.header, inner), inner) .. " ", with_box(section.header_hl) } }
+      for _, line in ipairs(text_lines(section, inner)) do
+        out[#out + 1] = { { " " .. pad(line.text, inner) .. " ", with_box(line.hl) } }
       end
     end
     return out
   end
 
-  -- The top line is "╭─ header ─…─╮". Six cells hold the corners, the first
-  -- dash, the two spaces, and at least one dash after the header.
-  local header = M.truncate(spec.header, width - 6)
-  local fill = width - 5 - api.nvim_strwidth(header)
-  out[1] = {
-    { chars.top_left .. chars.horizontal .. " ", spec.border_hl },
-    { header, header_hl },
-    { " " .. string.rep(chars.horizontal, fill) .. chars.top_right, spec.border_hl },
-  }
+  ---A border line with a header: "╭─ header ─…─╮" or "├─ header ─…─┤". Six
+  ---cells hold the ends, the first dash, the two spaces, and at least one
+  ---dash after the header.
+  ---@param left string
+  ---@param right string
+  ---@param section codeview.box.Section
+  ---@return table[]
+  local function header_line(left, right, section)
+    local header = M.truncate(section.header, width - 6)
+    local fill = width - 5 - api.nvim_strwidth(header)
+    return {
+      { left .. chars.horizontal .. " ", spec.border_hl },
+      { header, with_box(section.header_hl) },
+      { " " .. string.rep(chars.horizontal, fill) .. right, spec.border_hl },
+    }
+  end
+
   local inner = width - 4
-  for _, raw in ipairs(vim.split(spec.body, "\n", { plain = true })) do
-    for _, line in ipairs(M.wrap(raw, inner)) do
+  for index, section in ipairs(sections_of(spec)) do
+    if index == 1 then
+      out[#out + 1] = header_line(chars.top_left, chars.top_right, section)
+    else
+      out[#out + 1] = header_line(chars.left_tee or chars.vertical, chars.right_tee or chars.vertical, section)
+    end
+    for _, line in ipairs(text_lines(section, inner)) do
       out[#out + 1] = {
         { chars.vertical, spec.border_hl },
-        { " " .. pad(line, inner) .. " ", text_hl },
+        { " " .. pad(line.text, inner) .. " ", with_box(line.hl) },
         { chars.vertical, spec.border_hl },
       }
     end

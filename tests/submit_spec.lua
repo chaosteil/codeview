@@ -281,7 +281,7 @@ describe("codeview.submit", function()
         end
         return { stdout = "[]" }
       end
-      if path:find("/pulls/12/comments$") then
+      if path:find("/pulls/12/comments$") or path:find("/pulls/12/comments/%d+/replies$") then
         return { stdout = fixtures.gh_text("pr-comment.json") }
       end
       if path:find("/issues/12/comments$") then
@@ -1155,6 +1155,81 @@ describe("codeview.submit", function()
       assert.is_nil(sent.comments)
       assert.are.equal(note.body, sent.body)
     end)
+
+    ---Write calls to one endpoint.
+    ---@param pattern string Lua pattern of the path.
+    ---@return { cmd: string[], opts: table }[]
+    local function writes_to(pattern)
+      return vim.tbl_filter(function(call)
+        return call.cmd[3]:find(pattern) ~= nil
+      end, api_calls())
+    end
+
+    it("posts a draft reply into its thread", function()
+      local session = open_session()
+      local store = store_of(session)
+      local reply = add(store, { reply_to = "501", body = "a reply of mine" })
+
+      local plan = assert(plan_of({ session = session }))
+      assert.are.equal(1, #plan.replies)
+      assert.are.equal(0, #plan.entries)
+      local text = table.concat(submit.summary(plan), "\n")
+      assert.is_truthy(text:find("submit 1 comment", 1, true), text)
+      assert.is_truthy(text:find("reply to #501: a reply of mine", 1, true), text)
+
+      local result = assert(run({ session = session }))
+      assert.are.equal(1, result.posted)
+      -- A plan of replies alone asks for no event and no text, only for the
+      -- confirmation.
+      assert.are.equal(1, #ui.prompts)
+      local calls = writes_to("/replies$")
+      assert.are.equal(1, #calls)
+      assert.are.equal("repos/ada/demo/pulls/12/comments/501/replies", calls[1].cmd[3])
+      assert.are.same({ body = "a reply of mine" }, vim.json.decode(calls[1].opts.stdin))
+      assert.are.equal(0, #writes_to("/reviews$"))
+
+      local held = assert(store:get(reply.id))
+      assert.is_true(store_mod.is_synced(held))
+      assert.are.equal("1000000001", held.remote_id)
+      assert.are.equal("2371558991", held.review_id)
+      local reloaded = assert(store_mod.load({ repo = fixture.root, range = "pr-12-" .. fixture.ids.pr_two }))
+      assert.is_true(store_mod.is_synced(assert(reloaded:get(reply.id))))
+    end)
+
+    it("posts the replies after the review", function()
+      local session = open_session()
+      local store = store_of(session)
+      add(store)
+      add(store, { reply_to = "501", body = "a reply of mine" })
+
+      local result = assert(run({ session = session, event = "comment", body = "hello" }))
+      assert.are.equal(2, result.posted)
+      local paths = vim.tbl_map(function(call)
+        return call.cmd[3]
+      end, api_calls())
+      assert.are.equal("repos/ada/demo/pulls/12/reviews", paths[1])
+      assert.are.equal("repos/ada/demo/pulls/12/comments/501/replies", paths[2])
+    end)
+
+    it("keeps a reply unsent when GitHub refuses it", function()
+      local session = open_session()
+      local store = store_of(session)
+      local first = add(store, { reply_to = "501", body = "one" })
+      local second = add(store, { reply_to = "502", body = "two" })
+      answer = function(cmd, opts)
+        if cmd[2] == "api" and (cmd[3] or ""):find("/501/replies$") then
+          return { code = 1, stderr = "gh: Not Found (HTTP 404)" }
+        end
+        return default_answer(cmd, opts)
+      end
+
+      local result, err = run({ session = session, event = "comment" })
+      assert.is_nil(result)
+      assert.is_truthy(err)
+      assert.are.equal(1, #writes_to("/replies$"), "the first failure stops the rest")
+      assert.is_false(store_mod.is_synced(assert(store:get(first.id))))
+      assert.is_false(store_mod.is_synced(assert(store:get(second.id))))
+    end)
   end)
 
   describe("send", function()
@@ -1219,6 +1294,22 @@ describe("codeview.submit", function()
       assert.is_true(store_mod.is_synced(held))
       assert.are.equal("77", held.review_id)
       assert.is_truthy(said():find("the new text went to PR #12", 1, true), said())
+    end)
+
+    it("posts a draft reply into its thread", function()
+      local session = open_session()
+      local store = store_of(session)
+      local reply = add(store, { reply_to = "501", body = "a reply of mine" })
+
+      local result = assert(send({ session = session, id = reply.id }))
+      assert.are.equal(1, result.posted)
+      local calls = api_calls()
+      assert.are.equal("repos/ada/demo/pulls/12/comments/501/replies", calls[1].cmd[3])
+      assert.are.same({ body = "a reply of mine" }, vim.json.decode(calls[1].opts.stdin))
+      local held = assert(store:get(reply.id))
+      assert.is_true(store_mod.is_synced(held))
+      assert.are.equal("1000000001", held.remote_id)
+      assert.are.equal("2371558991", held.review_id)
     end)
 
     it("changes the text of an edited conversation comment on GitHub", function()
@@ -1862,6 +1953,20 @@ describe("codeview.submit", function()
       local reloaded = assert(store_mod.load({ repo = fixture.root, range = "pr-12-" .. fixture.ids.pr_two }))
       assert.is_true(store_mod.is_synced(assert(reloaded:get(list[1].id))))
       assert.is_false(store_mod.is_synced(assert(reloaded:get(list[2].id))))
+    end)
+
+    it("posts a chosen reply into its thread", function()
+      local list = prepare({ {}, { reply_to = "501", body = "a reply of mine" } })
+      local result = submit_file({ ids = { list[2].id } })
+      assert.are.equal(0, code)
+      assert.is_true(result.ok)
+      assert.are.equal(1, result.posted)
+      local calls = api_calls()
+      assert.are.equal("repos/ada/demo/pulls/12/comments/501/replies", calls[1].cmd[3])
+
+      local reloaded = assert(store_mod.load({ repo = fixture.root, range = "pr-12-" .. fixture.ids.pr_two }))
+      assert.is_true(store_mod.is_synced(assert(reloaded:get(list[2].id))))
+      assert.is_false(store_mod.is_synced(assert(reloaded:get(list[1].id))))
     end)
 
     it("posts nothing when every chosen comment went out already", function()

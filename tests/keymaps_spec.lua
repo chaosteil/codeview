@@ -56,6 +56,10 @@ describe("codeview keymaps", function()
     delete_comment = { { surface = "view", mode = "n" }, { surface = "overview", mode = "n" } },
     resolve_comment = { { surface = "view", mode = "n" }, { surface = "overview", mode = "n" } },
     show_comment = { { surface = "view", mode = "n" } },
+    reply = { { surface = "view", mode = "n" }, { surface = "overview", mode = "n" } },
+    toggle_thread = { { surface = "view", mode = "n" } },
+    react = { { surface = "view", mode = "n" }, { surface = "overview", mode = "n" } },
+    open_remote = { { surface = "view", mode = "n" }, { surface = "overview", mode = "n" } },
     -- The adopt key also maps in the float of a pr-agent item. It maps only
     -- while the session holds pr-agent items, so the audit gives every
     -- session items.

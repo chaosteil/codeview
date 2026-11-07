@@ -21,6 +21,9 @@ the comments as markdown, and you send them to a GitHub pull request.
   holds. The sidebar lists the pull request itself first, with its description
   and its link, and a comment on it goes to the conversation of the pull
   request.
+- Shows each GitHub review thread as one box, oldest comment first. You write
+  a draft reply with `r`, and it goes out with your other comments. Resolve,
+  edit, delete, and reactions go to GitHub at once.
 - Writes no file in your project. The comments live in one markdown file per
   review, in the data directory of Neovim.
 - No runtime dependency. The plugin uses the standard library of Neovim.
@@ -78,6 +81,18 @@ submit or an export.
 8. Press `<leader>cy` to put the review into the `+` register.
 9. In a pull request review, press `<leader>cs` in the comment editor to send
    the comment to GitHub at once.
+10. In a pull request review, press `r` on a line with a GitHub thread to write
+    a draft reply. The draft reply waits in the session file until you send
+    it. `:Codeview submit` and `<leader>cs` send it.
+11. On a GitHub thread without a local comment, press these keys:
+    - `<leader>cr` to resolve the thread, or to open it again.
+    - `<leader>cz` to show or hide the comments of a resolved thread.
+    - `<leader>ce` or `<leader>cd` to edit or delete your own comment.
+    - `<leader>c+` to add or remove a reaction.
+    - `gx` to open the thread in the browser.
+
+    These changes go to GitHub at once. `:help codeview-github-threads`
+    tells more. A draft reply holds the field `reply_to` in the session file.
 
 `:Codeview export` runs the same export from any window.
 
