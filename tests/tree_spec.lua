@@ -159,5 +159,17 @@ describe("codeview.tree", function()
     it("orders the files as the sidebar shows them", function()
       assert.are.same({ 2, 3, 4, 5, 1 }, tree.order(files))
     end)
+
+    it("keeps the files of a collapsed directory in the order", function()
+      local collapsed = { expanded = { ["lua/codeview"] = false, tests = false } }
+      assert.are.same({ 2, 3, 4, 5, 1 }, tree.order(files, collapsed))
+    end)
+
+    it("leaves out the files of a collapsed node to skip", function()
+      local opts = { expanded = { tests = false }, skip = { "tests" } }
+      assert.are.same({ 2, 3, 5, 1 }, tree.order(files, opts))
+      -- An expanded node to skip keeps its files.
+      assert.are.same({ 2, 3, 4, 5, 1 }, tree.order(files, { skip = { "tests" } }))
+    end)
   end)
 end)

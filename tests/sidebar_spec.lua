@@ -469,6 +469,85 @@ describe("codeview.sidebar", function()
       press("<Tab>")
       assert.is_false(shows(bar, message.path_of(review.commits[1].id)))
     end)
+
+    it("steps from the pull request to the first file and back", function()
+      open_review(true)
+      sidebar.open({ focus = true })
+      press("]f")
+      wait_for(function()
+        return view.current() ~= nil
+      end, "the pull request did not open")
+      assert.are.equal(message.pr_path(5), assert(view.current()).path)
+
+      press("]f")
+      wait_for(function()
+        return assert(view.current()).path == "dir/renamed.txt"
+      end, "the first file did not open")
+
+      press("[f")
+      wait_for(function()
+        return assert(view.current()).path == message.pr_path(5)
+      end, "the pull request did not open again")
+      -- The step opens no commit, so the group stays collapsed.
+      assert.is_false(assert(sidebar.get()).expanded[message.group_path])
+    end)
+
+    it("steps through the commits again after an expand", function()
+      local review = open_review(true)
+      local bar = assert(sidebar.open())
+      bar:toggle_node(bar.tree.children[2])
+      assert.is_true(bar.expanded[message.group_path])
+
+      assert(view.open(review, assert(review:index_of(message.pr_path(5)))))
+      assert.are.equal(review:index_of(message.path_of(review.commits[1].id)), view.step(review, 1))
+
+      assert(view.open(review, assert(review:index_of("dir/renamed.txt"))))
+      local oldest = review.commits[#review.commits]
+      assert.are.equal(review:index_of(message.path_of(oldest.id)), view.step(review, -1))
+    end)
+
+    it("does not skip the files of a collapsed directory", function()
+      local review = open_review(true)
+      local bar = assert(sidebar.open())
+      bar:toggle_node(bar.tree.children[3])
+      assert.is_false(bar.expanded["dir"])
+
+      assert(view.open(review, assert(review:index_of(message.pr_path(5)))))
+      local first = assert(review:index_of("dir/renamed.txt"))
+      assert.are.equal(first, view.step(review, 1))
+      assert(view.next(review))
+      assert.are.equal(first, assert(view.current()).index)
+      -- The directory of the file opens, as before.
+      assert.is_nil(bar.expanded["dir"])
+    end)
+
+    it("uses the start state without a sidebar", function()
+      local review = open_review(true)
+      assert.are.equal(review:index_of(message.pr_path(5)), view.step(review, 1))
+      assert(view.next(review))
+      assert.are.equal(review:index_of("dir/renamed.txt"), view.step(review, 1))
+      review:close()
+
+      review = open_review(false)
+      assert.are.equal(review:index_of(message.path_of(review.commits[1].id)), view.step(review, 1))
+    end)
+
+    it("leaves a hidden commit for the closest entry that is not a commit", function()
+      local review = open_review(true)
+      -- No sidebar: the group stays collapsed while the commit is open.
+      assert(view.open(review, assert(review:index_of(message.path_of(review.commits[1].id)))))
+      assert.are.equal(review:index_of("dir/renamed.txt"), view.step(review, 1))
+      assert.are.equal(review:index_of(message.pr_path(5)), view.step(review, -1))
+    end)
+
+    it("opens the group of a commit that the view shows", function()
+      local review = open_review(true)
+      local bar = assert(sidebar.open())
+      assert(view.open(review, assert(review:index_of(message.path_of(review.commits[1].id)))))
+      assert.is_nil(bar.expanded[message.group_path])
+      -- The commits are stops of the step again.
+      assert.are.equal(review:index_of(message.path_of(review.commits[2].id)), view.step(review, 1))
+    end)
   end)
 
   describe("the current file", function()

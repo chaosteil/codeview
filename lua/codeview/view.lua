@@ -813,19 +813,53 @@ function M.current()
   return state
 end
 
+---Expanded state of the sidebar tree of a session.
+---
+--- The sidebar holds the state. Without a sidebar of the session, the start
+--- state of the session applies. See |codeview.message.default_expanded()|.
+---@param session codeview.Session
+---@return table<string, boolean> expanded Expanded state per directory path.
+local function expanded_of(session)
+  -- The sidebar module requires this module, so the require waits until the
+  -- call.
+  local bar = require("codeview.sidebar").get()
+  if bar and bar.session == session then
+    return bar.expanded
+  end
+  return require("codeview.message").default_expanded(session)
+end
+
 ---Position of one file in the file list of a session.
 ---
 --- The step follows the order of the sidebar tree, not the order of the
 --- backend. It starts at the file of the request that runs, or at the file
 --- that the view shows. Without an open file a forward step starts before the
 --- first file, and a backward step starts after the last file.
+---
+--- While the group node of the commits is collapsed, the step goes over the
+--- commit documents. A step from a commit document in that state goes to the
+--- next entry of the tree that is not a commit. A collapsed directory does
+--- not change the step.
 ---@param session codeview.Session
 ---@param delta integer Number of files to move. Use 1 or -1.
 ---@return integer? index Nil at the end of the list.
 function M.step(session, delta)
-  local order = tree.order(session:changed_files())
+  local files = session:changed_files()
+  local order = tree.order(files)
   if #order == 0 then
     return nil
+  end
+
+  -- The commits of a collapsed group are no stop of the step.
+  local visible = tree.order(files, {
+    expanded = expanded_of(session),
+    skip = { require("codeview.message").group_path },
+  })
+  ---Files where a step can stop.
+  ---@type table<integer, boolean>
+  local stops = {}
+  for _, index in ipairs(visible) do
+    stops[index] = true
   end
 
   local from = pending_index(session)
@@ -846,8 +880,8 @@ function M.step(session, delta)
   position = position or (delta > 0 and 0 or #order + 1)
 
   local at = position + delta
-  if at < 1 or at > #order then
-    return nil
+  while order[at] and not stops[order[at]] do
+    at = at + delta
   end
   return order[at]
 end

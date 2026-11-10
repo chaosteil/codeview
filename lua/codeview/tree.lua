@@ -305,19 +305,39 @@ function M.dirs(root)
   return out
 end
 
+---@class codeview.tree.OrderOpts
+---@field expanded table<string, boolean>? Expanded state per directory path, as in |codeview.tree.Opts|.
+---@field skip string[]? Paths of directory nodes. While such a node hides its children, the order leaves out its files.
+
 ---Positions of the files, in the order of the tree.
 ---
 --- The order does not depend on the expanded state. The next-file key walks
---- every file of the session, in the order that the sidebar shows.
+--- every file of the session, in the order that the sidebar shows. A node of
+--- `opts.skip` is the exception: while it hides its children, its files are
+--- not part of the order.
 ---@param files codeview.vcs.FileChange[] Changed files of the session.
+---@param opts? codeview.tree.OrderOpts
 ---@return integer[] order Positions in the file list of the session.
-function M.order(files)
+function M.order(files, opts)
+  opts = opts or {}
+  ---@type table<string, boolean>
+  local skip = {}
+  for _, path in ipairs(opts.skip or {}) do
+    skip[path] = true
+  end
+
   local out = {}
-  M.each(M.build(files), function(node)
-    if node.kind == "file" then
-      out[#out + 1] = node.index
+  ---@param node codeview.tree.Node
+  local function walk(node)
+    for _, child in ipairs(node.children) do
+      if child.kind == "file" then
+        out[#out + 1] = child.index
+      elseif child.expanded or not skip[child.path] then
+        walk(child)
+      end
     end
-  end)
+  end
+  walk(M.build(files, { expanded = opts.expanded }))
   return out
 end
 

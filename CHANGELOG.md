@@ -29,6 +29,11 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   collapsed. The document of the pull request lists the commits already.
   Press `<Tab>` on the group to show them. A review of a local range still
   shows the commits. See `:help codeview-github-document`.
+- `]f` and `[f` go over the commits while the Commits group is collapsed. In
+  a pull request review, `]f` on the pull request document opens the first
+  file. Expand the group, and the keys step through the commits again. A
+  collapsed directory does not change the keys. See
+  `:help codeview-sidebar-keymaps`.
 
 ### Fixed
 

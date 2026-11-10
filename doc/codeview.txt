@@ -378,7 +378,15 @@ The sidebar buffer holds these maps. |codeview-config| names the keys: >
 <
 The next-file key and the previous-file key follow the order of the tree.
 They step over the directory nodes, and they also reach a file in a directory
-that hides its children.
+that hides its children. That directory then opens.
+
+The group node of the commits is the exception. While it hides its children,
+the two keys go over the commits. In a pull request review, the keys
+therefore go from the pull request document, or from the last pr-agent
+document, to the first file, and back. Expand the group node, and the commits
+are steps of the two keys again, in the order of the tree. When a commit
+opens in another way, for example from the comment overview, its group node
+opens. Without a sidebar, the keys use the start state of the session.
 
 The buffer of the diff view holds the maps `]f`, `[f`, and `q`. You walk
 through the files without a move back to the sidebar. Each key press moves one
@@ -1358,7 +1366,8 @@ state, the link to the web page, the description, and the commits. Press
 The commits of the pull request come under the node "Commits". This node
 starts collapsed, because the document of the pull request lists the commits
 already. Press `<Tab>` on the node to show the commits, and press it again to
-hide them.
+hide them. While the node is collapsed, `]f` and `[f` go over the commits.
+See |codeview-sidebar-keymaps|.
 
 A comment on this document is an overall comment on the pull request. The
 send key of the editor posts it to the conversation of the pull request. A

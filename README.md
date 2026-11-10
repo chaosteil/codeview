@@ -20,7 +20,8 @@ the comments as markdown, and you send them to a GitHub pull request.
   repository of the pull request. The diff also shows the review comments that the pull request already
   holds. The sidebar lists the pull request itself first, with its description
   and its link, and a comment on it goes to the conversation of the pull
-  request.
+  request. The commits wait in a collapsed group, so `]f` goes from the pull
+  request to the first file.
 - Shows each GitHub review thread as one box, oldest comment first. You write
   a draft reply with `r`, and it goes out with your other comments. Resolve,
   edit, delete, and reactions go to GitHub at once.
