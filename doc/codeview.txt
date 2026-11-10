@@ -791,6 +791,12 @@ and a reply end the same way, so the box looks the same after each of them.
 The float editor (`comments.editor = "float"`) does not sit under the row,
 so the box stays in the diff while it is open.
 
+A row can hold the boxes of more than one comment. The inline editor of an
+edit takes the place of the box that it edits, and the other boxes stay
+above and below it in their usual order. The inline editor of a new comment
+comes after the boxes of the row, where the box of the comment shows after
+the save. No box goes under the editor window.
+
 A delete of the comment that the editor holds also closes the editor, without
 a question, because the delete asked one. The message "the open editor of this
 comment closed" reports it.

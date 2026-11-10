@@ -13,7 +13,10 @@
 --- each kind of comment.
 ---
 --- The space of the inline comment editor goes into the same extmark, see
---- |codeview.stack.reserve()|. The editor window sits on that space.
+--- |codeview.stack.reserve()|. The editor window sits on that space. The
+--- space of an edit takes the place of the box of the comment. The space of
+--- a new comment comes after the boxes of the row. The other boxes keep
+--- their order and stay in sight.
 ---
 --- In the side-by-side style, the other side takes one extmark per row with
 --- blank virtual lines of the same number. Both windows then grow by the
@@ -53,6 +56,8 @@ M.ns = api.nvim_create_namespace("codeview.boxes")
 ---@field buf integer Buffer that holds the row.
 ---@field row integer Row from 1. The space goes under it.
 ---@field height integer Number of virtual lines.
+---@field id string? Id of the local comment that the editor edits. The space takes the place of its box.
+---@field place fun(offset: integer)? Handler of the position. It gets the number of virtual lines above the space.
 
 ---Space that the inline comment editor holds under a row.
 ---
@@ -188,11 +193,23 @@ function M.decorate(view)
       add_box(entry)
     end
   end
+  ---@type codeview.stack.Entry?
+  local slot = nil
   if space and (space.buf == view.buf or space.buf == view.old_buf) then
-    -- The space comes first, right under the row, where the editor window
-    -- sits.
+    -- The space of an edit takes the place of the box of the comment: the
+    -- time and the id of that comment. The box itself is gone while the
+    -- editor is open, see |codeview.marks.editing()|. A new comment is the
+    -- newest, so its space comes after the other boxes of the row, where
+    -- its box shows after the save.
+    local time, id = math.huge, ""
+    for _, entry in ipairs(entries) do
+      if space.id and entry.id == space.id then
+        time, id = entry.time, entry.id
+        break
+      end
+    end
     local height = space.height
-    add_box({
+    slot = {
       buf = space.buf,
       rows = { space.row },
       side = space.buf == view.old_buf and "old" or "new",
@@ -203,9 +220,10 @@ function M.decorate(view)
       box = function()
         return space_lines(height)
       end,
-      time = -math.huge,
-      id = "",
-    })
+      time = time,
+      id = id,
+    }
+    add_box(slot)
   end
 
   ---@type table<integer, integer>
@@ -218,6 +236,9 @@ function M.decorate(view)
     widths[buf] = widths[buf] or box.width_for(buf, view.win)
     local lines = {}
     for _, entry in ipairs(list) do
+      if entry == slot and space and space.place then
+        space.place(#lines)
+      end
       vim.list_extend(lines, entry.box(widths[buf]))
     end
     pcall(api.nvim_buf_set_extmark, buf, M.ns, row - 1, 0, {
@@ -278,6 +299,9 @@ local function draw_space(buf)
     })
     if ok then
       loose = { buf = buf, id = id }
+    end
+    if space.place then
+      space.place(0)
     end
   end
 end

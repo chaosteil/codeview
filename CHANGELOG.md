@@ -24,6 +24,9 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The inline comment editor no longer covers the other boxes of its row. An
+  edit takes the place of the box that it edits, and a new comment comes
+  after the boxes of the row.
 - In the side-by-side style, the two sides stay in line while the inline
   comment editor is open. The other side takes blank lines of the same
   height as the editor, the same as for a comment box.

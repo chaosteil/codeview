@@ -55,6 +55,7 @@ M.filetype = "markdown"
 ---@field style codeview.editor.Style Style that the editor opened with.
 ---@field anchor codeview.editor.Anchor? Anchor of the inline style.
 ---@field spacer codeview.stack.Space? Space that the inline editor holds under its row, see |codeview.stack.reserve()|.
+---@field offset integer Virtual lines of other boxes between the anchor row and the space of the inline editor.
 ---@field insert boolean True when the editor asked for insert mode.
 ---@field id string? Id of the comment that the editor edits. Nil for a new comment.
 
@@ -305,16 +306,18 @@ end
 ---Size and position of the editor window.
 ---@param style codeview.editor.Style
 ---@param anchor codeview.editor.Anchor? Anchor of the inline style.
+---@param offset integer? Virtual lines between the anchor row and the space of the inline style. 0 by default.
 ---@return vim.api.keyset.win_config
-local function window_config(style, anchor)
+local function window_config(style, anchor, offset)
   local cfg = config.get().comments
   local height = editor_height()
   if style == "inline" and anchor then
-    -- The window sits on the virtual lines of the spacer, which start one
-    -- screen row under the anchor row. Neovim puts it after the line numbers
-    -- of the diff. The window must fit in the space to the right of them:
-    -- Neovim pushes a float that goes past the edge of the screen to the
-    -- left, and then the float covers the line numbers.
+    -- The window sits on the virtual lines of the spacer. They start one
+    -- screen row under the anchor row, after the boxes of other comments
+    -- that come first, see |codeview.stack|. Neovim puts the window after
+    -- the line numbers of the diff. The window must fit in the space to the
+    -- right of them: Neovim pushes a float that goes past the edge of the
+    -- screen to the left, and then the float covers the line numbers.
     local _, cols = box.border_size(cfg.border)
     local free = api.nvim_win_get_width(anchor.win) - box.text_offset(anchor.win)
     local width = math.max(free - cols - 1, 20)
@@ -322,7 +325,7 @@ local function window_config(style, anchor)
       relative = "win",
       win = anchor.win,
       bufpos = { anchor.row - 1, 0 },
-      row = 1,
+      row = 1 + (offset or 0),
       col = 0,
       width = width,
       height = height,
@@ -341,6 +344,27 @@ local function window_config(style, anchor)
     style = "minimal",
     border = cfg.border,
   }
+end
+
+---Move an inline editor onto its space.
+---
+--- |codeview.stack| calls this on each draw of the diff. Other boxes of the
+--- row can come before the space, and their height can change.
+---@param editor codeview.editor.State
+---@param offset integer Virtual lines between the anchor row and the space.
+local function place(editor, offset)
+  if editor.style ~= "inline" or editor.offset == offset or not api.nvim_win_is_valid(editor.win) then
+    return
+  end
+  editor.offset = offset
+  local conf = window_config("inline", editor.anchor, offset)
+  pcall(api.nvim_win_set_config, editor.win, {
+    relative = conf.relative,
+    win = conf.win,
+    bufpos = conf.bufpos,
+    row = conf.row,
+    col = conf.col,
+  })
 end
 
 ---Handle the close of the window that an inline editor sits on.
@@ -484,6 +508,7 @@ function M.open(opts)
     on_cancel = opts.on_cancel,
     on_empty = opts.on_empty,
     done = false,
+    offset = 0,
     style = style,
     anchor = anchor,
     insert = cfg.start_insert,
@@ -497,7 +522,15 @@ function M.open(opts)
     -- diff in sight while the editor is open. The editor is open at this
     -- point, so the draw of the diff also drops the box of the comment that
     -- the editor edits.
-    editor.spacer = { buf = anchor.buf, row = anchor.row, height = editor_height() + border_rows }
+    editor.spacer = {
+      buf = anchor.buf,
+      row = anchor.row,
+      height = editor_height() + border_rows,
+      id = opts.id,
+      place = function(offset)
+        place(editor, offset)
+      end,
+    }
     require("codeview.stack").reserve(editor.spacer)
   end
 

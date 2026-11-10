@@ -1508,6 +1508,64 @@ describe("codeview.comments", function()
       end))
     end)
 
+    it("keeps the other boxes of the row in sight around the open editor", function()
+      local state = open_diff()
+      local first = comment_on(4, "the first note")
+      local second = comment_on(4, "the second note")
+      -- The boxes of one row go oldest first. Two comments of one second
+      -- take the order of their ids, so the test sets the times.
+      first.created_at, second.created_at = 1, 2
+      comments.refresh()
+      assert.are.same(
+        { "comment L2 (new)", "the first note", "comment L2 (new)", "the second note" },
+        virt_lines(state.buf)
+      )
+
+      ---Screen row of the editor window under the anchor row.
+      ---@return integer
+      local function editor_row()
+        return api.nvim_win_get_config(assert(editor.current()).win).row
+      end
+
+      ---Height of the space of the open editor: the window and its frame.
+      ---@return integer
+      local function space()
+        return api.nvim_win_get_config(assert(editor.current()).win).height + 2
+      end
+
+      -- An edit of the second comment: the box of the first one stays above
+      -- the editor, and the editor takes the place of the second box.
+      api.nvim_set_current_win(state.win)
+      assert.is_true(comments.edit({ id = second.id }))
+      local lines = box_lines(state.buf)
+      assert.are.equal(3 + space(), #lines)
+      assert.are.equal("the first note", content(lines[2]))
+      assert.are.equal(1 + 3, editor_row())
+      editor.cancel()
+
+      -- An edit of the first comment: the editor sits right under the row,
+      -- and the box of the second one stays under the editor.
+      api.nvim_set_current_win(state.win)
+      assert.is_true(comments.edit({ id = first.id }))
+      lines = box_lines(state.buf)
+      assert.are.equal(1, editor_row())
+      assert.are.equal("the second note", content(lines[space() + 2]))
+      editor.cancel()
+
+      -- A new comment comes after the boxes of the row, where its box shows
+      -- after the save.
+      api.nvim_set_current_win(state.win)
+      api.nvim_win_set_cursor(state.win, { 4, 0 })
+      assert.is_true(comments.add())
+      assert.are.equal(1 + 6, editor_row())
+      assert.are.equal("the second note", content(box_lines(state.buf)[5]))
+      editor.cancel()
+      assert.are.same(
+        { "comment L2 (new)", "the first note", "comment L2 (new)", "the second note" },
+        virt_lines(state.buf)
+      )
+    end)
+
     it("gives the other side of the split as many blank lines as the open editor", function()
       open_diff()
       assert.are.equal("split", view.set_style("split"))
