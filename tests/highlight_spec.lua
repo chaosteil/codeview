@@ -62,6 +62,13 @@ describe("codeview.highlight", function()
     assert.are.equal("Title", link_of("CodeViewTitle"))
   end)
 
+  it("computes the contrast ratio of two colors", function()
+    assert.are.equal(21, highlight.contrast(0x000000, 0xffffff))
+    assert.are.equal(1, highlight.contrast(0x123456, 0x123456))
+    assert.are.equal(highlight.contrast(0x1d1d1d, 0x011d24), highlight.contrast(0x011d24, 0x1d1d1d))
+    assert.is_true(highlight.contrast(0x1d1d1d, 0x011d24) < highlight.min_frame_contrast)
+  end)
+
   it("keeps one autocmd after a second setup", function()
     highlight.setup()
     highlight.setup()
@@ -75,6 +82,7 @@ describe("codeview.highlight", function()
       saved = {
         Normal = api.nvim_get_hl(0, { name = "Normal" }),
         NormalFloat = api.nvim_get_hl(0, { name = "NormalFloat" }),
+        FloatBorder = api.nvim_get_hl(0, { name = "FloatBorder" }),
         DiagnosticInfo = api.nvim_get_hl(0, { name = "DiagnosticInfo" }),
         background = vim.o.background,
       }
@@ -91,7 +99,7 @@ describe("codeview.highlight", function()
     end
 
     after_each(function()
-      for _, name in ipairs({ "Normal", "NormalFloat", "DiagnosticInfo" }) do
+      for _, name in ipairs({ "Normal", "NormalFloat", "FloatBorder", "DiagnosticInfo" }) do
         api.nvim_set_hl(0, name, saved[name])
       end
       vim.o.background = saved.background
@@ -123,6 +131,25 @@ describe("codeview.highlight", function()
       local box = api.nvim_get_hl(0, { name = "CodeViewCommentBox" })
       -- 0x10 * 0.85 + 0xff * 0.15 = 51.85, so blue is 0x34. Red and green are 0x0e.
       assert.are.equal(0x0e0e34, box.bg)
+    end)
+
+    it("gives the frame the tint when FloatBorder hides on the box", function()
+      vim.o.background = "dark"
+      transparent()
+      -- A near-black border, like the one of pierre. The box is 0x000026.
+      api.nvim_set_hl(0, "FloatBorder", { fg = 0x1d1d1d })
+      highlight.apply_comment_boxes()
+      local border = api.nvim_get_hl(0, { name = "CodeViewCommentBorder" })
+      assert.are.equal(0x0000ff, border.fg)
+      assert.are.equal(0x000026, border.bg)
+    end)
+
+    it("keeps a FloatBorder that stands out from the box", function()
+      vim.o.background = "dark"
+      transparent()
+      api.nvim_set_hl(0, "FloatBorder", { fg = 0xcccccc })
+      highlight.apply_comment_boxes()
+      assert.are.equal(0xcccccc, api.nvim_get_hl(0, { name = "CodeViewCommentBorder" }).fg)
     end)
 
     it("gives the same colors from a window that maps Normal to the box", function()

@@ -177,6 +177,35 @@ local function blend(fg, bg, weight)
   return out
 end
 
+---Smallest contrast ratio between the frame of a comment box and the box.
+---
+--- WCAG 2.1 asks for 3:1 for the parts of a user interface, see
+--- https://www.w3.org/WAI/WCAG21/Understanding/non-text-contrast.html.
+---@type number
+M.min_frame_contrast = 3
+
+---Relative luminance of a color, as WCAG 2.1 gives it.
+---@param color integer 24-bit color.
+---@return number luminance From 0 for black to 1 for white.
+local function luminance(color)
+  local out = 0
+  for index, shift in ipairs({ 16, 8, 0 }) do
+    local value = bit.band(bit.rshift(color, shift), 0xff) / 255
+    local linear = value <= 0.04045 and value / 12.92 or ((value + 0.055) / 1.055) ^ 2.4
+    out = out + ({ 0.2126, 0.7152, 0.0722 })[index] * linear
+  end
+  return out
+end
+
+---Contrast ratio of two colors, as WCAG 2.1 gives it.
+---@param a integer 24-bit color.
+---@param b integer 24-bit color.
+---@return number ratio From 1 for two equal colors to 21 for black and white.
+function M.contrast(a, b)
+  local la, lb = luminance(a), luminance(b)
+  return (math.max(la, lb) + 0.05) / (math.min(la, lb) + 0.05)
+end
+
 ---Colors of the added rows and the removed rows.
 ---
 --- A whole-row highlight with a foreground color hides the syntax colors of
@@ -243,8 +272,10 @@ end
 --- the text keeps the color of its own group.
 ---
 --- The border group of a box takes the foreground of `FloatBorder` on the
---- background of the box. When `FloatBorder` has no foreground, the border
---- takes the color of the tint.
+--- background of the box. When `FloatBorder` has no foreground, or when its
+--- contrast with the box is less than |codeview.highlight.min_frame_contrast|,
+--- the border takes the color of the tint. A dark `FloatBorder` on a dark box
+--- then does not hide the frame.
 ---
 --- A transparent colorscheme gives no background to `Normal`. The tint then
 --- goes on the background of `NormalFloat`. When `NormalFloat` has no
@@ -267,8 +298,12 @@ function M.apply_comment_boxes()
     local tint = foreground_of(source.tint)
     if base and tint then
       local bg = blend(tint, base, 0.15)
+      local frame = line
+      if not frame or M.contrast(frame, bg) < M.min_frame_contrast then
+        frame = tint
+      end
       api.nvim_set_hl(0, group, { bg = bg })
-      api.nvim_set_hl(0, source.border, { fg = line or tint, bg = bg })
+      api.nvim_set_hl(0, source.border, { fg = frame, bg = bg })
     else
       api.nvim_set_hl(0, group, { link = "NormalFloat" })
       api.nvim_set_hl(0, source.border, { link = "FloatBorder" })

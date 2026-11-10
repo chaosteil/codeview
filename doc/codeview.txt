@@ -2642,9 +2642,10 @@ percent of the foreground of `DiagnosticInfo` on the background of `Normal`.
 |hl-CodeViewAgentBox| is 15 percent of the foreground of `DiagnosticHint`.
 The box groups carry a background only, so the text of a box keeps the color
 of |hl-CodeViewComment|, |hl-CodeViewRemote|, or |hl-CodeViewAgent|. The
-border groups take the
-foreground of `FloatBorder`, or of the tint when `FloatBorder` has none, on
-the background of the box. When the colorscheme has no such colors, the box
+border groups take the foreground of `FloatBorder` on the background of the
+box. When `FloatBorder` has no foreground, or when its contrast with the box
+is less than 3:1, the border takes the color of the tint. The frame then
+stays visible on a dark box. When the colorscheme has no such colors, the box
 groups link to `NormalFloat` and the border groups link to `FloatBorder`.
 
 A transparent colorscheme gives `Normal` no background. The tint then goes on
