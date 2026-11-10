@@ -420,6 +420,64 @@ local function send_handler(session, save)
   end
 end
 
+---@class codeview.comments.EditorSpec
+---@field title string Text of the window border.
+---@field text string? Body to edit. Empty for a new comment.
+---@field anchor codeview.editor.Anchor? Row that the inline editor opens under.
+---@field id string? Id of the comment of an edit. Nil for a new comment or a reply.
+---@field save fun(body: string): codeview.store.Comment? Writes the comment and gives it back.
+---@field on_empty fun()? Handler of a save with an empty body. Without it the save is a discard.
+
+---Open the editor of one local comment: a new comment, a reply, or an edit.
+---
+--- Every local comment goes through this call, so all of them end the same
+--- way. A save writes the store and sends the event of the change. The
+--- event draws the diff again, with the box of the comment. A discard draws
+--- the diff again too, so the box of an edited comment comes back.
+---
+--- While the inline editor is open on an existing comment, the diff shows
+--- no box for that comment, see |codeview.marks.editing()|. The editor
+--- shows the same body under the same row.
+---@param session codeview.Session Session that owns the comment.
+---@param view codeview.view.State? Diff view to draw. The open file by default.
+---@param spec codeview.comments.EditorSpec
+---@return boolean opened False when the reviewer keeps the editor that is open.
+local function open_editor(session, view, spec)
+  ---Write the comment. A failed write sends no event, so the call draws the
+  ---diff itself, and the box of an edited comment comes back.
+  ---@param body string
+  ---@return codeview.store.Comment? comment Nil after an error.
+  local function save(body)
+    local comment = spec.save(body)
+    if not comment then
+      M.decorate()
+    end
+    return comment
+  end
+
+  local buf = require("codeview.editor").open({
+    title = spec.title,
+    text = spec.text,
+    anchor = spec.anchor,
+    id = spec.id,
+    on_save = save,
+    on_send = send_handler(session, save),
+    on_cancel = function()
+      M.decorate()
+    end,
+    on_empty = spec.on_empty,
+  })
+  if not buf then
+    return false
+  end
+  if spec.id then
+    -- The inline editor sits on the row of the box. Draw the diff without
+    -- the box.
+    M.decorate(view)
+  end
+  return true
+end
+
 ---Add a comment to the store of a session, write the store, and send the
 ---event.
 ---
@@ -496,13 +554,11 @@ function M.add(opts)
     return comment
   end
 
-  local buf = require("codeview.editor").open({
+  return open_editor(view.session, view, {
     title = title_of(target, "Comment on"),
     anchor = anchor_of(target),
-    on_save = save,
-    on_send = send_handler(view.session, save),
+    save = save,
   })
-  return buf ~= nil
 end
 
 ---Comment of one action.
@@ -611,24 +667,10 @@ function M.edit(opts)
     return false
   end
 
-  local anchor = comment_anchor(ctx.view, comment)
-
-  ---Show the body of the comment in the diff again.
-  ---
-  --- A refresh during the edit replaces the view, so the call draws the view
-  --- that is open now.
-  local function release()
-    if marks.editing == comment.id then
-      marks.editing = nil
-      M.decorate()
-    end
-  end
-
   ---Write the new body of the comment into the store.
   ---@param body string
   ---@return codeview.store.Comment? comment Nil after an error.
   local function save(body)
-    release()
     -- The store comes again from the session, because a session that closes
     -- while the editor is open drops its store.
     local live, live_err = M.store(session)
@@ -646,7 +688,7 @@ function M.edit(opts)
     return changed
   end
 
-  local buf = require("codeview.editor").open({
+  return open_editor(session, ctx.view, {
     title = string.format(
       "Edit %s:%s (%s)",
       comment.file,
@@ -654,31 +696,20 @@ function M.edit(opts)
       comment.side
     ),
     text = comment.body,
-    anchor = anchor,
+    anchor = comment_anchor(ctx.view, comment),
     id = comment.id,
-    on_save = save,
-    on_send = send_handler(session, save),
-    on_cancel = release,
+    save = save,
     -- A save of an empty body deletes the comment. The reviewer removed every
     -- word and saved, so the call asks no question.
     on_empty = function()
-      release()
       if M.remove({ id = comment.id, session = session, confirm = false }) then
         notify.info("deleted the comment")
+      else
+        -- No event follows, so the box of the comment comes back here.
+        M.decorate()
       end
     end,
   })
-  if not buf then
-    return false
-  end
-
-  -- The editor sits under the row of the comment, where the virtual lines of
-  -- the body are. Drop them while the editor holds the same text.
-  if anchor and require("codeview.editor").current() then
-    marks.editing = comment.id
-    M.decorate(ctx.view)
-  end
-  return true
 end
 
 ---Threads of GitHub under the cursor.
@@ -790,13 +821,11 @@ function M.reply(opts)
     end
 
     local who = (root.author or "") ~= "" and ("@" .. root.author) or "the thread"
-    local buf = require("codeview.editor").open({
+    return open_editor(ctx.session, ctx.view, {
       title = "Reply to " .. who,
       anchor = comment_anchor(ctx.view, thread --[[@as codeview.store.Comment]]),
-      on_save = save,
-      on_send = send_handler(ctx.session, save),
+      save = save,
     })
-    return buf ~= nil
   end
 
   if opts.thread then

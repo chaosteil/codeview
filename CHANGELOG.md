@@ -99,6 +99,10 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- A new comment, an edit, and a reply open the editor through one call, and
+  they end the same way. The inline editor holds the id of the comment that
+  it edits, so the box of that comment comes back after every kind of close.
+  The float editor no longer hides the box of the comment that it edits.
 - A comment in the diff shows as a box with a frame and a blue tint, the same
   as the inline editor. The header goes into the top border. The box is as
   wide as the editor, wraps long body lines, and takes the new width when a

@@ -20,12 +20,21 @@ local M = {}
 ---@type integer
 M.ns = api.nvim_create_namespace("codeview.comments")
 
----Comment that the editor has open, while it edits an existing comment.
+---Id of the comment that the inline editor has open.
 ---
---- The diff keeps the sign of the comment, but drops its virtual lines. The
---- editor shows the same body right under that row, and one body is enough.
----@type string?
-M.editing = nil
+--- The diff keeps the sign of that comment, but drops its box. The inline
+--- editor shows the same body right under the row, and one body is enough.
+--- The editor holds the id. When the editor closes, in any way, the next
+--- draw of the diff shows the box again. A float editor does not sit under
+--- the row, so the box stays.
+---@return string? id Nil when no inline editor holds an existing comment.
+function M.editing()
+  local open = require("codeview.editor").current()
+  if open and open.style == "inline" then
+    return open.id
+  end
+  return nil
+end
 
 ---Text of a line range, without a prefix.
 ---@param first integer
@@ -108,8 +117,9 @@ end
 ---Collect the local comments of the file that a view shows.
 ---
 --- Each comment that the render holds a row for gives one entry for
---- |codeview.stack|. The comment that the editor has open gives no box,
---- because the editor shows the same body under the row.
+--- |codeview.stack|. The comment that the inline editor has open gives no
+--- box, because the editor shows the same body under the row. See
+--- |codeview.marks.editing()|.
 ---
 --- A reply to a GitHub thread that the view shows gives no box either. It is
 --- a section of the box of the thread, see
@@ -127,6 +137,7 @@ function M.collect(view, store, display)
     return out, 0, 0
   end
   local remote = require("codeview.remote")
+  local editing = M.editing()
   ---Keys of the threads that the view shows a box for.
   ---@type table<string, boolean>
   local shown = {}
@@ -142,7 +153,7 @@ function M.collect(view, store, display)
       hidden = hidden + 1
     else
       count = count + 1
-      local boxed = display == "virtual" and M.editing ~= comment.id and not shown[comment.reply_to or ""]
+      local boxed = display == "virtual" and editing ~= comment.id and not shown[comment.reply_to or ""]
       out[#out + 1] = {
         buf = buf,
         rows = rows,

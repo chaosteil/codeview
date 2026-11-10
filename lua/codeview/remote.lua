@@ -1141,6 +1141,7 @@ function M.thread_sections(session, thread)
   end
   local marks = require("codeview.marks")
   local store_mod = require("codeview.store")
+  local editing = marks.editing()
   local entries = {}
   for index, comment in ipairs(thread.comments) do
     entries[#entries + 1] = {
@@ -1158,7 +1159,7 @@ function M.thread_sections(session, thread)
     }
   end
   for index, reply in ipairs(replies) do
-    if marks.editing ~= reply.id then
+    if editing ~= reply.id then
       entries[#entries + 1] = {
         time = reply.created_at or 0,
         order = #thread.comments + index,

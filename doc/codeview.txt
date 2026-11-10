@@ -771,9 +771,13 @@ holds. A line without a comment starts a new one. `o` and `O` always start a
 new comment, so a second comment on the same line stays one keypress away. A
 line with more than one comment asks which comment to edit.
 
-While the editor holds a comment, the diff drops the virtual lines of that
+While the inline editor holds a comment, the diff drops the box of that
 comment and keeps its sign, because the editor shows the same text one row
-below the sign.
+below the sign. The box comes back when the editor closes, in any way: a
+save, a send, a discard, or a close of the window. A new comment, an edit,
+and a reply end the same way, so the box looks the same after each of them.
+The float editor (`comments.editor = "float"`) does not sit under the row,
+so the box stays in the diff while it is open.
 
 A delete of the comment that the editor holds also closes the editor, without
 a question, because the delete asked one. The message "the open editor of this
