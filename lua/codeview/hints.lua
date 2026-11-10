@@ -41,6 +41,7 @@ M.ns = api.nvim_create_namespace("codeview.hints")
 M.actions = {
   sidebar = {
     { action = "next_file", text = "next file" },
+    { action = "next_comment", text = "next comment" },
     { action = "toggle_node", text = "fold" },
     { action = "collapse_all", text = "fold all" },
     { action = "toggle_style", text = "style" },
@@ -52,6 +53,7 @@ M.actions = {
   view = {
     { action = "next_hunk", text = "next hunk" },
     { action = "next_file", text = "next file" },
+    { action = "next_comment", text = "next comment" },
     { action = "expand_context", text = "unfold" },
     { action = "toggle_style", text = "style" },
     { action = "edit_file", text = "edit the file" },

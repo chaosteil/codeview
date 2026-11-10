@@ -261,6 +261,12 @@ local function set_keymaps(session, buf)
       notify.info("no hunk before this one")
     end
   end, "jump to the previous hunk")
+  add(keys.next_comment, function()
+    M.next_comment(session)
+  end, "jump to the next comment")
+  add(keys.prev_comment, function()
+    M.prev_comment(session)
+  end, "jump to the previous comment")
   add(keys.expand_context, function()
     if not M.toggle_context() then
       notify.info("no collapsed section on this line")
@@ -829,26 +835,17 @@ local function expanded_of(session)
   return require("codeview.message").default_expanded(session)
 end
 
----Position of one file in the file list of a session.
+---Order of the files of a session for a step, and the files where a step stops.
 ---
---- The step follows the order of the sidebar tree, not the order of the
---- backend. It starts at the file of the request that runs, or at the file
---- that the view shows. Without an open file a forward step starts before the
---- first file, and a backward step starts after the last file.
----
---- While the group node of the commits is collapsed, the step goes over the
---- commit documents. A step from a commit document in that state goes to the
---- next entry of the tree that is not a commit. A collapsed directory does
---- not change the step.
+--- The order is the order of the sidebar tree. While the group node of the
+--- commits is collapsed, the commit documents are no stops.
 ---@param session codeview.Session
----@param delta integer Number of files to move. Use 1 or -1.
----@return integer? index Nil at the end of the list.
-function M.step(session, delta)
+---@return integer[] order Positions in the file list, in the order of the tree.
+---@return table<integer, boolean> stops Positions where a step can stop.
+---@return integer position Place of the file that the step starts from in `order`. 0 without such a file.
+local function walk(session)
   local files = session:changed_files()
   local order = tree.order(files)
-  if #order == 0 then
-    return nil
-  end
 
   -- The commits of a collapsed group are no stop of the step.
   local visible = tree.order(files, {
@@ -868,7 +865,7 @@ function M.step(session, delta)
     from = view and view.session == session and view.index or nil
   end
 
-  local position
+  local position = 0
   if from then
     for at, index in ipairs(order) do
       if index == from then
@@ -877,7 +874,31 @@ function M.step(session, delta)
       end
     end
   end
-  position = position or (delta > 0 and 0 or #order + 1)
+  return order, stops, position
+end
+
+---Position of one file in the file list of a session.
+---
+--- The step follows the order of the sidebar tree, not the order of the
+--- backend. It starts at the file of the request that runs, or at the file
+--- that the view shows. Without an open file a forward step starts before the
+--- first file, and a backward step starts after the last file.
+---
+--- While the group node of the commits is collapsed, the step goes over the
+--- commit documents. A step from a commit document in that state goes to the
+--- next entry of the tree that is not a commit. A collapsed directory does
+--- not change the step.
+---@param session codeview.Session
+---@param delta integer Number of files to move. Use 1 or -1.
+---@return integer? index Nil at the end of the list.
+function M.step(session, delta)
+  local order, stops, position = walk(session)
+  if #order == 0 then
+    return nil
+  end
+  if position == 0 then
+    position = delta > 0 and 0 or #order + 1
+  end
 
   local at = position + delta
   while order[at] and not stops[order[at]] do
@@ -1188,6 +1209,264 @@ function M.go_to_line(line, side, opts)
     end
   end
   return row
+end
+
+--- Comment navigation ---------------------------------------------------------
+
+---Report an error of a comment jump.
+---
+--- A comment that the jump does not reach, and the end of the comments, give
+--- a note. Every other error, for example a failed read of a file, gives an
+--- error message.
+---@param err codeview.Error
+local function report_jump(err)
+  if err.code == errors.codes.NOT_FOUND then
+    notify.info(tostring(err))
+  else
+    notify.error(tostring(err))
+  end
+end
+
+---Open the diff of one comment and move the cursor to its anchor.
+---
+--- A diff that the `diff.max_lines` limit stopped reads again, without the
+--- limit. A cursor that cannot reach the anchor gives an error to the callback,
+--- or a message without one. The cursor goes into the window of the diff.
+---@param session codeview.Session
+---@param comment codeview.store.Comment|codeview.remote.Comment Comment to show.
+---@param cb? fun(view: codeview.view.State?, err: codeview.Error?)
+---@return boolean started False when the range does not change the file.
+function M.go_to_comment(session, comment, cb)
+  local index = session:index_of(comment.file)
+  if not index then
+    local err = errors.new(errors.codes.NOT_FOUND, "the range does not change " .. comment.file)
+    if cb then
+      cb(nil, err)
+    else
+      report_jump(err)
+    end
+    return false
+  end
+
+  ---@param view codeview.view.State?
+  ---@param err codeview.Error?
+  local function settle(view, err)
+    -- The render of the file looks for the lines of an outdated remote
+    -- comment. A comment that it did not find has no line to go to.
+    if view and comment.anchored == false then
+      err = errors.new(
+        errors.codes.NOT_FOUND,
+        string.format("the comment is outdated. The diff of %s holds none of its lines", comment.file)
+      )
+    elseif view and not M.go_to_line(comment.start_line, comment.side, { focus = true }) then
+      err = errors.new(
+        errors.codes.NOT_FOUND,
+        string.format("the diff of %s holds no line %d", comment.file, comment.start_line)
+      )
+    end
+    if err and not cb then
+      report_jump(err)
+    end
+    if cb then
+      cb(view, err)
+    end
+  end
+
+  -- A diff that the `diff.max_lines` limit stopped holds the note rows only,
+  -- and no row of the comment. The forced read renders the file, so the cursor
+  -- reaches the anchor.
+  ---@param view codeview.view.State?
+  ---@param err codeview.Error?
+  local function arrive(view, err)
+    if view and view.diff.limited then
+      M.open(session, index, { force = true }, settle)
+      return
+    end
+    settle(view, err)
+  end
+
+  -- The path, and not the index, tells whether the diff shows the file. A
+  -- refresh of the session can move a file to another position in the list.
+  local view = M.current()
+  if view and view.session == session and view.path == comment.file then
+    arrive(view, nil)
+    return true
+  end
+  M.open(session, index, arrive)
+  return true
+end
+
+---Comments where the comment keys stop, by file.
+---
+--- The local comments and the threads of GitHub are stops. A thread is one
+--- stop, at its first comment. An outdated thread that the diff holds no line
+--- for is no stop. The suggestions of pr-agent are not comments, so they are
+--- no stops.
+---@param session codeview.Session
+---@return table<string, (codeview.store.Comment|codeview.remote.Comment)[]> stops Comments by file path.
+local function comment_stops(session)
+  local out = {}
+  ---@param comment codeview.store.Comment|codeview.remote.Comment
+  local function add(comment)
+    local list = out[comment.file] or {}
+    out[comment.file] = list
+    list[#list + 1] = comment
+  end
+  for _, comment in ipairs(require("codeview.comments").list(session)) do
+    add(comment)
+  end
+  for _, thread in ipairs(require("codeview.remote").threads(session)) do
+    if thread.anchored ~= false then
+      add(thread.root)
+    end
+  end
+  return out
+end
+
+---Place of one comment in the rows of a view, for the order of the stops.
+---
+--- A line that a collapsed section hides takes the filler row of the section,
+--- plus a part of one row. The comments of the section then come after the
+--- filler row, in the order of their lines.
+---@param view codeview.view.State
+---@param comment codeview.store.Comment|codeview.remote.Comment
+---@return number? place Nil when the render holds no row of the side.
+local function comment_place(view, comment)
+  local line, side = comment.start_line, comment.side == "old" and "old" or "new"
+  local map = map_of(view, side)
+  local row = map:buf_row(line, side)
+  if row then
+    return row
+  end
+  local gap = gap_over(view, line, side)
+  if gap then
+    for lnum, record in ipairs(map.rows) do
+      if record.kind == "filler" and record.gap == gap.id then
+        return lnum + (line - gap[side] + 1) / (gap.count + 1)
+      end
+    end
+  end
+  return map:nearest_row(line, side) or map:next_row(line, side)
+end
+
+---Comment of a view that comes first in one direction from a place.
+---@param view codeview.view.State
+---@param list (codeview.store.Comment|codeview.remote.Comment)[] Comments of the file of the view.
+---@param delta integer 1 for the next comment, -1 for the previous comment.
+---@param from number? Place to start from. Nil takes every comment of the file.
+---@return (codeview.store.Comment|codeview.remote.Comment)? comment
+local function closest(view, list, delta, from)
+  local best, best_at = nil, nil
+  for _, comment in ipairs(list) do
+    local at = comment_place(view, comment)
+    if at and (from == nil or (at - from) * delta > 0) then
+      if best_at == nil or (at - best_at) * delta < 0 then
+        best, best_at = comment, at
+      end
+    end
+  end
+  return best
+end
+
+---Move the cursor to the next or the previous comment of the review.
+---
+--- The step goes to the comment after the cursor, or before it, in the file
+--- that the view shows. After the last comment of the file, it opens the next
+--- file with comments, in the order of |codeview.view.step()|, and goes to its
+--- first comment. A backward step goes to the last comment of the previous
+--- file. The step does not go around to the other end.
+---@param session codeview.Session
+---@param delta integer 1 for the next comment, -1 for the previous comment.
+---@param cb? fun(view: codeview.view.State?, err: codeview.Error?)
+local function comment_step(session, delta, cb)
+  local answer = cb or function(_, err)
+    if err then
+      report_jump(err)
+    end
+  end
+  local stops = comment_stops(session)
+  if next(stops) == nil then
+    answer(nil, errors.new(errors.codes.NOT_FOUND, "the review has no comments"))
+    return
+  end
+
+  -- The step starts at the cursor of the view. A file that is still on the
+  -- way has no cursor yet, and a diff that the size limit stopped holds no row
+  -- of its comments. The step then starts at the comments of that file.
+  local view = M.current()
+  if view and view.session ~= session then
+    view = nil
+  end
+  local cursor = view ~= nil and not pending_index(session) and not view.diff.limited
+  if view and cursor then
+    local comment = closest(view, stops[view.path] or {}, delta, cursor_row(view))
+    if comment then
+      M.go_to_comment(session, comment, answer)
+      return
+    end
+  end
+
+  local order, files, position = walk(session)
+  local at = position + delta
+  if position == 0 then
+    at = delta > 0 and 1 or #order
+  elseif not cursor then
+    at = position
+  end
+  while order[at] do
+    local index = order[at]
+    local file = session:file(index)
+    if files[index] and file and stops[file.path] then
+      ---Go to the first comment of the file in the direction of the step.
+      ---@param opened codeview.view.State?
+      ---@param err codeview.Error?
+      local function land(opened, err)
+        if not opened then
+          answer(nil, err)
+          return
+        end
+        if opened.diff.limited then
+          M.open(session, index, { force = true }, land)
+          return
+        end
+        -- The render looks for the lines of an outdated thread, so the stops
+        -- come from the store again.
+        local comment = closest(opened, comment_stops(session)[opened.path] or {}, delta, nil)
+        if comment then
+          M.go_to_comment(session, comment, answer)
+        else
+          answer(opened, nil)
+        end
+      end
+      M.open(session, index, land)
+      return
+    end
+    at = at + delta
+  end
+  answer(
+    nil,
+    errors.new(errors.codes.NOT_FOUND, delta > 0 and "no comment after this one" or "no comment before this one")
+  )
+end
+
+---Move the cursor to the next comment of the review.
+---
+--- See |codeview-diff-comment-keys|. Without a callback, an error goes to the
+--- user as a message.
+---@param session codeview.Session
+---@param cb? fun(view: codeview.view.State?, err: codeview.Error?)
+function M.next_comment(session, cb)
+  comment_step(session, 1, cb)
+end
+
+---Move the cursor to the previous comment of the review.
+---
+--- See |codeview-diff-comment-keys|. Without a callback, an error goes to the
+--- user as a message.
+---@param session codeview.Session
+---@param cb? fun(view: codeview.view.State?, err: codeview.Error?)
+function M.prev_comment(session, cb)
+  comment_step(session, -1, cb)
 end
 
 ---Show the hidden lines of every collapsed section.

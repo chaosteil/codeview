@@ -540,6 +540,42 @@ describe("codeview.sidebar", function()
       assert.are.equal(review:index_of(message.pr_path(5)), view.step(review, -1))
     end)
 
+    it("marks the collapsed group, and the comment keys go over it", function()
+      config.setup({ quit = "never", comments = { dir = fixtures.tempdir("codeview-mark") } })
+      local review = open_review(true)
+      local bar = assert(sidebar.open())
+      local comments = require("codeview.comments")
+      for _, path in ipairs({ message.path_of(review.commits[1].id), "dir/renamed.txt" }) do
+        assert(comments.create(review, {
+          file = path,
+          start_line = 1,
+          end_line = 1,
+          side = "new",
+          commit = fixture.ids.shuffle,
+          body = "a note",
+        }))
+      end
+      assert.are.equal("  ▸ Commits C", text_of(bar, line_of(bar, message.group_path)))
+
+      local _, err = await(function(cb)
+        view.next_comment(review, cb)
+      end)
+      assert.is_nil(err)
+      assert.are.equal("dir/renamed.txt", assert(view.current()).path)
+      _, err = await(function(cb)
+        view.prev_comment(review, cb)
+      end)
+      assert.are.equal("no comment before this one", err and err.message)
+
+      -- Expand the group, and the comment of the commit is a stop again.
+      bar:toggle_node(bar.panel:data(line_of(bar, message.group_path)))
+      _, err = await(function(cb)
+        view.prev_comment(review, cb)
+      end)
+      assert.is_nil(err)
+      assert.are.equal(message.path_of(review.commits[1].id), assert(view.current()).path)
+    end)
+
     it("opens the group of a commit that the view shows", function()
       local review = open_review(true)
       local bar = assert(sidebar.open())

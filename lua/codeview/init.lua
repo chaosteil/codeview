@@ -267,6 +267,57 @@ function M.prev_hunk(opts)
   return require("codeview.view").prev_hunk(opts)
 end
 
+---Session of a comment jump.
+---@param opts? { session?: codeview.Session }
+---@param cb? fun(view: codeview.view.State?, err: codeview.Error?)
+---@return codeview.Session? session Nil after the report of the error.
+local function jump_session(opts, cb)
+  local session = (opts or {}).session or require("codeview.session").current()
+  if session then
+    return session
+  end
+  local errors = require("codeview.error")
+  local err = errors.new(errors.codes.INVALID_ARG, "no review session")
+  if cb then
+    cb(nil, err)
+  else
+    notify.error(tostring(err))
+  end
+  return nil
+end
+
+---Move the cursor to the next comment of the review.
+---
+--- The step goes through the comments of the file in the view, then to the
+--- first comment of the next file with comments. See
+--- |codeview-diff-comment-keys|.
+---
+--- Unstable: the call can change before version 1.0.
+---@param opts? { session?: codeview.Session }
+---@param cb? fun(view: codeview.view.State?, err: codeview.Error?) Callback. Without one, an error goes to the user as a message.
+function M.next_comment(opts, cb)
+  local session = jump_session(opts, cb)
+  if session then
+    require("codeview.view").next_comment(session, cb)
+  end
+end
+
+---Move the cursor to the previous comment of the review.
+---
+--- The step goes back through the comments of the file in the view, then to
+--- the last comment of the previous file with comments. See
+--- |codeview-diff-comment-keys|.
+---
+--- Unstable: the call can change before version 1.0.
+---@param opts? { session?: codeview.Session }
+---@param cb? fun(view: codeview.view.State?, err: codeview.Error?) Callback. Without one, an error goes to the user as a message.
+function M.prev_comment(opts, cb)
+  local session = jump_session(opts, cb)
+  if session then
+    require("codeview.view").prev_comment(session, cb)
+  end
+end
+
 ---Open the file of the review in the working copy.
 ---
 --- The call leaves the review: the window of the diff takes the real file,

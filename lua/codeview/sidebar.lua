@@ -466,6 +466,12 @@ local function keymaps(sidebar)
   add(keys.prev_file, function()
     sidebar:prev_file()
   end, "open the previous file")
+  add(keys.next_comment, function()
+    view.next_comment(sidebar.session)
+  end, "jump to the next comment")
+  add(keys.prev_comment, function()
+    view.prev_comment(sidebar.session)
+  end, "jump to the previous comment")
   add(keys.edit_file, function()
     -- The key acts on the file under the cursor of the sidebar, and not on
     -- the file that the diff shows.

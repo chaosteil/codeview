@@ -189,6 +189,10 @@ M.defaults = {
     prev_file = "[f",
     next_hunk = "]h",
     prev_hunk = "[h",
+    -- The side-by-side view sets no 'diff' option, so the `]c` and `[c` of
+    -- Neovim find no change there. The keys go to the comments instead.
+    next_comment = "]c",
+    prev_comment = "[c",
     expand_context = "za",
     load_diff = "<CR>",
     toggle_style = "<leader>ct",

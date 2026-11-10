@@ -36,7 +36,6 @@
 
 local comments_mod = require("codeview.comments")
 local config = require("codeview.config")
-local errors = require("codeview.error")
 local export = require("codeview.export")
 local message = require("codeview.message")
 local events = require("codeview.events")
@@ -690,68 +689,16 @@ end
 ---
 --- A diff that the `diff.max_lines` limit stopped reads again, without the
 --- limit. A cursor that cannot reach the anchor gives an error to the callback,
---- or a message without one.
+--- or a message without one. See |codeview.view.go_to_comment()|.
 ---@param comment codeview.store.Comment|codeview.remote.Comment Comment to show.
 ---@param cb? fun(view: codeview.view.State?, err: codeview.Error?)
 ---@return boolean started False when the range does not change the file.
 function Overview:jump(comment, cb)
-  local index = self.session:index_of(comment.file)
-  if not index then
-    local err = errors.new(errors.codes.NOT_FOUND, "the range does not change " .. comment.file)
-    if cb then
-      cb(nil, err)
-    else
+  return view.go_to_comment(self.session, comment, cb or function(_, err)
+    if err then
       report(err)
     end
-    return false
-  end
-
-  ---@param state codeview.view.State?
-  ---@param err codeview.Error?
-  local function place(state, err)
-    -- The render of the file looks for the lines of an outdated remote
-    -- comment. A comment that it did not find has no line to go to.
-    if state and comment.anchored == false then
-      err = errors.new(
-        errors.codes.NOT_FOUND,
-        string.format("the comment is outdated. The diff of %s holds none of its lines", comment.file)
-      )
-    elseif state and not view.go_to_line(comment.start_line, comment.side, { focus = true }) then
-      err = errors.new(
-        errors.codes.NOT_FOUND,
-        string.format("the diff of %s holds no line %d", comment.file, comment.start_line)
-      )
-    end
-    if err and not cb then
-      report(err)
-    end
-    if cb then
-      cb(state, err)
-    end
-  end
-
-  -- A diff that the `diff.max_lines` limit stopped holds the note rows only,
-  -- and no row of the comment. The forced read renders the file, so the cursor
-  -- reaches the anchor.
-  ---@param state codeview.view.State?
-  ---@param err codeview.Error?
-  local function arrive(state, err)
-    if state and state.diff.limited then
-      view.open(self.session, index, { force = true }, place)
-      return
-    end
-    place(state, err)
-  end
-
-  -- The path, and not the index, tells whether the diff shows the file. A
-  -- refresh of the session can move a file to another position in the list.
-  local state = view.current()
-  if state and state.session == self.session and state.path == comment.file then
-    arrive(state, nil)
-    return true
-  end
-  view.open(self.session, index, arrive)
-  return true
+  end)
 end
 
 ---Act on the line under the cursor.

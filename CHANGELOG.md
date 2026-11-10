@@ -28,6 +28,14 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   change of a comment at once. The `sidebar.icons.comment` option sets the
   text, and the highlight group `CodeViewCommentMark` sets the color. See
   `:help codeview-sidebar-comment-mark`.
+- `]c` and `[c` jump to the next and the previous comment, in the diff view
+  and in the sidebar. The local comments and the threads of GitHub are
+  stops. After the last comment of a file, `]c` opens the next file with
+  comments, in the order of `]f`. At the last comment of the review, the key
+  stays and shows a message. The diff view sets no `'diff'` option, so the
+  `]c` of Neovim does nothing there. `codeview.next_comment()` and
+  `codeview.prev_comment()` do the same from Lua. See
+  `:help codeview-diff-comment-keys`.
 
 ### Changed
 
