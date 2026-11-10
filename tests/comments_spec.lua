@@ -1077,6 +1077,74 @@ describe("codeview.comments", function()
       assert.are.equal("a changed tail note", assert(comments.store()).comments[1].body)
     end)
 
+    it("asks which comment to edit when the line holds more than one", function()
+      local state = open_diff()
+      comment_on(4, "the first note")
+      api.nvim_set_current_win(state.win)
+      api.nvim_win_set_cursor(state.win, { 4, 0 })
+      comments.add()
+      write_comment("the second note")
+      api.nvim_set_current_win(state.win)
+      api.nvim_win_set_cursor(state.win, { 4, 0 })
+
+      local select = vim.ui.select
+      local offered, prompt
+      vim.ui.select = function(items, opts, cb) ---@diagnostic disable-line: duplicate-set-field
+        prompt = opts.prompt
+        offered = vim.tbl_map(opts.format_item, items)
+        cb(items[2])
+      end
+      local started = comments.edit_or_add({ view = state })
+      vim.ui.select = select
+
+      assert.is_true(started)
+      assert.are.equal("codeview: edit which comment?", prompt)
+      assert.are.same({ "L2 (new): the first note", "L2 (new): the second note" }, offered)
+      local ed = assert(editor.current())
+      assert.are.same({ "the second note" }, api.nvim_buf_get_lines(ed.buf, 0, -1, false))
+      write_comment("the second note, changed")
+      local bodies = vim.tbl_map(function(comment)
+        return comment.body
+      end, assert(comments.store()).comments)
+      assert.are.same({ "the first note", "the second note, changed" }, bodies)
+    end)
+
+    it("opens no editor when the question gets no answer", function()
+      local state = open_diff()
+      comment_on(4, "the first note")
+      api.nvim_set_current_win(state.win)
+      api.nvim_win_set_cursor(state.win, { 4, 0 })
+      comments.add()
+      write_comment("the second note")
+      api.nvim_set_current_win(state.win)
+      api.nvim_win_set_cursor(state.win, { 4, 0 })
+
+      local select = vim.ui.select
+      vim.ui.select = function(_, _, cb) ---@diagnostic disable-line: duplicate-set-field
+        cb(nil)
+      end
+      comments.edit()
+      vim.ui.select = select
+      assert.is_false(editor.is_open())
+    end)
+
+    it("edits the one comment of a line without a question", function()
+      local state = open_diff()
+      comment_on(4, "the only note")
+      api.nvim_set_current_win(state.win)
+      api.nvim_win_set_cursor(state.win, { 4, 0 })
+
+      local select = vim.ui.select
+      local asked = false
+      vim.ui.select = function() ---@diagnostic disable-line: duplicate-set-field
+        asked = true
+      end
+      assert.is_true(comments.edit())
+      vim.ui.select = select
+      assert.is_false(asked)
+      assert.is_true(editor.is_open())
+    end)
+
     it("reports no comment under the cursor", function()
       local state = open_diff()
       api.nvim_win_set_cursor(state.win, { 5, 0 })

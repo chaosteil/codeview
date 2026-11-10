@@ -643,29 +643,20 @@ local function on_thread(ctx, opts)
   return opts.id == nil and ctx.view ~= nil and #M.threads_at_cursor(ctx.view) > 0
 end
 
----Open the editor for the comment under the cursor.
----
---- On a line without a local comment and with a GitHub thread, the call edits
---- a comment of your own in that thread, see |codeview.thread.edit()|.
----@param opts? { id?: string, view?: codeview.view.State, session?: codeview.Session }
----@return boolean opened False when no comment covers the cursor, or when the reviewer keeps the open editor.
-function M.edit(opts)
-  opts = opts or {}
-  local ctx, ctx_err = context(opts)
-  if not ctx then
-    notify.warn(tostring(ctx_err))
-    return false
-  end
-  local session = ctx.session
+---Short text of one local comment, for a picker.
+---@param comment codeview.store.Comment
+---@return string
+local function label(comment)
+  local first = vim.split(vim.trim(comment.body or ""), "\n", { plain = true })[1] or ""
+  return string.format("L%s (%s): %s", marks.lines_text(comment.start_line, comment.end_line), comment.side, first)
+end
 
-  local comment = pick(ctx, opts)
-  if not comment and on_thread(ctx, opts) then
-    return require("codeview.thread").edit({ view = ctx.view, session = session })
-  end
-  if not comment then
-    notify.warn(nothing_here(ctx))
-    return false
-  end
+---Open the editor for one comment of the store.
+---@param ctx codeview.comments.Context
+---@param comment codeview.store.Comment
+---@return boolean opened False when the reviewer keeps the open editor.
+local function edit_comment(ctx, comment)
+  local session = ctx.session
 
   ---Write the new body of the comment into the store.
   ---@param body string
@@ -710,6 +701,46 @@ function M.edit(opts)
       end
     end,
   })
+end
+
+---Open the editor for the comment under the cursor.
+---
+--- When more than one comment covers the cursor line, |vim.ui.select()| asks
+--- which one to edit. One comment opens at once, without a question.
+---
+--- On a line without a local comment and with a GitHub thread, the call edits
+--- a comment of your own in that thread, see |codeview.thread.edit()|.
+---@param opts? { id?: string, view?: codeview.view.State, session?: codeview.Session }
+---@return boolean opened False when no comment covers the cursor, or when the reviewer keeps the open editor. True while the question is open.
+function M.edit(opts)
+  opts = opts or {}
+  local ctx, ctx_err = context(opts)
+  if not ctx then
+    notify.warn(tostring(ctx_err))
+    return false
+  end
+
+  if not opts.id and ctx.view then
+    local found = M.at_cursor(ctx.view)
+    if #found > 1 then
+      vim.ui.select(found, { prompt = "codeview: edit which comment?", format_item = label }, function(choice)
+        if choice then
+          edit_comment(ctx, choice)
+        end
+      end)
+      return true
+    end
+  end
+
+  local comment = pick(ctx, opts)
+  if not comment and on_thread(ctx, opts) then
+    return require("codeview.thread").edit({ view = ctx.view, session = ctx.session })
+  end
+  if not comment then
+    notify.warn(nothing_here(ctx))
+    return false
+  end
+  return edit_comment(ctx, comment)
 end
 
 ---Threads of GitHub under the cursor.

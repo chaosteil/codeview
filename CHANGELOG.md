@@ -24,6 +24,9 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `i` on a line with more than one comment asks which comment to edit, as the
+  help says. Before, it took the first comment. A line with one comment
+  still opens it at once.
 - A comment box keeps the same colors after each save. Before, a save from
   the inline editor read the colors of the editor window, so each save put a
   new tint on top of the last one. A new comment and an edit then had boxes
