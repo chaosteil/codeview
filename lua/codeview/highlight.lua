@@ -36,6 +36,7 @@ M.links = {
   CodeViewCommentHeader = "Title",
   CodeViewCommentSign = "Special",
   CodeViewCommentResolved = "DiagnosticOk",
+  CodeViewCommentMark = "DiagnosticInfo",
   CodeViewRemote = "Comment",
   CodeViewRemoteHeader = "DiagnosticInfo",
   CodeViewRemoteSign = "DiagnosticInfo",

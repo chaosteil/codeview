@@ -353,6 +353,32 @@ Each file line ends with a status mark: >
 A rename line and a copy line also show the old path, after an arrow. A
 directory that hides its children shows the marks of the files below it.
 
+                                               *codeview-sidebar-comment-mark*
+A file with comments shows the comment mark `C` after its status mark: >
+
+      ▾ dir
+      │   renamed.txt ← nested.txt R
+    ▸   a.txt M C
+        added.txt A
+        keep.txt D
+<
+These comments count:
+
+- The local comments of the review, also the resolved comments and the
+  comments that a submit sent. See |codeview-comments|.
+- The comments of GitHub in a pull request review. See |codeview-github|.
+
+The suggestions of pr-agent do not count. Adopt a suggestion, and it becomes
+a local comment. A directory that hides its children shows the mark when a
+file below it has comments. The group node of the commits does the same, and
+so does a commit document or the pull request document with comments.
+
+The sidebar draws the marks again when you add, edit, delete, resolve, or
+send a comment, and when the comments of GitHub arrive. The highlight group
+of the mark is |hl-CodeViewCommentMark|. The status mark of a copied file is `C`
+too, but it has the color of its status. Set `sidebar.icons.comment` to
+another text to change the mark, or to "" to show no mark.
+
 The marker "▸" and the highlight group |hl-CodeViewCurrent| mark the file that
 the diff view shows. The marker moves with every file that you open. A
 directory that hides the marked file opens again.
@@ -405,6 +431,7 @@ icons, set plain characters: >lua
           file = " ",
           guide = "|",
           current = ">",
+          comment = "C",
         },
       },
     })
@@ -2364,6 +2391,7 @@ Defaults: >lua
           file = " ",                -- file, to keep the names in one column
           guide = "│",               -- indent guide of one tree level
           current = "▸",             -- file that the diff view shows
+          comment = "C",             -- file with comments, "" for no mark
         },
       },
       overview = {
@@ -2637,6 +2665,7 @@ again after a colorscheme change.
                                                         *hl-CodeViewDiffTextDelete*
                                                         *hl-CodeViewDiffFiller*
                                                         *hl-CodeViewComment*
+                                                    *hl-CodeViewCommentMark*
                                                         *hl-CodeViewCommentBox*
                                                         *hl-CodeViewCommentBorder*
                                                         *hl-CodeViewRemote*
@@ -2677,6 +2706,7 @@ again after a colorscheme change.
     CodeViewCommentHeader  Title        header line of a comment
     CodeViewCommentSign    Special      sign of a commented line
     CodeViewCommentResolved DiagnosticOk sign of a resolved comment
+    CodeViewCommentMark    DiagnosticInfo comment mark of a file in the sidebar
     CodeViewCommentBox     computed     background of a comment box
     CodeViewCommentBorder  computed     frame of a comment box
     CodeViewRemote         Comment      body of a comment from GitHub

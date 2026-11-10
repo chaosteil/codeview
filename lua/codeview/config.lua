@@ -54,6 +54,7 @@ local M = {}
 ---@field file string Icon of a file. It keeps the names in one column.
 ---@field guide string Indent guide of one tree level.
 ---@field current string Marker of the file that the diff view shows.
+---@field comment string Mark of a file with comments. An empty text shows no mark.
 
 ---@class codeview.Config.Overview
 ---@field position "left"|"right" Side of the tab page for the comment overview.
@@ -125,6 +126,9 @@ M.defaults = {
       file = " ",
       guide = "│",
       current = "▸",
+      -- The status mark of a copied file is `C` too. The comment mark comes
+      -- after the status mark, and it has a color of its own.
+      comment = "C",
     },
   },
   overview = {

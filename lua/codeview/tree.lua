@@ -14,6 +14,10 @@
 ---
 --- The module also holds the status mark of each file status. The sidebar and
 --- the commit documents of |codeview.message| show the same marks.
+---
+--- A caller can give the number of comments of each path. Every node then
+--- holds the number of comments of the files below it. The sidebar shows a
+--- comment mark from it.
 
 local M = {}
 
@@ -60,6 +64,7 @@ local STATUS_ORDER = {
 ---@field parent codeview.tree.Node? Parent node. Nil for the root.
 ---@field expanded boolean True while a directory node shows its children.
 ---@field statuses codeview.vcs.Status[] Statuses of the files of the node.
+---@field comments integer Number of comments of the files of the node. See |codeview.tree.Opts|.
 ---@field file codeview.vcs.FileChange? Changed file of a file node.
 ---@field index integer? Position of the file in the file list of the session.
 ---@field virtual boolean? True for a file that the repository does not hold, like the commit message.
@@ -115,6 +120,7 @@ local function dir_node(name, path)
     children = {},
     expanded = true,
     statuses = {},
+    comments = 0,
   }
 end
 
@@ -171,7 +177,7 @@ local function collapse(node, is_root)
   end
 end
 
----Set the depth, the parent, and the statuses of every node.
+---Set the depth, the parent, the statuses, and the comment count of every node.
 ---@param node codeview.tree.Node
 ---@param depth integer
 ---@param expanded table<string, boolean> Expanded state per directory path.
@@ -179,15 +185,18 @@ local function finish(node, depth, expanded)
   node.depth = depth
   ---@type table<string, boolean>
   local seen = {}
+  local comments = 0
   for _, child in ipairs(node.children) do
     child.parent = node
     finish(child, depth + 1, expanded)
     for _, status in ipairs(child.statuses) do
       seen[status] = true
     end
+    comments = comments + child.comments
   end
   if node.kind == "dir" then
     node.expanded = expanded[node.path] ~= false
+    node.comments = comments
     node.statuses = {}
     for _, status in ipairs(STATUS_ORDER) do
       if seen[status] then
@@ -199,6 +208,7 @@ end
 
 ---@class codeview.tree.Opts
 ---@field expanded table<string, boolean>? Expanded state per directory path. Every directory is expanded by default.
+---@field comments table<string, integer>? Number of comments per file path. A path without an entry has no comments.
 
 ---Build the tree of a file list.
 ---
@@ -210,6 +220,7 @@ end
 function M.build(files, opts)
   opts = opts or {}
   local expanded = opts.expanded or {}
+  local comments = opts.comments or {}
 
   local root = dir_node("", "")
   root.depth = -1
@@ -254,6 +265,7 @@ function M.build(files, opts)
       children = {},
       expanded = false,
       statuses = { file.status or "unknown" },
+      comments = comments[file.path] or 0,
       file = file,
       index = index,
       virtual = file.virtual or false,

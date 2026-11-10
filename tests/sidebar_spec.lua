@@ -788,6 +788,115 @@ describe("codeview.sidebar", function()
     assert.are.equal(1, #api.nvim_tabpage_list_wins(0))
   end)
 
+  describe("the comment mark", function()
+    local comments, events, remote
+
+    ---Add one local comment to the store of the session.
+    ---@param review codeview.Session
+    ---@param path string Path of the file of the comment.
+    ---@return codeview.store.Comment
+    local function add_comment(review, path)
+      return assert(comments.create(review, {
+        file = path,
+        start_line = 1,
+        end_line = 1,
+        side = "new",
+        commit = fixture.ids.shuffle,
+        body = "a note",
+      }))
+    end
+
+    before_each(function()
+      -- The comments of one range share a file, so every test takes its own
+      -- directory.
+      config.setup({ commit_message = false, quit = "never", comments = { dir = fixtures.tempdir("codeview-mark") } })
+      comments = require("codeview.comments")
+      events = require("codeview.events")
+      remote = require("codeview.remote")
+    end)
+
+    it("shows no mark without comments", function()
+      local bar = open_sidebar()
+      assert.are.equal("    a.txt M", text_of(bar, line_of(bar, "a.txt")))
+    end)
+
+    it("marks a file with a local comment", function()
+      local bar, review = open_sidebar()
+      add_comment(review, "a.txt")
+      local lnum = line_of(bar, "a.txt")
+      assert.are.equal("    a.txt M C", text_of(bar, lnum))
+      assert.are.equal("CodeViewCommentMark", hl_at(bar, lnum, #text_of(bar, lnum) - 1))
+      assert.are.equal("CodeViewModified", hl_of(bar, lnum, "M"))
+      assert.are.equal("    added.txt A", text_of(bar, line_of(bar, "added.txt")))
+    end)
+
+    it("removes the mark with the last comment of the file", function()
+      local bar, review = open_sidebar()
+      local first = add_comment(review, "a.txt")
+      local second = add_comment(review, "a.txt")
+      local store = assert(comments.store(review))
+      for _, comment in ipairs({ first, second }) do
+        assert.is_truthy(store:remove(comment.id))
+        events.emit("comment_deleted", { id = comment.id, file = comment.file, session = review.id })
+        local expected = comment == first and "    a.txt M C" or "    a.txt M"
+        assert.are.equal(expected, text_of(bar, line_of(bar, "a.txt")))
+      end
+    end)
+
+    it("marks a directory that hides a file with comments", function()
+      local bar, review = open_sidebar()
+      add_comment(review, "dir/renamed.txt")
+      assert.are.equal("  ▾ dir", text_of(bar, line_of(bar, "dir")))
+      assert.are.equal("  │   renamed.txt ← nested.txt R C", text_of(bar, line_of(bar, "dir/renamed.txt")))
+      bar:toggle_node(bar.panel:data(line_of(bar, "dir")))
+      local lnum = line_of(bar, "dir")
+      assert.are.equal("  ▸ dir R C", text_of(bar, lnum))
+      assert.are.equal("CodeViewCommentMark", hl_at(bar, lnum, #text_of(bar, lnum) - 1))
+    end)
+
+    it("marks a file with a comment of GitHub", function()
+      local bar, review = open_sidebar()
+      remote.attach(review, {
+        {
+          id = 501,
+          file = "added.txt",
+          start_line = 1,
+          end_line = 1,
+          side = "new",
+          commit = fixture.ids.shuffle,
+          author = "grace",
+          body = "this line needs a test",
+          url = "https://github.com/ada/demo/pull/12#discussion_r501",
+          created_at = 0,
+          outdated = false,
+        },
+      })
+      assert.are.equal("    added.txt A C", text_of(bar, line_of(bar, "added.txt")))
+      remote.clear(review)
+      assert.are.equal("    added.txt A", text_of(bar, line_of(bar, "added.txt")))
+    end)
+
+    it("takes the mark from the configuration", function()
+      config.setup({
+        commit_message = false,
+        quit = "never",
+        comments = { dir = fixtures.tempdir("codeview-mark") },
+        sidebar = { icons = { comment = "*" } },
+      })
+      local bar, review = open_sidebar()
+      add_comment(review, "a.txt")
+      assert.are.equal("    a.txt M *", text_of(bar, line_of(bar, "a.txt")))
+      config.options.sidebar.icons.comment = ""
+      bar:render()
+      assert.are.equal("    a.txt M", text_of(bar, line_of(bar, "a.txt")))
+    end)
+
+    it("links the highlight group to the color of the comments", function()
+      open_sidebar()
+      assert.are.equal("DiagnosticInfo", api.nvim_get_hl(0, { name = "CodeViewCommentMark" }).link)
+    end)
+  end)
+
   describe("the comments line", function()
     it("opens the comment overview", function()
       local bar = open_sidebar()

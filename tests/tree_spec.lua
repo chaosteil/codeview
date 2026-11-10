@@ -110,6 +110,25 @@ describe("codeview.tree", function()
       assert.are.same({ "deleted" }, root.children[2].statuses)
     end)
 
+    it("counts the comments of every node", function()
+      local root = tree.build(files, {
+        comments = { ["lua/codeview/vcs/git.lua"] = 2, ["lua/codeview/init.lua"] = 1, ["README.md"] = 3 },
+      })
+      local lua = root.children[1]
+      assert.are.equal(3, lua.comments)
+      assert.are.equal(2, lua.children[1].comments)
+      assert.are.equal(0, root.children[2].comments)
+      assert.are.equal(0, root.children[2].children[1].comments)
+      assert.are.equal(3, root.children[4].comments)
+      assert.are.equal(6, root.comments)
+    end)
+
+    it("counts no comments without the option", function()
+      tree.each(tree.build(files), function(node)
+        assert.are.equal(0, node.comments)
+      end)
+    end)
+
     it("expands every directory by default", function()
       local root = tree.build(files)
       for _, node in ipairs(tree.dirs(root)) do

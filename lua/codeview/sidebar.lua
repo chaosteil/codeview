@@ -5,6 +5,12 @@
 --- for added, `M` for modified, `D` for deleted, and `R` for renamed. A
 --- directory that hides its children shows the marks of the files below it.
 ---
+--- A file with comments also shows the comment mark of the
+--- `sidebar.icons.comment` option, `C` by default. The local comments and the
+--- comments of GitHub count. The suggestions of pr-agent do not count. A
+--- directory that hides its children shows the mark when a file below it has
+--- comments.
+---
 --- The header holds the range, the number of files, and the number of
 --- commits.
 ---
@@ -55,6 +61,35 @@ local function old_name(file)
   return old
 end
 
+---Number of comments of each file of a session.
+---
+--- The local comments and the comments of GitHub count. The suggestions of
+--- pr-agent are not comments, so they do not count.
+---@param session codeview.Session
+---@return table<string, integer> counts Number of comments per file path.
+local function comment_counts(session)
+  ---@type table<string, integer>
+  local counts = {}
+  local lists = { require("codeview.comments").list(session), require("codeview.remote").list(session) }
+  for _, list in ipairs(lists) do
+    for _, comment in ipairs(list) do
+      counts[comment.file] = (counts[comment.file] or 0) + 1
+    end
+  end
+  return counts
+end
+
+---Add the comment mark of a node to its line.
+---@param line codeview.panel.Builder
+---@param node codeview.tree.Node
+local function add_comment_mark(line, node)
+  local mark = config.get().sidebar.icons.comment
+  if node.comments > 0 and mark ~= "" then
+    line.add(" ")
+    line.add(mark, "CodeViewCommentMark")
+  end
+end
+
 ---Build the line of one tree node.
 ---@param node codeview.tree.Node
 ---@param is_current boolean True for the file that the diff view shows.
@@ -71,10 +106,14 @@ local function node_line(node, is_current)
     line.add(" ")
     line.add(node.name, "CodeViewDir")
     if not node.expanded then
-      line.add(" ")
+      -- The group node of the commits holds no status, so it gets no space.
+      if #node.statuses > 0 then
+        line.add(" ")
+      end
       for _, status in ipairs(node.statuses) do
         line.add(tree.mark(status), highlight.for_status(status))
       end
+      add_comment_mark(line, node)
     end
     return line.build({ data = node })
   end
@@ -92,6 +131,7 @@ local function node_line(node, is_current)
     line.add(" ")
     line.add(mark, group)
   end
+  add_comment_mark(line, node)
 
   return line.build({ hl = is_current and "CodeViewCurrent" or nil, data = node })
 end
@@ -135,7 +175,7 @@ local function render_lines(self)
   lines[#lines + 1] = comments_line(session)
   lines[#lines + 1] = { text = "" }
 
-  self.tree = tree.build(session:changed_files(), { expanded = self.expanded })
+  self.tree = tree.build(session:changed_files(), { expanded = self.expanded, comments = comment_counts(session) })
   local nodes = tree.visible(self.tree)
   if #nodes == 0 then
     lines[#lines + 1] = { text = "  no changed files", hl = "CodeViewHint" }
@@ -471,15 +511,17 @@ local function watch(sidebar)
       end
     end,
   })
-  -- The Comments line holds the number of comments, so it follows the store.
-  sidebar.subscriptions[#sidebar.subscriptions + 1] = require("codeview.events").on(
-    require("codeview.events").comment,
-    function(data)
+  -- The Comments line holds the number of comments, and the comment marks
+  -- follow the comments of each file. Both follow the store. The comments of
+  -- GitHub arrive after the session opens, and the marks show them too.
+  local events = require("codeview.events")
+  for _, names in ipairs({ events.comment, events.remote }) do
+    sidebar.subscriptions[#sidebar.subscriptions + 1] = events.on(names, function(data)
       if data.session == nil or data.session == sidebar.session.id then
         sidebar:render()
       end
-    end
-  )
+    end)
+  end
 end
 
 ---Build a new sidebar for a session.

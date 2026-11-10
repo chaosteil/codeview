@@ -22,6 +22,12 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   of a diff. See `:help codeview-commit-message`.
 - The pr-agent documents load as markdown too. The key issues of a review,
   the new body of a describe result, and the answers of ask have no indent.
+- The sidebar marks a file with comments with a `C` after its status mark.
+  The local comments and the comments of GitHub count. A collapsed directory
+  shows the mark when a file below it has comments. The mark follows each
+  change of a comment at once. The `sidebar.icons.comment` option sets the
+  text, and the highlight group `CodeViewCommentMark` sets the color. See
+  `:help codeview-sidebar-comment-mark`.
 
 ### Changed
 

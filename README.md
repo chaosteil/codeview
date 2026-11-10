@@ -77,7 +77,8 @@ submit or an export.
    to edit it.
 4. Press `gf` to edit the real file. Press `<leader>cb` to come back.
 5. Press `<leader>cR` to read the review again after a new commit or an amend.
-6. Go to the sidebar. Press `<leader>co` to see all comments of the review.
+6. Go to the sidebar. A `C` after the status mark shows a file with comments.
+   Press `<leader>co` to see all comments of the review.
 7. Press `<leader>cx` there to read the review as markdown.
 8. Press `<leader>cy` to put the review into the `+` register.
 9. In a pull request review, press `<leader>cs` in the comment editor to send
