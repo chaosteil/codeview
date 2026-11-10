@@ -182,7 +182,9 @@ describe("codeview.editor", function()
   end)
 
   describe("the spacer", function()
-    local ns = api.nvim_create_namespace("codeview.editor")
+    -- A buffer that no diff view shows takes the space in the namespace of
+    -- |codeview.stack|, in an extmark of its own.
+    local ns = api.nvim_create_namespace("codeview.boxes")
 
     ---Show a buffer of three lines in the current window, and open an inline
     ---editor under its second row.

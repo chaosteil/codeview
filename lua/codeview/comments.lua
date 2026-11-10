@@ -437,12 +437,12 @@ end
 ---
 --- While the inline editor is open on an existing comment, the diff shows
 --- no box for that comment, see |codeview.marks.editing()|. The editor
---- shows the same body under the same row.
+--- shows the same body under the same row. The editor draws the diff when
+--- it opens, see |codeview.stack.reserve()|.
 ---@param session codeview.Session Session that owns the comment.
----@param view codeview.view.State? Diff view to draw. The open file by default.
 ---@param spec codeview.comments.EditorSpec
 ---@return boolean opened False when the reviewer keeps the editor that is open.
-local function open_editor(session, view, spec)
+local function open_editor(session, spec)
   ---Write the comment. A failed write sends no event, so the call draws the
   ---diff itself, and the box of an edited comment comes back.
   ---@param body string
@@ -467,15 +467,7 @@ local function open_editor(session, view, spec)
     end,
     on_empty = spec.on_empty,
   })
-  if not buf then
-    return false
-  end
-  if spec.id then
-    -- The inline editor sits on the row of the box. Draw the diff without
-    -- the box.
-    M.decorate(view)
-  end
-  return true
+  return buf ~= nil
 end
 
 ---Add a comment to the store of a session, write the store, and send the
@@ -554,7 +546,7 @@ function M.add(opts)
     return comment
   end
 
-  return open_editor(view.session, view, {
+  return open_editor(view.session, {
     title = title_of(target, "Comment on"),
     anchor = anchor_of(target),
     save = save,
@@ -679,7 +671,7 @@ local function edit_comment(ctx, comment)
     return changed
   end
 
-  return open_editor(session, ctx.view, {
+  return open_editor(session, {
     title = string.format(
       "Edit %s:%s (%s)",
       comment.file,
@@ -852,7 +844,7 @@ function M.reply(opts)
     end
 
     local who = (root.author or "") ~= "" and ("@" .. root.author) or "the thread"
-    return open_editor(ctx.session, ctx.view, {
+    return open_editor(ctx.session, {
       title = "Reply to " .. who,
       anchor = comment_anchor(ctx.view, thread --[[@as codeview.store.Comment]]),
       save = save,

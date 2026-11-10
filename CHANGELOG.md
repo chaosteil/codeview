@@ -24,6 +24,9 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- In the side-by-side style, the two sides stay in line while the inline
+  comment editor is open. The other side takes blank lines of the same
+  height as the editor, the same as for a comment box.
 - `i` on a line with more than one comment asks which comment to edit, as the
   help says. Before, it took the first comment. A line with one comment
   still opens it at once.

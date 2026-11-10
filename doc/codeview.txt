@@ -879,7 +879,9 @@ inline editor shows them in its winbar instead.
 The inline editor opens the diff at the commented row. The space comes from
 virtual lines, so the diff keeps its rows, keeps its line map, and stays
 read-only. The lines under the comment move down while you type, and they move
-back when you save or discard. A window that shows no diff row opens the
+back when you save or discard. In the side-by-side style, the other side takes
+blank lines of the same height, so the two sides stay in line while the editor
+is open. A window that shows no diff row opens the
 float instead, for example an edit from the comment overview. An edit of a
 comment of another file than the open diff opens the float too.
 

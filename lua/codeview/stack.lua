@@ -12,6 +12,9 @@
 --- comment, oldest first, then the id. The signs stay in the namespace of
 --- each kind of comment.
 ---
+--- The space of the inline comment editor goes into the same extmark, see
+--- |codeview.stack.reserve()|. The editor window sits on that space.
+---
 --- In the side-by-side style, the other side takes one extmark per row with
 --- blank virtual lines of the same number. Both windows then grow by the
 --- same number of screen rows, and 'scrollbind' keeps the two sides on the
@@ -45,6 +48,35 @@ M.ns = api.nvim_create_namespace("codeview.boxes")
 ---@class codeview.stack.Result
 ---@field comments { count: integer, hidden: integer } Local comments that the view shows, and the ones it holds no row for.
 ---@field remote { count: integer, hidden: integer } Items of every source of |codeview.remote.sources|.
+
+---@class codeview.stack.Space
+---@field buf integer Buffer that holds the row.
+---@field row integer Row from 1. The space goes under it.
+---@field height integer Number of virtual lines.
+
+---Space that the inline comment editor holds under a row.
+---
+--- The editor window sits on these virtual lines, so it covers no row of
+--- the diff. The space goes into the extmark of the row, the same as a box.
+--- The order of the boxes and the space then stays fixed, and the other
+--- side of the split takes blank lines for the space too.
+---@type codeview.stack.Space?
+local space = nil
+
+---Extmark of the space in a buffer that no view shows.
+---@type { buf: integer, id: integer }?
+local loose = nil
+
+---Virtual lines of a space, in the color of a comment box.
+---@param height integer
+---@return string[][][] lines
+local function space_lines(height)
+  local out = {}
+  for index = 1, height do
+    out[index] = { { "", "CodeViewCommentBox" } }
+  end
+  return out
+end
 
 ---Virtual lines that hold no text.
 ---@param count integer
@@ -140,17 +172,40 @@ function M.decorate(view)
   local rows = {}
   ---@type string[]
   local keys = {}
+  ---@param entry codeview.stack.Entry
+  local function add_box(entry)
+    local key = entry.buf .. ":" .. entry.rows[#entry.rows]
+    if not rows[key] then
+      rows[key] = {}
+      keys[#keys + 1] = key
+    end
+    local list = rows[key]
+    list[#list + 1] = entry
+  end
   for _, entry in ipairs(entries) do
     place_signs(entry)
     if entry.box then
-      local key = entry.buf .. ":" .. entry.rows[#entry.rows]
-      if not rows[key] then
-        rows[key] = {}
-        keys[#keys + 1] = key
-      end
-      local list = rows[key]
-      list[#list + 1] = entry
+      add_box(entry)
     end
+  end
+  if space and (space.buf == view.buf or space.buf == view.old_buf) then
+    -- The space comes first, right under the row, where the editor window
+    -- sits.
+    local height = space.height
+    add_box({
+      buf = space.buf,
+      rows = { space.row },
+      side = space.buf == view.old_buf and "old" or "new",
+      ns = M.ns,
+      priority = 200,
+      sign = "",
+      sign_hl = "",
+      box = function()
+        return space_lines(height)
+      end,
+      time = -math.huge,
+      id = "",
+    })
   end
 
   ---@type table<integer, integer>
@@ -186,6 +241,68 @@ function M.decorate(view)
     end)
   end
   return result
+end
+
+---View that shows a buffer.
+---@param buf integer
+---@return codeview.view.State? view Nil when the open view does not show the buffer.
+local function view_of(buf)
+  local view = require("codeview.view").current()
+  if view and (view.buf == buf or view.old_buf == buf) then
+    return view
+  end
+  return nil
+end
+
+---Draw the space again in one buffer.
+---
+--- A buffer of a view takes the space in the extmark of its row, so the
+--- call draws the whole view again. Another buffer, for example a test
+--- buffer, takes one extmark of its own.
+---@param buf integer
+local function draw_space(buf)
+  if loose then
+    if api.nvim_buf_is_valid(loose.buf) then
+      pcall(api.nvim_buf_del_extmark, loose.buf, M.ns, loose.id)
+    end
+    loose = nil
+  end
+  local view = view_of(buf)
+  if view then
+    M.decorate(view)
+    return
+  end
+  if space and space.buf == buf and api.nvim_buf_is_valid(buf) then
+    local ok, id = pcall(api.nvim_buf_set_extmark, buf, M.ns, space.row - 1, 0, {
+      virt_lines = space_lines(space.height),
+    })
+    if ok then
+      loose = { buf = buf, id = id }
+    end
+  end
+end
+
+---Hold space under a row for the inline comment editor.
+---
+--- The space replaces the space that an earlier call holds.
+---@param spec codeview.stack.Space
+function M.reserve(spec)
+  local old = space
+  space = spec
+  if old and old.buf ~= spec.buf then
+    draw_space(old.buf)
+  end
+  draw_space(spec.buf)
+end
+
+---Give the space of a call to |codeview.stack.reserve()| back.
+---@param spec codeview.stack.Space Value that the call took. Space of another call stays.
+function M.release(spec)
+  if space ~= spec then
+    return
+  end
+  space = nil
+  draw_space(spec.buf)
 end
 
 ---Extmarks of the boxes in one buffer.

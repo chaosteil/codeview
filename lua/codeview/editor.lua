@@ -54,15 +54,11 @@ M.filetype = "markdown"
 ---@field done boolean True after a save or a discard.
 ---@field style codeview.editor.Style Style that the editor opened with.
 ---@field anchor codeview.editor.Anchor? Anchor of the inline style.
----@field spacer integer? Extmark that holds the space of the inline editor.
+---@field spacer codeview.stack.Space? Space that the inline editor holds under its row, see |codeview.stack.reserve()|.
 ---@field insert boolean True when the editor asked for insert mode.
 ---@field id string? Id of the comment that the editor edits. Nil for a new comment.
 
 ---@alias codeview.editor.Style "inline"|"float"
-
----Namespace of the spacer of the inline editor.
----@type integer
-local ns = api.nvim_create_namespace("codeview.editor")
 
 ---Editor that is open.
 ---@type codeview.editor.State?
@@ -275,17 +271,17 @@ end
 
 ---Remove the space that the inline editor holds in the diff buffer.
 ---
---- The spacer is an extmark with virtual lines. It adds no line to the buffer,
---- so the line count and the line map of the diff stay as they were.
+--- The spacer is virtual lines that |codeview.stack| draws. It adds no line to
+--- the buffer, so the line count and the line map of the diff stay as they
+--- were.
 ---@param editor codeview.editor.State
 function M.clear_spacer(editor)
-  if not editor.spacer or not editor.anchor then
+  local spacer = editor.spacer
+  if not spacer then
     return
   end
-  if api.nvim_buf_is_valid(editor.anchor.buf) then
-    pcall(api.nvim_buf_del_extmark, editor.anchor.buf, ns, editor.spacer)
-  end
   editor.spacer = nil
+  require("codeview.stack").release(spacer)
 end
 
 ---Report whether an anchor still points at a live window and buffer.
@@ -304,25 +300,6 @@ end
 local function editor_height()
   local cfg = config.get().comments
   return math.max(math.min(cfg.height, vim.o.lines - 6), 3)
-end
-
----Open the space that the inline editor sits in.
----
---- Without the spacer the window covers the lines under the anchor. The
---- virtual lines push them down instead, so the reviewer keeps the whole diff
---- in sight while the editor is open.
----@param anchor codeview.editor.Anchor
----@param height integer
----@return integer? id Extmark of the spacer.
-local function open_spacer(anchor, height)
-  local lines = {}
-  for _ = 1, height do
-    lines[#lines + 1] = { { "", "CodeViewCommentBox" } }
-  end
-  local ok, id = pcall(api.nvim_buf_set_extmark, anchor.buf, ns, anchor.row - 1, 0, {
-    virt_lines = lines,
-  })
-  return ok and id or nil
 end
 
 ---Size and position of the editor window.
@@ -453,10 +430,6 @@ function M.open(opts)
   vim.bo[buf].modified = false
 
   local border_rows = box.border_size(cfg.border)
-  local spacer = nil
-  if style == "inline" then
-    spacer = open_spacer(anchor, editor_height() + border_rows)
-  end
 
   local win_config = window_config(style, anchor)
   local hints = require("codeview.hints")
@@ -513,11 +486,20 @@ function M.open(opts)
     done = false,
     style = style,
     anchor = anchor,
-    spacer = spacer,
     insert = cfg.start_insert,
     id = opts.id,
   }
   state = editor
+
+  if style == "inline" then
+    -- Without the spacer the window covers the lines under the anchor. The
+    -- virtual lines push them down instead, so the reviewer keeps the whole
+    -- diff in sight while the editor is open. The editor is open at this
+    -- point, so the draw of the diff also drops the box of the comment that
+    -- the editor edits.
+    editor.spacer = { buf = anchor.buf, row = anchor.row, height = editor_height() + border_rows }
+    require("codeview.stack").reserve(editor.spacer)
+  end
 
   set_keymaps(buf)
 

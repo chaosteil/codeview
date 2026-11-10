@@ -409,9 +409,10 @@ describe("codeview.comments", function()
       assert.are.same({ 1, 0 }, win_config.bufpos)
       assert.are.equal(1, win_config.row)
 
-      -- The space comes from an extmark, so the diff keeps its rows.
-      local ns = api.nvim_create_namespace("codeview.editor")
-      assert.are.equal(1, #api.nvim_buf_get_extmarks(state.buf, ns, 0, -1, {}))
+      -- The space comes from an extmark, so the diff keeps its rows. It holds
+      -- the rows of the frame too.
+      assert.are.equal(1, #box_marks_of(state.buf))
+      assert.are.equal(win_config.height + 2, virt_line_count(state.buf))
       assert.are.equal(rows, api.nvim_buf_line_count(state.buf))
       assert.is_false(vim.bo[state.buf].modifiable)
       editor.cancel()
@@ -419,25 +420,24 @@ describe("codeview.comments", function()
 
     it("takes the space back after a discard", function()
       local state = open_diff()
-      local ns = api.nvim_create_namespace("codeview.editor")
       api.nvim_win_set_cursor(state.win, { 2, 0 })
       comments.add()
-      assert.are.equal(1, #api.nvim_buf_get_extmarks(state.buf, ns, 0, -1, {}))
+      assert.is_true(virt_line_count(state.buf) > 0)
 
       editor.cancel()
-      assert.are.equal(0, #api.nvim_buf_get_extmarks(state.buf, ns, 0, -1, {}))
+      assert.are.equal(0, virt_line_count(state.buf))
     end)
 
     it("takes the space back after a save", function()
       local state = open_diff()
-      local ns = api.nvim_create_namespace("codeview.editor")
       local rows = api.nvim_buf_line_count(state.buf)
       api.nvim_win_set_cursor(state.win, { 2, 0 })
       comments.add()
       api.nvim_buf_set_lines(assert(editor.current()).buf, 0, -1, false, { "saved" })
       assert.is_true(editor.submit())
 
-      assert.are.equal(0, #api.nvim_buf_get_extmarks(state.buf, ns, 0, -1, {}))
+      -- The box of the comment is all that stays: the frame and one line.
+      assert.are.equal(3, virt_line_count(state.buf))
       assert.are.equal(rows, api.nvim_buf_line_count(state.buf))
     end)
 
@@ -832,8 +832,10 @@ describe("codeview.comments", function()
       api.nvim_win_set_cursor(state.win, { 2, 0 })
       comments.edit_or_add({ view = state })
       -- The editor sits under the row with the same text, so the diff drops
-      -- the virtual lines while the editor is open.
-      assert.are.equal(0, bodies())
+      -- the box while the editor is open. The row keeps only the blank space
+      -- of the editor.
+      assert.are.equal(1, bodies())
+      assert.are.same({}, virt_lines(state.buf))
       assert.are.equal(1, #api.nvim_buf_get_extmarks(state.buf, comments.ns, 0, -1, {}))
 
       editor.cancel()
@@ -1069,8 +1071,7 @@ describe("codeview.comments", function()
       assert.are.equal("float", ed.style)
       assert.are.equal("editor", api.nvim_win_get_config(ed.win).relative)
       assert.is_nil(require("codeview.marks").editing())
-      local ns = api.nvim_create_namespace("codeview.editor")
-      assert.are.equal(0, #api.nvim_buf_get_extmarks(state.buf, ns, 0, -1, {}))
+      assert.are.equal(0, virt_line_count(state.buf))
       assert.are.equal(rows, api.nvim_buf_line_count(state.buf))
 
       write_comment("a changed tail note")
@@ -1505,6 +1506,33 @@ describe("codeview.comments", function()
       assert.is_true(vim.wait(1000, function()
         return vim.fn.strdisplaywidth(box_lines(state.buf)[1]) == width
       end))
+    end)
+
+    it("gives the other side of the split as many blank lines as the open editor", function()
+      open_diff()
+      assert.are.equal("split", view.set_style("split"))
+      comment_on(3, "a note")
+      local state = assert(view.current())
+      local old_buf = assert(state.old_buf)
+
+      -- A new comment on a free row.
+      api.nvim_set_current_win(state.win)
+      api.nvim_win_set_cursor(state.win, { 4, 0 })
+      assert.is_true(comments.add())
+      local height = api.nvim_win_get_config(assert(editor.current()).win).height + 2
+      assert.are.equal(3 + height, virt_line_count(state.buf))
+      assert.are.equal(virt_line_count(state.buf), virt_line_count(old_buf))
+      editor.cancel()
+      assert.are.equal(3, virt_line_count(old_buf))
+
+      -- An edit of the comment: the editor takes the place of the box.
+      api.nvim_set_current_win(state.win)
+      api.nvim_win_set_cursor(state.win, { 3, 0 })
+      assert.is_true(comments.edit())
+      assert.are.equal(height, virt_line_count(state.buf))
+      assert.are.equal(height, virt_line_count(old_buf))
+      editor.cancel()
+      assert.are.equal(3, virt_line_count(old_buf))
     end)
 
     it("gives the other side of the split as many blank lines as the box", function()
