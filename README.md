@@ -71,7 +71,9 @@ submit or an export.
 
 1. Run `:Codeview HEAD~3..HEAD` in a repository.
 2. Walk the entries in the sidebar. The message of each commit reads first,
-   then the changed files. Press `<CR>` to open a diff.
+   then the changed files. Press `<CR>` to open a diff. Press `<leader>cn` or
+   `<leader>cp` to open the next or the previous file in the order of the
+   sidebar.
 3. Press `i` on a line to write a comment. Save it with `:w`. Press `i` again
    to edit it.
 4. Press `gf` to edit the real file. Press `<leader>cb` to come back.

@@ -181,8 +181,10 @@ M.defaults = {
     toggle_node = "<Tab>",
     expand_all = "zR",
     collapse_all = "zM",
-    next_file = "]f",
-    prev_file = "[f",
+    -- `]f` and `[f` follow the bracket keys of Neovim. The leader keys sit
+    -- next to the other keys of codeview, under `<leader>c`.
+    next_file = { "]f", "<leader>cn" },
+    prev_file = { "[f", "<leader>cp" },
     next_hunk = "]h",
     prev_hunk = "[h",
     expand_context = "za",

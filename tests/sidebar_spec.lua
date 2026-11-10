@@ -519,6 +519,28 @@ describe("codeview.sidebar", function()
       assert.are.equal(1, bar.current)
     end)
 
+    it("walks the file list with <leader>cn and <leader>cp", function()
+      local leader = vim.g.mapleader or "\\"
+      local bar = open_sidebar()
+      await(function(cb)
+        view.open(assert(opened), 3, cb)
+      end)
+      -- The keys work in the diff view and in the sidebar.
+      api.nvim_set_current_win(assert(view.current()).win)
+      press(leader .. "cn")
+      wait_for(function()
+        return assert(view.current()).index == 1
+      end, "the next file did not open")
+      assert.are.equal(1, bar.current)
+
+      bar:focus()
+      press(leader .. "cp")
+      wait_for(function()
+        return assert(view.current()).index == 3
+      end, "the previous file did not open")
+      assert.are.equal(3, bar.current)
+    end)
+
     it("closes the session with q", function()
       local bar = open_sidebar({ focus = true })
       local win = assert(bar.panel:window())
