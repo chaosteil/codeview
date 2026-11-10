@@ -213,6 +213,21 @@ describe("codeview.syntax", function()
   describe("the documents", function()
     local message
 
+    ---Markdown text of the documents.
+    ---@type string[]
+    local markdown = {
+      "## Why",
+      "",
+      "Some **bold** text and the `thing`.",
+      "",
+      "- one",
+      "- two",
+      "",
+      "```lua",
+      "local a = 1",
+      "```",
+    }
+
     ---Commit with a markdown body.
     ---@type codeview.vcs.Commit
     local commit = {
@@ -223,18 +238,7 @@ describe("codeview.syntax", function()
       author_email = "ada@example.com",
       date = "2026-11-10",
       subject = "feat(x): add the `thing`",
-      body = table.concat({
-        "## Why",
-        "",
-        "Some **bold** text.",
-        "",
-        "- one",
-        "- two",
-        "",
-        "```lua",
-        "local a = 1",
-        "```",
-      }, "\n"),
+      body = table.concat(markdown, "\n"),
     }
 
     ---Document of the commit, with one changed file.
@@ -274,6 +278,34 @@ describe("codeview.syntax", function()
       return assert(message.for_pr(session, { path = message.pr_path(7) }))
     end
 
+    ---Document like the one of a pr-agent result: a plain header, then the
+    ---markdown text with an indent of four spaces.
+    ---@return codeview.diff.File
+    local function agent_document()
+      local lines = { "pr-agent describe of #7", "Title: Add the thing", "" }
+      local first = #lines + 1
+      for _, line in ipairs(markdown) do
+        lines[#lines + 1] = line == "" and "" or ("    " .. line)
+      end
+      ---@type codeview.diff.File
+      return {
+        path = "codeview://agent/describe",
+        old_path = "codeview://agent/describe",
+        status = "message",
+        old_lines = {},
+        new_lines = lines,
+        hunks = {},
+        binary = false,
+        limited = false,
+        line_count = #lines,
+        max_lines = 0,
+        context = 0,
+        message = true,
+        markdown = { { first = first, last = #lines, indent = 4 } },
+        files = {},
+      }
+    end
+
     ---Groups of the marks of a buffer, by row from 1.
     ---@param buf integer
     ---@return table<integer, table<string, string>> groups Text under each group, by row.
@@ -305,17 +337,53 @@ describe("codeview.syntax", function()
       message = require("codeview.message")
     end)
 
-    it("marks the subject and the body of a commit as markdown", function()
+    it("writes the message of a commit as markdown, without an indent", function()
       local document = commit_document()
-      assert.are.same({ { first = 5, last = #document.new_lines - 4, indent = 4 } }, document.markdown)
-      assert.are.equal("    " .. commit.subject, document.new_lines[5])
-      assert.are.equal("    ```", document.new_lines[document.markdown[1].last])
+      assert.is_nil(document.markdown)
+      assert.are.equal("markdown", document.filetype)
+      assert.are.equal(commit.subject, document.new_lines[5])
+      assert.are.same(markdown, vim.list_slice(document.new_lines, 7, 6 + #markdown))
+      -- The file list stays an indented block.
+      assert.are.equal("    M  lua/thing.lua", document.new_lines[#document.new_lines])
     end)
 
-    it("writes the colors of markdown into the message", function()
-      local document = commit_document()
+    it("writes the description of a pull request as markdown, without an indent", function()
+      local document = pr_document("## Summary\r\n\r\nSome `code`.")
+      assert.is_nil(document.markdown)
+      assert.are.equal("markdown", document.filetype)
+      local lines = document.new_lines
+      assert.is_true(vim.tbl_contains(lines, "## Summary"))
+      assert.is_true(vim.tbl_contains(lines, "Some `code`."))
+      assert.is_true(vim.tbl_contains(lines, "    " .. message.label(commit)))
+    end)
+
+    it("writes the note of a missing description without an indent", function()
+      local document = pr_document("")
+      assert.is_true(vim.tbl_contains(document.new_lines, "The pull request has no description."))
+    end)
+
+    it("copies no colors into a commit document or a pull request document", function()
+      for _, document in ipairs({ commit_document(), pr_document("## Summary") }) do
+        local buf = api.nvim_create_buf(false, true)
+        inline.render(buf, document)
+        assert.are.equal(0, #marks_of(buf))
+        api.nvim_buf_delete(buf, { force = true })
+      end
+    end)
+
+    it("leaves the colors of an open commit document to the markdown filetype", function()
+      assert(config.setup({}))
+      local session = open_session()
+      local index = assert(session:index_of(message.path_of(session.commits[1].id)))
+      local state = assert(view.open(session, index))
+      assert.are.equal("markdown", vim.bo[state.buf].filetype)
+      assert.is_not_nil(vim.treesitter.highlighter.active[state.buf])
+      assert.are.equal(0, #marks_of(state.buf))
+    end)
+
+    it("writes the colors of markdown into a pr-agent text", function()
       local buf = api.nvim_create_buf(false, true)
-      inline.render(buf, document)
+      inline.render(buf, agent_document())
       local groups = groups_by_row(buf)
 
       assert.are.equal("## Why", groups[row_of(buf, "## Why")]["@markup.heading.2"])
@@ -323,37 +391,33 @@ describe("codeview.syntax", function()
       -- The inline text and the fenced code are languages that markdown
       -- injects.
       assert.are.equal("**bold**", groups[row_of(buf, "**bold**")]["@markup.strong"])
-      assert.are.equal("`thing`", groups[row_of(buf, "feat(x)")]["@markup.raw"])
+      assert.are.equal("`thing`", groups[row_of(buf, "**bold**")]["@markup.raw"])
       assert.are.equal("local", groups[row_of(buf, "local a")]["@keyword"])
       api.nvim_buf_delete(buf, { force = true })
     end)
 
-    it("parses the message without its indent", function()
-      local document = commit_document()
+    it("parses a pr-agent text without its indent", function()
       local buf = api.nvim_create_buf(false, true)
-      inline.render(buf, document)
+      inline.render(buf, agent_document())
       -- With the indent, markdown reads every line as an indented code block.
       local groups = groups_by_row(buf)
       assert.is_nil((groups[row_of(buf, "**bold**")] or {})["@markup.raw.block"])
       api.nvim_buf_delete(buf, { force = true })
     end)
 
-    it("keeps the header and the file list plain", function()
-      local document = commit_document()
+    it("keeps the header of a pr-agent document plain", function()
+      local document = agent_document()
       local buf = api.nvim_create_buf(false, true)
       inline.render(buf, document)
       local groups = groups_by_row(buf)
       for row = 1, document.markdown[1].first - 1 do
         assert.is_nil(groups[row], "a mark on the header row " .. row)
       end
-      for row = document.markdown[1].last + 1, #document.new_lines do
-        assert.is_nil(groups[row], "a mark on the file row " .. row)
-      end
       api.nvim_buf_delete(buf, { force = true })
     end)
 
     it("puts the same colors on the same columns in both styles", function()
-      local document = commit_document()
+      local document = agent_document()
       local buf = api.nvim_create_buf(false, true)
       local old_buf = api.nvim_create_buf(false, true)
       local new_buf = api.nvim_create_buf(false, true)
@@ -382,46 +446,15 @@ describe("codeview.syntax", function()
       end
     end)
 
-    it("marks the description of a pull request as markdown", function()
-      local document = pr_document("## Summary\r\n\r\nSome `code`.")
-      local buf = api.nvim_create_buf(false, true)
-      inline.render(buf, document)
-      local groups = groups_by_row(buf)
-
-      assert.are.equal("## Summary", groups[row_of(buf, "## Summary")]["@markup.heading.2"])
-      assert.are.equal("`code`", groups[row_of(buf, "Some")]["@markup.raw"])
-      assert.is_nil(groups[row_of(buf, "Pull request #7")], "a mark on the title")
-      assert.is_nil(groups[row_of(buf, commit.short_id)], "a mark on the commit list")
-      api.nvim_buf_delete(buf, { force = true })
-    end)
-
-    it("marks no line of a pull request without a description", function()
-      local document = pr_document("")
-      assert.are.same({}, document.markdown)
-      local buf = api.nvim_create_buf(false, true)
-      inline.render(buf, document)
-      assert.are.equal(0, #marks_of(buf))
-      api.nvim_buf_delete(buf, { force = true })
-    end)
-
-    it("writes the colors into an open commit document", function()
-      assert(config.setup({}))
-      local session = open_session()
-      local index = assert(session:index_of(message.path_of(session.commits[1].id)))
-      local state = assert(view.open(session, index))
-      assert.are.equal(inline.filetype, vim.bo[state.buf].filetype)
-      assert.is_true(#state.diff.markdown > 0)
-    end)
-
     it("writes nothing when the option is off", function()
       assert(config.setup({ diff = { syntax = false } }))
       local buf = api.nvim_create_buf(false, true)
-      inline.render(buf, commit_document())
+      inline.render(buf, agent_document())
       assert.are.equal(0, #marks_of(buf))
       api.nvim_buf_delete(buf, { force = true })
     end)
 
-    it("renders the message plain without a markdown parser", function()
+    it("renders a pr-agent text plain without a markdown parser", function()
       local add = vim.treesitter.language.add
       vim.treesitter.language.add = function(lang, ...)
         if lang == "markdown" then
@@ -429,7 +462,7 @@ describe("codeview.syntax", function()
         end
         return add(lang, ...)
       end
-      local document = commit_document()
+      local document = agent_document()
       local buf = api.nvim_create_buf(false, true)
       local ok, build = pcall(inline.render, buf, document)
       vim.treesitter.language.add = add

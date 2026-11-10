@@ -505,6 +505,36 @@ local function place(view, anchor)
   return go_to(view, row)
 end
 
+---Give the buffer of a document the filetype of the document.
+---
+--- A commit document and the pull request document hold markdown. The
+--- markdown filetype starts the markdown tools of the user, for example the
+--- treesitter highlighter and a render plugin. The call runs after the render,
+--- while the window shows the buffer. A plugin then sees the lines, and the
+--- window options of the filetype go to the window of the view.
+---
+--- The buffer shows no diagnostics. A linter of the filetype reports on the
+--- header and on the lists that codeview writes, and nobody can edit the
+--- message in the review.
+---
+--- With `diff.syntax = false` the buffer keeps the filetype of a diff, so the
+--- document shows plain. An error of a plugin of the filetype becomes a
+--- warning, so the view still draws the comments.
+---@param view codeview.view.State
+local function set_filetype(view)
+  local filetype = view.diff.filetype
+  if not filetype or not config.get().diff.syntax or vim.bo[view.buf].filetype == filetype then
+    return
+  end
+  vim.diagnostic.enable(false, { bufnr = view.buf })
+  local ok, err = pcall(function()
+    vim.bo[view.buf].filetype = filetype
+  end)
+  if not ok then
+    notify.warn(string.format("the %s filetype of the document failed: %s", filetype, tostring(err)))
+  end
+end
+
 ---Write the diff into the buffers of the style.
 ---@param view codeview.view.State
 local function draw(view)
@@ -517,6 +547,7 @@ local function draw(view)
   end
   view.map = inline.render(view.buf, view.diff, { expanded = view.expanded }).map
   view.old_map = nil
+  set_filetype(view)
 end
 
 ---Render the diff of the view again.

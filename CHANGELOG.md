@@ -14,11 +14,12 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   The help file also gives the session file format as a read interface.
 - `submit.run` takes `ids`, to send only the chosen comments, and
   `confirm = false`, to ask nothing.
-- A commit message and the description of a pull request show in the colors
-  of markdown: headings, lists, emphasis, code spans, links, and the code of
-  a fenced block. The buffer gets no markdown filetype, so no ftplugin and no
-  language server starts. `diff.syntax = false` turns the colors off. See
-  `:help codeview-diff-syntax`.
+- A commit document and the pull request document load as markdown. Their
+  buffer has the `markdown` filetype, and the message and the description
+  have no indent. Your markdown tools then work on them, for example the
+  treesitter highlighter of Neovim, render-markdown.nvim, or markview.nvim.
+  The buffer shows no diagnostics. `diff.syntax = false` keeps the filetype
+  of a diff. See `:help codeview-commit-message`.
 - The texts of pr-agent show in the colors of markdown too: the key issues
   of a review, the new body of a describe result, and the answers of ask.
 

@@ -286,9 +286,18 @@ An entry opens like a file. The document of a commit holds:
 Comment on the document like on a line of code. The comment takes the commit
 of the document, so every comment stays with its own commit.
 
-The subject and the body of a commit show in the colors of markdown, and so
-does the description of a pull request. The header and the lists stay plain.
-See |codeview-diff-syntax|.
+The message is markdown text, and so is the description of a pull request.
+The buffer of a commit document and of the pull request document therefore
+has the `markdown` filetype, and the message has no indent. The markdown
+tools of your configuration then work on the document: the treesitter
+highlighter of Neovim, and a render plugin like render-markdown.nvim or
+markview.nvim. The buffer stays read-only, and the keys of codeview stay.
+
+The header lines are plain text. The file list and the commit list keep an
+indent of four spaces, so markdown shows them as a code block. The buffer
+shows no diagnostics, because a linter of markdown reports on the header and
+on the lists that codeview writes. Set `diff.syntax` to false to keep the
+filetype of a diff. See |codeview-diff-syntax|.
 
 A document is no file of the repository, and it has one side, so it stays in
 the inline style. GitHub takes no comment on a commit message, so
@@ -418,8 +427,10 @@ show the result of that comparison:
 The `diff.style` option names the style of the first file. |codeview-diff-style|
 describes the switch between the two styles.
 
-The buffers are read-only. Their filetype is `codeview-diff`. The buffer
-variable `b:codeview_filetype` holds the filetype of the file itself: >
+The buffers are read-only. Their filetype is `codeview-diff`. A commit
+document and the pull request document have the `markdown` filetype. See
+|codeview-commit-message|. The buffer variable `b:codeview_filetype` holds
+the filetype of the file itself: >
 
     @@ -1,6 +1,6 @@
      line 01
@@ -467,16 +478,21 @@ above a size limit. A side of more than 1 MB gets no parse, because the parse
 blocks the editor. A line of more than 10000 bytes keeps the plain diff
 colors, and the lines after it keep the colors of their language.
 
-A commit message and the description of a pull request are markdown text.
-codeview parses them with the `markdown` parser, without the indent of the
-document. The parse also reads the languages that markdown injects: the
-inline text, with `markdown_inline`, and the code of a fenced block. The
-buffer keeps the filetype of codeview, so no ftplugin and no language server
-starts for the message. Without the `markdown` parser, the message stays
-plain. Neovim includes the two markdown parsers.
+A commit document and the pull request document get no colors from this
+layer. Their buffer has the `markdown` filetype, so the markdown tools of
+your configuration color them. See |codeview-commit-message|.
+
+The texts of pr-agent are markdown too. codeview parses them with the
+`markdown` parser, without the indent of the document. The parse also reads
+the languages that markdown injects: the inline text, with
+`markdown_inline`, and the code of a fenced block. The buffer keeps the
+filetype of codeview, so no ftplugin and no language server starts for the
+document. Without the `markdown` parser, the texts stay plain. Neovim
+includes the two markdown parsers. See |codeview-agent-documents|.
 
 Set `diff.syntax` to false to turn the layer off. The row colors then take
-their foreground again: >lua
+their foreground again. A commit document and the pull request document then
+keep the `codeview-diff` filetype, and show plain: >lua
 
     require("codeview").setup({ diff = { syntax = false } })
 <
@@ -1551,8 +1567,8 @@ A tool without a result gets no document. The review document shows the
 fields of the review and the key issues with their files and lines. The
 describe document shows the new title and the new body. The ask document
 shows the questions and the answers, newest first. The text of a key issue,
-the new body, and each answer show in the colors of markdown, as a commit
-message does. See |codeview-diff-syntax|. A result of an older head of the
+the new body, and each answer show in the colors of markdown. See
+|codeview-diff-syntax|. A result of an older head of the
 pull request says so in its first line: >
 
     Outdated: pr-agent ran on 3a1f2c0, the head is now 9bd2e11.

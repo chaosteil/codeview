@@ -171,6 +171,45 @@ describe("codeview.message", function()
       assert.are.equal("inline", state.style)
       assert.is_nil(state.old_win)
     end)
+
+    it("loads as markdown, with the highlighter of Neovim", function()
+      local session = open_session()
+      local state = open_commit(session)
+      assert.are.equal("markdown", vim.bo[state.buf].filetype)
+      assert.is_not_nil(vim.treesitter.highlighter.active[state.buf])
+      -- The view keeps its own keys.
+      local map = api.nvim_buf_call(state.buf, function()
+        return vim.fn.maparg("]f", "n", false, true)
+      end)
+      assert.is_truthy(vim.startswith(map.desc or "", "codeview:"), vim.inspect(map))
+      assert.is_false(vim.bo[state.buf].modifiable)
+    end)
+
+    it("writes the message without an indent", function()
+      local session = open_session()
+      session.commits[1].body = "## Why\n\n- one\n- two"
+      local state = open_commit(session)
+      local lines = api.nvim_buf_get_lines(state.buf, 0, -1, false)
+
+      assert.is_true(vim.tbl_contains(lines, session.commits[1].subject))
+      assert.is_true(vim.tbl_contains(lines, "## Why"))
+      assert.is_true(vim.tbl_contains(lines, "- one"))
+      assert.is_nil(state.diff.markdown)
+    end)
+
+    it("shows no diagnostics", function()
+      local session = open_session()
+      local state = open_commit(session)
+      assert.is_false(vim.diagnostic.is_enabled({ bufnr = state.buf }))
+    end)
+
+    it("keeps the filetype of a diff when the syntax colors are off", function()
+      assert(config.setup({ comments = { dir = dir }, diff = { syntax = false } }))
+      local session = open_session()
+      local state = open_commit(session)
+      assert.are.equal(require("codeview.inline").filetype, vim.bo[state.buf].filetype)
+      assert.is_nil(vim.treesitter.highlighter.active[state.buf])
+    end)
   end)
 
   describe("comments", function()
@@ -206,20 +245,32 @@ describe("codeview.message", function()
       assert.is_false(vim.bo[state.buf].modifiable)
     end)
 
-    it("keeps the markdown colors and the comment marks together", function()
+    it("keeps the markdown highlighter and the comment marks together", function()
       local session = open_session()
       session.commits[1].body = "Some `code` in the body."
       local state = open_commit(session)
-      local syntax = require("codeview.syntax")
-      local row = state.diff.markdown[1].last
+      local row
+      for index, line in ipairs(api.nvim_buf_get_lines(state.buf, 0, -1, false)) do
+        if line == session.commits[1].body then
+          row = index
+        end
+      end
+      assert(row, "no row with the body")
 
       api.nvim_win_set_cursor(state.win, { row, 0 })
       assert.is_true(comments.add({ view = state }))
       api.nvim_buf_set_lines(assert(editor.current()).buf, 0, -1, false, { "a note on the body" })
       assert.is_true(editor.submit())
 
-      local colors = api.nvim_buf_get_extmarks(state.buf, syntax.ns, { row - 1, 0 }, { row - 1, -1 }, {})
-      assert.is_true(#colors > 0, "no markdown colors on the commented row")
+      assert.are.equal("markdown", vim.bo[state.buf].filetype)
+      assert.is_not_nil(vim.treesitter.highlighter.active[state.buf])
+      local captures = vim.treesitter.get_captures_at_pos(state.buf, row - 1, 6)
+      assert.is_true(
+        vim.iter(captures):any(function(capture)
+          return capture.capture == "markup.raw"
+        end),
+        "no code span color on the commented row"
+      )
       local decorations = api.nvim_buf_get_extmarks(state.buf, comments.ns, 0, -1, {})
       assert.is_true(#decorations > 0, "no comment marks in the document")
       assert.are.equal(row, comments.list(session)[1].start_line)

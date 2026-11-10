@@ -72,7 +72,8 @@ local M = {}
 ---@field byte_count integer? Number of bytes of the two sides together.
 ---@field max_bytes integer? Byte limit that applied. 0 or nil when the byte limit did not apply.
 ---@field message boolean? True for the commit message document, which holds no diff.
----@field markdown codeview.message.Block[]? Lines of a document that hold markdown text. |codeview.syntax| shows them in the colors of markdown.
+---@field markdown codeview.message.Block[]? Lines of a pr-agent document that hold markdown text. |codeview.syntax| shows them in the colors of markdown.
+---@field filetype string? Filetype of the buffer of a document, for example "markdown". Nil keeps the filetype of a diff.
 ---@field old_eol boolean? False when the old side does not end with a line break. Nil or true otherwise.
 ---@field new_eol boolean? False when the new side does not end with a line break. Nil or true otherwise.
 ---@field line_endings boolean? True when the two sides differ only in their line endings. The diff then holds no hunk.

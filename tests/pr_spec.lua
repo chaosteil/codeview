@@ -775,7 +775,8 @@ describe("codeview.pr", function()
       assert.is_truthy(text:find("wants to merge", 1, true), text)
       assert.is_truthy(vim.tbl_contains(lines, "State: open"), text)
       assert.is_truthy(text:find("https://github.com/ada/demo/pull/12", 1, true), text)
-      assert.is_truthy(text:find("    the body of the pull request", 1, true), text)
+      -- The description is markdown, so it keeps no indent.
+      assert.is_truthy(text:find("\nthe body of the pull request", 1, true), text)
 
       local head
       for index, line in ipairs(lines) do

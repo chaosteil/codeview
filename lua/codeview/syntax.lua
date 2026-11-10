@@ -18,12 +18,16 @@
 --- read together. The background says added or removed. The foreground says
 --- what the code is. See |codeview-highlights|.
 ---
---- A document of |codeview.message| holds no code, but its message is
---- markdown text. The module parses each markdown block of the document
+--- A pr-agent document of |codeview.message| holds no code, but its texts
+--- are markdown. The module parses each markdown block of the document
 --- without its indent, and with the languages that markdown injects: the
---- inline text, and the code of a fenced block. The buffer gets no filetype,
---- so no ftplugin, no autocmd of a filetype, and no language server starts
---- for it.
+--- inline text, and the code of a fenced block. The buffer keeps the filetype
+--- of a diff, so no ftplugin, no autocmd of a filetype, and no language server
+--- starts for it.
+---
+--- A commit document and the pull request document hold no markdown block.
+--- Their buffer takes the markdown filetype, so the markdown tools of the user
+--- color them. See |codeview-commit-message|.
 
 local config = require("codeview.config")
 
