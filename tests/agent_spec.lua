@@ -350,6 +350,62 @@ describe("codeview.agent in a pull request review", function()
     assert.is_truthy(text:find("    Like this.", 1, true), text)
   end)
 
+  it("marks the texts of pr-agent as markdown", function()
+    write("describe", {
+      version = 1,
+      tool = "describe",
+      pr = 12,
+      -- An older head adds a line on top, so the blocks move down.
+      head_sha = "3a1f2c0e9b",
+      data = { title = "Add a greeting", description = "Use `greet`." },
+    })
+    write("ask", {
+      version = 1,
+      tool = "ask",
+      pr = 12,
+      head_sha = fixture.ids.change,
+      data = {
+        { question = "How?", answer = "Like **this**.", head_sha = fixture.ids.change, at = "2026-11-05T18:00:00Z" },
+        { question = "Why?", answer = "Because.", head_sha = fixture.ids.change, at = "2026-11-05T17:00:00Z" },
+      },
+    })
+    write("review", review_record())
+    local message = require("codeview.message")
+    local syntax = require("codeview.syntax")
+    local review = open_session()
+    agent.attach(review)
+
+    ---Text of the markdown blocks of one document.
+    ---@param path string
+    ---@return string[] texts One text per block.
+    ---@return codeview.diff.File built
+    local function blocks(path)
+      local built = assert(message.for_file(review, assert(review:file(assert(review:index_of(path))))))
+      local out = {}
+      for _, block in ipairs(built.markdown) do
+        out[#out + 1] = table.concat(vim.list_slice(built.new_lines, block.first, block.last), "\n")
+      end
+      return out, built
+    end
+
+    local described, built = blocks("codeview://agent/describe")
+    assert.are.same({ "    Use `greet`." }, described)
+    assert.are.same({ "    Like **this**.", "    Because." }, (blocks("codeview://agent/ask")))
+    assert.are.same({ "    The value changed." }, (blocks("codeview://agent/review")))
+
+    local buf = vim.api.nvim_create_buf(false, true)
+    require("codeview.inline").render(buf, built)
+    local row = built.markdown[1].first
+    local found = false
+    for _, mark in ipairs(vim.api.nvim_buf_get_extmarks(buf, syntax.ns, 0, -1, { details = true })) do
+      if mark[2] + 1 == row and mark[4].hl_group == "@markup.raw" then
+        found = built.new_lines[row]:sub(mark[3] + 1, mark[4].end_col) == "`greet`"
+      end
+    end
+    assert.is_true(found, "no code span color on the body of the describe result")
+    vim.api.nvim_buf_delete(buf, { force = true })
+  end)
+
   it("keeps a comment on a pr-agent document local", function()
     write("review", review_record())
     local review = open_session()

@@ -19,6 +19,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   a fenced block. The buffer gets no markdown filetype, so no ftplugin and no
   language server starts. `diff.syntax = false` turns the colors off. See
   `:help codeview-diff-syntax`.
+- The texts of pr-agent show in the colors of markdown too: the key issues
+  of a review, the new body of a describe result, and the answers of ask.
 
 ### Fixed
 

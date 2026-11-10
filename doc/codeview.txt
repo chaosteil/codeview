@@ -1542,8 +1542,10 @@ under the node "Agent", between the pull request document and the commits: >
 A tool without a result gets no document. The review document shows the
 fields of the review and the key issues with their files and lines. The
 describe document shows the new title and the new body. The ask document
-shows the questions and the answers, newest first. A result of an older
-head of the pull request says so in its first line: >
+shows the questions and the answers, newest first. The text of a key issue,
+the new body, and each answer show in the colors of markdown, as a commit
+message does. See |codeview-diff-syntax|. A result of an older head of the
+pull request says so in its first line: >
 
     Outdated: pr-agent ran on 3a1f2c0, the head is now 9bd2e11.
 <
