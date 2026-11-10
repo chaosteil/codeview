@@ -14,6 +14,11 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   The help file also gives the session file format as a read interface.
 - `submit.run` takes `ids`, to send only the chosen comments, and
   `confirm = false`, to ask nothing.
+- A commit message and the description of a pull request show in the colors
+  of markdown: headings, lists, emphasis, code spans, links, and the code of
+  a fenced block. The buffer gets no markdown filetype, so no ftplugin and no
+  language server starts. `diff.syntax = false` turns the colors off. See
+  `:help codeview-diff-syntax`.
 
 ### Fixed
 

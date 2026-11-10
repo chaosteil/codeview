@@ -17,6 +17,13 @@
 --- The colors of the diff itself stay in the background, so the two layers
 --- read together. The background says added or removed. The foreground says
 --- what the code is. See |codeview-highlights|.
+---
+--- A document of |codeview.message| holds no code, but its message is
+--- markdown text. The module parses each markdown block of the document
+--- without its indent, and with the languages that markdown injects: the
+--- inline text, and the code of a fenced block. The buffer gets no filetype,
+--- so no ftplugin, no autocmd of a filetype, and no language server starts
+--- for it.
 
 local config = require("codeview.config")
 
@@ -51,8 +58,12 @@ M.max_bytes = 1000000
 ---@type integer
 M.max_line_bytes = 10000
 
+---Language of the markdown text of a document.
+---@type string
+M.document_lang = "markdown"
+
 ---@class codeview.syntax.Entry
----@field lang string|false Language of the path. False when no parser answers.
+---@field lang string|false Language of the diff: the language of the path, or markdown for a document. False when no parser answers.
 ---@field sides table<codeview.linemap.Side, table<integer, table[]>> Captures of each side, by line from 0.
 
 ---Captures of each diff record.
@@ -62,6 +73,16 @@ M.max_line_bytes = 10000
 --- diff. No value refers to its key, so the collector can free both.
 ---@type table<codeview.diff.File, codeview.syntax.Entry>
 local cache = setmetatable({}, { __mode = "k" })
+
+---Report whether a parser of a language is installed.
+---@param lang string
+---@return boolean
+local function has_parser(lang)
+  -- Neovim 0.11 returns nil and a message for a missing parser. It throws
+  -- only for an invalid name.
+  local ok, added = pcall(ts.language.add, lang)
+  return ok and added and true or false
+end
 
 ---Language of a path.
 ---@param path string Path of the file in the repository.
@@ -75,13 +96,23 @@ function M.language(path)
     return nil
   end
   local lang = ts.language.get_lang(filetype) or filetype
-  -- Neovim 0.11 returns nil and a message for a missing parser. It throws
-  -- only for an invalid name.
-  local ok, added = pcall(ts.language.add, lang)
-  if not ok or not added then
+  if not has_parser(lang) then
     return nil
   end
   return lang
+end
+
+---Language of the lines of a diff record.
+---@param diff codeview.diff.File
+---@return string? lang Nil when no parser answers.
+local function language_of(diff)
+  if diff.message then
+    if not diff.markdown or #diff.markdown == 0 or not has_parser(M.document_lang) then
+      return nil
+    end
+    return M.document_lang
+  end
+  return M.language(diff.path)
 end
 
 ---Captures of one text, by line.
@@ -92,10 +123,17 @@ end
 ---
 --- A query of a user can be invalid, and a parser can fail. The call then
 --- returns no capture, so the diff renders without syntax colors.
+---
+--- With `injections`, the call also parses the languages that the text
+--- injects, and copies their captures. A capture of an injected language
+--- takes a higher priority than the captures of its host, so a code span in
+--- a heading keeps its own color. An injected language without a parser or
+--- without a query adds no capture.
 ---@param text string Whole text of one side.
 ---@param lang string Language of the parser.
+---@param injections? boolean True parses the injected languages too.
 ---@return table<integer, { col: integer, end_col: integer, hl: string, priority: integer }[]> by_line
-local function captures_of(text, lang)
+local function captures_of(text, lang, injections)
   ---@type table<integer, { col: integer, end_col: integer, hl: string, priority: integer }[]>
   local by_line = {}
 
@@ -103,12 +141,9 @@ local function captures_of(text, lang)
   if not ok or not parser then
     return by_line
   end
-  local parsed, trees = pcall(parser.parse, parser)
+  -- `true` parses the injected languages of the whole text too.
+  local parsed, trees = pcall(parser.parse, parser, injections or nil)
   if not parsed or not trees or not trees[1] then
-    return by_line
-  end
-  local found, query = pcall(ts.query.get, lang, "highlights")
-  if not found or not query then
     return by_line
   end
 
@@ -128,12 +163,21 @@ local function captures_of(text, lang)
     list[#list + 1] = { col = col, end_col = end_col, hl = "@" .. name, priority = priority }
   end
 
-  local walked = pcall(function()
-    for id, node, metadata in query:iter_captures(trees[1]:root(), text) do
+  ---Copy the captures of one tree.
+  ---@param tree TSTree
+  ---@param tree_lang string Language of the tree.
+  ---@param raise integer Priority that the tree adds to each capture.
+  local function walk(tree, tree_lang, raise)
+    local found, query = pcall(ts.query.get, tree_lang, "highlights")
+    if not found or not query then
+      return
+    end
+    for id, node, metadata in query:iter_captures(tree:root(), text) do
       local name = query.captures[id]
-      -- A capture of the spell checker carries no color.
-      if name ~= "spell" and name ~= "nospell" then
-        local priority = tonumber(metadata.priority or (metadata[id] and metadata[id].priority)) or 100
+      -- A capture of the spell checker or of the conceal carries no color. A
+      -- name with a leading underscore is private to the query.
+      if name ~= "spell" and name ~= "nospell" and name ~= "conceal" and name:sub(1, 1) ~= "_" then
+        local priority = (tonumber(metadata.priority or (metadata[id] and metadata[id].priority)) or 100) + raise
         local srow, scol, erow, ecol = node:range()
         if srow == erow then
           keep(srow, scol, ecol, name, priority)
@@ -146,6 +190,16 @@ local function captures_of(text, lang)
         end
       end
     end
+  end
+
+  local walked = pcall(function()
+    if not injections then
+      walk(trees[1], lang, 0)
+      return
+    end
+    parser:for_each_tree(function(tree, child)
+      walk(tree, child:lang(), child == parser and 0 or 1)
+    end)
   end)
   if not walked then
     return {}
@@ -171,10 +225,49 @@ local function side_text(lines)
   return table.concat(lines, "\n")
 end
 
+---Captures of the markdown blocks of a document, by line from 0.
+---
+--- Each block parses as one text, without the indent of its lines. Every
+--- capture then moves back by the indent of its line.
+---@param diff codeview.diff.File
+---@param lang string
+---@return table<integer, table[]> by_line
+local function document_captures(diff, lang)
+  local by_line = {}
+  for _, block in ipairs(diff.markdown or {}) do
+    local prefix = string.rep(" ", block.indent or 0)
+    local lines, shifts = {}, {}
+    for line = block.first, block.last do
+      local text = diff.new_lines[line] or ""
+      local shift = 0
+      if prefix ~= "" and text:sub(1, #prefix) == prefix then
+        text, shift = text:sub(#prefix + 1), #prefix
+      end
+      lines[#lines + 1], shifts[#shifts + 1] = text, shift
+    end
+    local text = side_text(lines)
+    for index, list in pairs(text and captures_of(text, lang, true) or {}) do
+      local shift = shifts[index + 1] or 0
+      local moved = {}
+      for _, capture in ipairs(list) do
+        moved[#moved + 1] = {
+          col = capture.col + shift,
+          end_col = capture.end_col + shift,
+          hl = capture.hl,
+          priority = capture.priority,
+        }
+      end
+      by_line[block.first - 1 + index] = moved
+    end
+  end
+  return by_line
+end
+
 ---Write the syntax highlights of a render into a buffer.
 ---
 --- The call clears its own namespace only, so the diff highlights and the
---- comment decorations of the other namespaces stay.
+--- comment decorations of the other namespaces stay. A document gets the
+--- colors of markdown on its markdown lines.
 ---@param buf integer Buffer of the render.
 ---@param diff codeview.diff.File Diff that the buffer shows.
 ---@param map codeview.LineMap Map between the rows and the file lines.
@@ -187,12 +280,12 @@ function M.apply(buf, diff, map, opts)
   end
   api.nvim_buf_clear_namespace(buf, M.ns, 0, -1)
 
-  if not config.get().diff.syntax or diff.binary or diff.limited or diff.message then
+  if not config.get().diff.syntax or diff.binary or diff.limited then
     return 0
   end
   local entry = cache[diff]
   if not entry then
-    entry = { lang = M.language(diff.path) or false, sides = {} }
+    entry = { lang = language_of(diff) or false, sides = {} }
     cache[diff] = entry
   end
   local lang = entry.lang
@@ -208,6 +301,11 @@ function M.apply(buf, diff, map, opts)
   ---@return table<integer, table[]>
   local function side(side_name)
     if sides[side_name] then
+      return sides[side_name]
+    end
+    if diff.message then
+      -- A document holds its text on the new side only.
+      sides[side_name] = side_name == "new" and document_captures(diff, lang) or {}
       return sides[side_name]
     end
     local text = side_text(side_name == "old" and diff.old_lines or diff.new_lines)

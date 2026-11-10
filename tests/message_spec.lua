@@ -206,6 +206,25 @@ describe("codeview.message", function()
       assert.is_false(vim.bo[state.buf].modifiable)
     end)
 
+    it("keeps the markdown colors and the comment marks together", function()
+      local session = open_session()
+      session.commits[1].body = "Some `code` in the body."
+      local state = open_commit(session)
+      local syntax = require("codeview.syntax")
+      local row = state.diff.markdown[1].last
+
+      api.nvim_win_set_cursor(state.win, { row, 0 })
+      assert.is_true(comments.add({ view = state }))
+      api.nvim_buf_set_lines(assert(editor.current()).buf, 0, -1, false, { "a note on the body" })
+      assert.is_true(editor.submit())
+
+      local colors = api.nvim_buf_get_extmarks(state.buf, syntax.ns, { row - 1, 0 }, { row - 1, -1 }, {})
+      assert.is_true(#colors > 0, "no markdown colors on the commented row")
+      local decorations = api.nvim_buf_get_extmarks(state.buf, comments.ns, 0, -1, {})
+      assert.is_true(#decorations > 0, "no comment marks in the document")
+      assert.are.equal(row, comments.list(session)[1].start_line)
+    end)
+
     it("finds the comment again after a reopen", function()
       local session = open_session()
       local state = open_commit(session)

@@ -25,6 +25,9 @@
 --- A pull request review also holds one document per pr-agent result of
 --- |codeview.agent|: review, describe, and ask. Their paths are
 --- `codeview://agent/<tool>`. A comment on such a document stays local.
+---
+--- A message is markdown text. A document therefore lists the lines that hold
+--- markdown, so that |codeview.syntax| shows them in the colors of markdown.
 
 local errors = require("codeview.error")
 local tree = require("codeview.tree")
@@ -211,9 +214,19 @@ end
 
 --- Document ---------------------------------------------------------------
 
+---@class codeview.message.Block
+---@field first integer First line of the markdown text in the document, from 1.
+---@field last integer Last line of the markdown text in the document, from 1.
+---@field indent integer Number of spaces in front of each line of the text.
+
+---Indent of a message in a document, as in the log of git.
+---@type string
+local body_indent = "    "
+
 ---Lines of the header and the message of a commit.
 ---@param commit codeview.vcs.Commit
----@return string[]
+---@return string[] lines
+---@return codeview.message.Block[] markdown Lines of the subject and the body.
 local function message_lines(commit)
   local lines = {
     string.format("commit %s", commit.id),
@@ -224,15 +237,16 @@ local function message_lines(commit)
     table.insert(lines, 2, string.format("change %s", commit.change_id))
   end
   lines[#lines + 1] = ""
-  lines[#lines + 1] = "    " .. (commit.subject or "")
+  lines[#lines + 1] = body_indent .. (commit.subject or "")
+  local first = #lines
   local body = vim.trim(commit.body or "")
   if body ~= "" then
     lines[#lines + 1] = ""
     for _, line in ipairs(vim.split(body, "\n", { plain = true })) do
-      lines[#lines + 1] = line == "" and "" or ("    " .. line)
+      lines[#lines + 1] = line == "" and "" or (body_indent .. line)
     end
   end
-  return lines
+  return lines, { { first = first, last = #lines, indent = #body_indent } }
 end
 
 ---Lines of the file list of a commit.
@@ -271,7 +285,7 @@ end
 ---@param files codeview.vcs.FileChange[] Files that the commit changes.
 ---@return codeview.diff.File
 local function document(commit, files)
-  local lines = message_lines(commit)
+  local lines, markdown = message_lines(commit)
   vim.list_extend(lines, file_lines(files))
   return {
     path = M.path_of(commit.id),
@@ -288,6 +302,7 @@ local function document(commit, files)
     max_lines = 0,
     context = 0,
     message = true,
+    markdown = markdown,
     commit = commit,
     files = files,
   }
@@ -296,9 +311,11 @@ end
 ---Lines of the pull request document.
 ---@param info codeview.pr.Info
 ---@param commits codeview.vcs.Commit[] Commits of the session, newest first.
----@return string[]
+---@return string[] lines
+---@return codeview.message.Block[] markdown Lines of the description. Empty without a description.
 local function pr_lines(info, commits)
   local lines = {}
+  local markdown = {}
   local title = vim.trim(info.title or "")
   if title == "" then
     lines[#lines + 1] = string.format("Pull request #%d", info.number)
@@ -326,26 +343,28 @@ local function pr_lines(info, commits)
   local body = (info.body or ""):gsub("\r\n", "\n"):gsub("\r", "\n")
   body = vim.trim(body)
   if body == "" then
-    lines[#lines + 1] = "    The pull request has no description."
+    lines[#lines + 1] = body_indent .. "The pull request has no description."
   else
+    local first = #lines + 1
     for _, line in ipairs(vim.split(body, "\n", { plain = true })) do
-      lines[#lines + 1] = line == "" and "" or ("    " .. line)
+      lines[#lines + 1] = line == "" and "" or (body_indent .. line)
     end
+    markdown[1] = { first = first, last = #lines, indent = #body_indent }
   end
 
   lines[#lines + 1] = ""
   local count = #(commits or {})
   if count == 0 then
     lines[#lines + 1] = "The pull request holds no commit."
-    return lines
+    return lines, markdown
   end
   lines[#lines + 1] = string.format("%d %s:", count, count == 1 and "commit" or "commits")
   lines[#lines + 1] = ""
   -- The newest commit reads first, as in the sidebar.
   for _, commit in ipairs(commits) do
-    lines[#lines + 1] = "    " .. M.label(commit)
+    lines[#lines + 1] = body_indent .. M.label(commit)
   end
-  return lines
+  return lines, markdown
 end
 
 ---Diff record of the pull request document, for the renderer and the view.
@@ -353,7 +372,7 @@ end
 ---@param commits codeview.vcs.Commit[] Commits of the session, newest first.
 ---@return codeview.diff.File
 local function pr_document(info, commits)
-  local lines = pr_lines(info, commits)
+  local lines, markdown = pr_lines(info, commits)
   return {
     path = M.pr_path(info.number),
     old_path = M.pr_path(info.number),
@@ -369,6 +388,7 @@ local function pr_document(info, commits)
     max_lines = 0,
     context = 0,
     message = true,
+    markdown = markdown,
     files = {},
   }
 end

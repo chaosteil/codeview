@@ -269,8 +269,10 @@ function M.render(buf, diff, opts)
     return M.line_hl[row.kind]
   end)
   states:set(buf, { diff = diff, map = build.map, build = build, opts = opts })
-  -- The marker column shifts every capture of the parse by its width.
-  require("codeview.syntax").apply(buf, diff, build.map, { offset = #M.markers.context })
+  -- The marker column shifts every capture of the parse by its width. A
+  -- document holds no marker column.
+  local offset = diff.message and 0 or #M.markers.context
+  require("codeview.syntax").apply(buf, diff, build.map, { offset = offset })
   return build
 end
 

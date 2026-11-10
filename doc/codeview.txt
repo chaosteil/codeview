@@ -286,6 +286,10 @@ An entry opens like a file. The document of a commit holds:
 Comment on the document like on a line of code. The comment takes the commit
 of the document, so every comment stays with its own commit.
 
+The subject and the body of a commit show in the colors of markdown, and so
+does the description of a pull request. The header and the lists stay plain.
+See |codeview-diff-syntax|.
+
 A document is no file of the repository, and it has one side, so it stays in
 the inline style. GitHub takes no comment on a commit message, so
 |:Codeview-submit| keeps such a comment local and reports it in the summary.
@@ -462,6 +466,14 @@ without one keeps the plain diff colors, and so does a binary file or a diff
 above a size limit. A side of more than 1 MB gets no parse, because the parse
 blocks the editor. A line of more than 10000 bytes keeps the plain diff
 colors, and the lines after it keep the colors of their language.
+
+A commit message and the description of a pull request are markdown text.
+codeview parses them with the `markdown` parser, without the indent of the
+document. The parse also reads the languages that markdown injects: the
+inline text, with `markdown_inline`, and the code of a fenced block. The
+buffer keeps the filetype of codeview, so no ftplugin and no language server
+starts for the message. Without the `markdown` parser, the message stays
+plain. Neovim includes the two markdown parsers.
 
 Set `diff.syntax` to false to turn the layer off. The row colors then take
 their foreground again: >lua
