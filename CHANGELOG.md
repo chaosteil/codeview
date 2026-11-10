@@ -22,10 +22,6 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   of a diff. See `:help codeview-commit-message`.
 - The pr-agent documents load as markdown too. The key issues of a review,
   the new body of a describe result, and the answers of ask have no indent.
-- `<leader>cn` and `<leader>cp` open the next and the previous file, the
-  same as `]f` and `[f`. They work in the diff view and in the sidebar, and
-  they follow the order of the sidebar tree. The `next_file` and `prev_file`
-  options now hold a list of two keys each. See `:help codeview-keymaps-list`.
 
 ### Fixed
 

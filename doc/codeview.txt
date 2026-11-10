@@ -361,8 +361,6 @@ The sidebar buffer holds these maps. |codeview-config| names the keys: >
     zM          hide the children of every directory
     ]f          open the next file
     [f          open the previous file
-    <leader>cn  open the next file, the same as ]f
-    <leader>cp  open the previous file, the same as [f
     <leader>ct  switch the diff style
     <leader>co  open or close the comment overview
     <leader>cR  read the review again from the repository
@@ -370,16 +368,11 @@ The sidebar buffer holds these maps. |codeview-config| names the keys: >
 <
 The next-file key and the previous-file key follow the order of the tree.
 They step over the directory nodes, and they also reach a file in a directory
-that hides its children. The commit messages and the other documents of the
-tree are entries of this order too. At the last file, the next-file key
-stays on the file and shows "no file after this one". The previous-file key
-does the same at the first file. The keys do not go around to the other end,
-the same as the hunk keys.
+that hides its children.
 
-The buffer of the diff view holds the maps `]f`, `[f`, `<leader>cn`,
-`<leader>cp`, and `q`. You walk through the files without a move back to the
-sidebar. Each key press moves one file, also while the backend still reads
-the file of the last press.
+The buffer of the diff view holds the maps `]f`, `[f`, and `q`. You walk
+through the files without a move back to the sidebar. Each key press moves one
+file, also while the backend still reads the file of the last press.
 
                                                        *codeview-sidebar-icons*
 The tree uses text icons from `sidebar.icons`. The plugin needs no icon font
@@ -615,8 +608,6 @@ The diff buffer holds these maps. |codeview-config| names the keys: >
     zM          hide every section again
     ]f          open the next file
     [f          open the previous file
-    <leader>cn  open the next file, the same as ]f
-    <leader>cp  open the previous file, the same as [f
     <CR>        render a diff above a size limit, on such a diff
     <leader>ct  switch the diff style
     i a o O     comment on the line under the cursor
@@ -2396,8 +2387,8 @@ Defaults: >lua
         toggle_node = "<Tab>",
         expand_all = "zR",
         collapse_all = "zM",
-        next_file = { "]f", "<leader>cn" },
-        prev_file = { "[f", "<leader>cp" },
+        next_file = "]f",
+        prev_file = "[f",
         next_hunk = "]h",
         prev_hunk = "[h",
         expand_context = "za",
@@ -2550,9 +2541,7 @@ The table names the surface of each action: >
     expand_all        zR             S O D  show every hidden line or node
     collapse_all      zM             S O D  hide every section or node
     next_file         ]f             S   D  open the next file
-                      <leader>cn     S   D  the same as ]f
     prev_file         [f             S   D  open the previous file
-                      <leader>cp     S   D  the same as [f
     next_hunk         ]h                 D  jump to the next hunk
     prev_hunk         [h                 D  jump to the previous hunk
     expand_context    za                 D  show or hide the section
