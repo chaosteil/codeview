@@ -278,68 +278,12 @@ describe("codeview.syntax", function()
       return assert(message.for_pr(session, { path = message.pr_path(7) }))
     end
 
-    ---Document like the one of a pr-agent result: a plain header, then the
-    ---markdown text with an indent of four spaces.
-    ---@return codeview.diff.File
-    local function agent_document()
-      local lines = { "pr-agent describe of #7", "Title: Add the thing", "" }
-      local first = #lines + 1
-      for _, line in ipairs(markdown) do
-        lines[#lines + 1] = line == "" and "" or ("    " .. line)
-      end
-      ---@type codeview.diff.File
-      return {
-        path = "codeview://agent/describe",
-        old_path = "codeview://agent/describe",
-        status = "message",
-        old_lines = {},
-        new_lines = lines,
-        hunks = {},
-        binary = false,
-        limited = false,
-        line_count = #lines,
-        max_lines = 0,
-        context = 0,
-        message = true,
-        markdown = { { first = first, last = #lines, indent = 4 } },
-        files = {},
-      }
-    end
-
-    ---Groups of the marks of a buffer, by row from 1.
-    ---@param buf integer
-    ---@return table<integer, table<string, string>> groups Text under each group, by row.
-    local function groups_by_row(buf)
-      local lines = api.nvim_buf_get_lines(buf, 0, -1, false)
-      local out = {}
-      for _, mark in ipairs(marks_of(buf)) do
-        local row = mark[2] + 1
-        out[row] = out[row] or {}
-        out[row][mark[4].hl_group] = lines[row]:sub(mark[3] + 1, mark[4].end_col)
-      end
-      return out
-    end
-
-    ---Row of the first buffer line that holds a text.
-    ---@param buf integer
-    ---@param text string
-    ---@return integer row From 1.
-    local function row_of(buf, text)
-      for row, line in ipairs(api.nvim_buf_get_lines(buf, 0, -1, false)) do
-        if line:find(text, 1, true) then
-          return row
-        end
-      end
-      error("no line with " .. text)
-    end
-
     before_each(function()
       message = require("codeview.message")
     end)
 
     it("writes the message of a commit as markdown, without an indent", function()
       local document = commit_document()
-      assert.is_nil(document.markdown)
       assert.are.equal("markdown", document.filetype)
       assert.are.equal(commit.subject, document.new_lines[5])
       assert.are.same(markdown, vim.list_slice(document.new_lines, 7, 6 + #markdown))
@@ -349,7 +293,6 @@ describe("codeview.syntax", function()
 
     it("writes the description of a pull request as markdown, without an indent", function()
       local document = pr_document("## Summary\r\n\r\nSome `code`.")
-      assert.is_nil(document.markdown)
       assert.are.equal("markdown", document.filetype)
       local lines = document.new_lines
       assert.is_true(vim.tbl_contains(lines, "## Summary"))
@@ -362,12 +305,17 @@ describe("codeview.syntax", function()
       assert.is_true(vim.tbl_contains(document.new_lines, "The pull request has no description."))
     end)
 
-    it("copies no colors into a commit document or a pull request document", function()
+    it("copies no colors into a document", function()
       for _, document in ipairs({ commit_document(), pr_document("## Summary") }) do
         local buf = api.nvim_create_buf(false, true)
         inline.render(buf, document)
         assert.are.equal(0, #marks_of(buf))
         api.nvim_buf_delete(buf, { force = true })
+        local old_buf, new_buf = api.nvim_create_buf(false, true), api.nvim_create_buf(false, true)
+        require("codeview.split").render(old_buf, new_buf, document)
+        assert.are.equal(0, #marks_of(old_buf) + #marks_of(new_buf))
+        api.nvim_buf_delete(old_buf, { force = true })
+        api.nvim_buf_delete(new_buf, { force = true })
       end
     end)
 
@@ -379,98 +327,6 @@ describe("codeview.syntax", function()
       assert.are.equal("markdown", vim.bo[state.buf].filetype)
       assert.is_not_nil(vim.treesitter.highlighter.active[state.buf])
       assert.are.equal(0, #marks_of(state.buf))
-    end)
-
-    it("writes the colors of markdown into a pr-agent text", function()
-      local buf = api.nvim_create_buf(false, true)
-      inline.render(buf, agent_document())
-      local groups = groups_by_row(buf)
-
-      assert.are.equal("## Why", groups[row_of(buf, "## Why")]["@markup.heading.2"])
-      assert.are.equal("- ", groups[row_of(buf, "- one")]["@markup.list"])
-      -- The inline text and the fenced code are languages that markdown
-      -- injects.
-      assert.are.equal("**bold**", groups[row_of(buf, "**bold**")]["@markup.strong"])
-      assert.are.equal("`thing`", groups[row_of(buf, "**bold**")]["@markup.raw"])
-      assert.are.equal("local", groups[row_of(buf, "local a")]["@keyword"])
-      api.nvim_buf_delete(buf, { force = true })
-    end)
-
-    it("parses a pr-agent text without its indent", function()
-      local buf = api.nvim_create_buf(false, true)
-      inline.render(buf, agent_document())
-      -- With the indent, markdown reads every line as an indented code block.
-      local groups = groups_by_row(buf)
-      assert.is_nil((groups[row_of(buf, "**bold**")] or {})["@markup.raw.block"])
-      api.nvim_buf_delete(buf, { force = true })
-    end)
-
-    it("keeps the header of a pr-agent document plain", function()
-      local document = agent_document()
-      local buf = api.nvim_create_buf(false, true)
-      inline.render(buf, document)
-      local groups = groups_by_row(buf)
-      for row = 1, document.markdown[1].first - 1 do
-        assert.is_nil(groups[row], "a mark on the header row " .. row)
-      end
-      api.nvim_buf_delete(buf, { force = true })
-    end)
-
-    it("puts the same colors on the same columns in both styles", function()
-      local document = agent_document()
-      local buf = api.nvim_create_buf(false, true)
-      local old_buf = api.nvim_create_buf(false, true)
-      local new_buf = api.nvim_create_buf(false, true)
-      inline.render(buf, document)
-      require("codeview.split").render(old_buf, new_buf, document)
-
-      ---Marks of a buffer without their ids.
-      ---@param target integer
-      ---@return table[]
-      local function spans(target)
-        local out = {}
-        for _, mark in ipairs(marks_of(target)) do
-          out[#out + 1] = { mark[2], mark[3], mark[4].end_col, mark[4].hl_group }
-        end
-        table.sort(out, function(a, b)
-          return table.concat(a, ":") < table.concat(b, ":")
-        end)
-        return out
-      end
-      local expected = spans(buf)
-      assert.is_true(#expected > 0)
-      assert.are.same(expected, spans(new_buf))
-      assert.are.same(expected, spans(old_buf))
-      for _, target in ipairs({ buf, old_buf, new_buf }) do
-        api.nvim_buf_delete(target, { force = true })
-      end
-    end)
-
-    it("writes nothing when the option is off", function()
-      assert(config.setup({ diff = { syntax = false } }))
-      local buf = api.nvim_create_buf(false, true)
-      inline.render(buf, agent_document())
-      assert.are.equal(0, #marks_of(buf))
-      api.nvim_buf_delete(buf, { force = true })
-    end)
-
-    it("renders a pr-agent text plain without a markdown parser", function()
-      local add = vim.treesitter.language.add
-      vim.treesitter.language.add = function(lang, ...)
-        if lang == "markdown" then
-          return nil, "no parser for markdown"
-        end
-        return add(lang, ...)
-      end
-      local document = agent_document()
-      local buf = api.nvim_create_buf(false, true)
-      local ok, build = pcall(inline.render, buf, document)
-      vim.treesitter.language.add = add
-
-      assert.is_true(ok, tostring(build))
-      assert.are.same(document.new_lines, api.nvim_buf_get_lines(buf, 0, -1, false))
-      assert.are.equal(0, #marks_of(buf))
-      api.nvim_buf_delete(buf, { force = true })
     end)
   end)
 

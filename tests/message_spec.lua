@@ -194,7 +194,6 @@ describe("codeview.message", function()
       assert.is_true(vim.tbl_contains(lines, session.commits[1].subject))
       assert.is_true(vim.tbl_contains(lines, "## Why"))
       assert.is_true(vim.tbl_contains(lines, "- one"))
-      assert.is_nil(state.diff.markdown)
     end)
 
     it("shows no diagnostics", function()

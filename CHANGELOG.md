@@ -20,8 +20,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   treesitter highlighter of Neovim, render-markdown.nvim, or markview.nvim.
   The buffer shows no diagnostics. `diff.syntax = false` keeps the filetype
   of a diff. See `:help codeview-commit-message`.
-- The texts of pr-agent show in the colors of markdown too: the key issues
-  of a review, the new body of a describe result, and the answers of ask.
+- The pr-agent documents load as markdown too. The key issues of a review,
+  the new body of a describe result, and the answers of ask have no indent.
 
 ### Fixed
 

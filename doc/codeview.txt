@@ -428,8 +428,8 @@ The `diff.style` option names the style of the first file. |codeview-diff-style|
 describes the switch between the two styles.
 
 The buffers are read-only. Their filetype is `codeview-diff`. A commit
-document and the pull request document have the `markdown` filetype. See
-|codeview-commit-message|. The buffer variable `b:codeview_filetype` holds
+document, the pull request document, and a pr-agent document have the
+`markdown` filetype. See |codeview-commit-message|. The buffer variable `b:codeview_filetype` holds
 the filetype of the file itself: >
 
     @@ -1,6 +1,6 @@
@@ -478,21 +478,13 @@ above a size limit. A side of more than 1 MB gets no parse, because the parse
 blocks the editor. A line of more than 10000 bytes keeps the plain diff
 colors, and the lines after it keep the colors of their language.
 
-A commit document and the pull request document get no colors from this
-layer. Their buffer has the `markdown` filetype, so the markdown tools of
-your configuration color them. See |codeview-commit-message|.
-
-The texts of pr-agent are markdown too. codeview parses them with the
-`markdown` parser, without the indent of the document. The parse also reads
-the languages that markdown injects: the inline text, with
-`markdown_inline`, and the code of a fenced block. The buffer keeps the
-filetype of codeview, so no ftplugin and no language server starts for the
-document. Without the `markdown` parser, the texts stay plain. Neovim
-includes the two markdown parsers. See |codeview-agent-documents|.
+A document gets no colors from this layer: a commit, the pull request, or a
+pr-agent result. Its buffer has the `markdown` filetype, so the markdown
+tools of your configuration color it. See |codeview-commit-message|.
 
 Set `diff.syntax` to false to turn the layer off. The row colors then take
-their foreground again. A commit document and the pull request document then
-keep the `codeview-diff` filetype, and show plain: >lua
+their foreground again. A document then keeps the `codeview-diff` filetype,
+and shows plain: >lua
 
     require("codeview").setup({ diff = { syntax = false } })
 <
@@ -1571,10 +1563,13 @@ under the node "Agent", between the pull request document and the commits: >
 A tool without a result gets no document. The review document shows the
 fields of the review and the key issues with their files and lines. The
 describe document shows the new title and the new body. The ask document
-shows the questions and the answers, newest first. The text of a key issue,
-the new body, and each answer show in the colors of markdown. See
-|codeview-diff-syntax|. A result of an older head of the
-pull request says so in its first line: >
+shows the questions and the answers, newest first.
+
+pr-agent writes markdown, so a pr-agent document has the `markdown`
+filetype, as a commit document does. The text of a key issue, the new body,
+and each answer have no indent. The other lines are plain text. See
+|codeview-commit-message|. A result of an older head of the pull request
+says so in its first line: >
 
     Outdated: pr-agent ran on 3a1f2c0, the head is now 9bd2e11.
 <

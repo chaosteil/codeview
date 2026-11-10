@@ -292,11 +292,13 @@ describe("codeview.agent in a pull request review", function()
     write("review", review_record())
     local review = open_session()
     agent.attach(review)
-    local text = table.concat(document(review, "codeview://agent/review"), "\n")
+    local lines = document(review, "codeview://agent/review")
+    local text = table.concat(lines, "\n")
     assert.is_truthy(text:find("pr-agent review of #12", 1, true), text)
-    assert.is_truthy(text:find("Estimated effort to review: 2", 1, true), text)
-    assert.is_truthy(text:find("Possible Bug  call.lua:2", 1, true), text)
-    assert.is_truthy(text:find("The value changed.", 1, true), text)
+    assert.is_truthy(vim.tbl_contains(lines, "Estimated effort to review: 2"), text)
+    -- The issue lines are markdown, so they keep no indent.
+    assert.is_truthy(vim.tbl_contains(lines, "Possible Bug  call.lua:2"), text)
+    assert.is_truthy(vim.tbl_contains(lines, "The value changed."), text)
     assert.is_nil(text:find("Outdated", 1, true), text)
   end)
 
@@ -325,10 +327,11 @@ describe("codeview.agent in a pull request review", function()
     })
     local review = open_session()
     agent.attach(review)
-    local text = table.concat(document(review, "codeview://agent/describe"), "\n")
-    assert.is_truthy(text:find("Title: Add a greeting", 1, true), text)
-    assert.is_truthy(text:find("    - Add a greeting", 1, true), text)
-    assert.is_truthy(text:find("- `call.lua` (enhancement): Greet", 1, true), text)
+    local lines = document(review, "codeview://agent/describe")
+    local text = table.concat(lines, "\n")
+    assert.is_truthy(vim.tbl_contains(lines, "Title: Add a greeting"), text)
+    assert.is_truthy(vim.tbl_contains(lines, "- Add a greeting"), text)
+    assert.is_truthy(vim.tbl_contains(lines, "- `call.lua` (enhancement): Greet"), text)
   end)
 
   it("shows the questions and answers, newest first", function()
@@ -344,20 +347,21 @@ describe("codeview.agent in a pull request review", function()
     })
     local review = open_session()
     agent.attach(review)
-    local text = table.concat(document(review, "codeview://agent/ask"), "\n")
+    local lines = document(review, "codeview://agent/ask")
+    local text = table.concat(lines, "\n")
     local how, why = text:find("Q: How?", 1, true), text:find("Q: Why?", 1, true)
     assert.is_truthy(how and why and how < why, text)
-    assert.is_truthy(text:find("    Like this.", 1, true), text)
+    assert.is_truthy(vim.tbl_contains(lines, "Like this."), text)
   end)
 
-  it("marks the texts of pr-agent as markdown", function()
+  it("writes the pr-agent documents as markdown", function()
     write("describe", {
       version = 1,
       tool = "describe",
       pr = 12,
-      -- An older head adds a line on top, so the blocks move down.
+      -- An older head adds the "Outdated" line on top.
       head_sha = "3a1f2c0e9b",
-      data = { title = "Add a greeting", description = "Use `greet`." },
+      data = { title = "Add a greeting", description = "Use `greet`.\n\n- one\n- two" },
     })
     write("ask", {
       version = 1,
@@ -366,44 +370,63 @@ describe("codeview.agent in a pull request review", function()
       head_sha = fixture.ids.change,
       data = {
         { question = "How?", answer = "Like **this**.", head_sha = fixture.ids.change, at = "2026-11-05T18:00:00Z" },
-        { question = "Why?", answer = "Because.", head_sha = fixture.ids.change, at = "2026-11-05T17:00:00Z" },
       },
     })
     write("review", review_record())
     local message = require("codeview.message")
-    local syntax = require("codeview.syntax")
     local review = open_session()
     agent.attach(review)
 
-    ---Text of the markdown blocks of one document.
-    ---@param path string
-    ---@return string[] texts One text per block.
-    ---@return codeview.diff.File built
-    local function blocks(path)
+    for _, tool in ipairs(message.agent_tools) do
+      local path = message.agent_path(tool)
       local built = assert(message.for_file(review, assert(review:file(assert(review:index_of(path))))))
-      local out = {}
-      for _, block in ipairs(built.markdown) do
-        out[#out + 1] = table.concat(vim.list_slice(built.new_lines, block.first, block.last), "\n")
-      end
-      return out, built
-    end
-
-    local described, built = blocks("codeview://agent/describe")
-    assert.are.same({ "    Use `greet`." }, described)
-    assert.are.same({ "    Like **this**.", "    Because." }, (blocks("codeview://agent/ask")))
-    assert.are.same({ "    The value changed." }, (blocks("codeview://agent/review")))
-
-    local buf = vim.api.nvim_create_buf(false, true)
-    require("codeview.inline").render(buf, built)
-    local row = built.markdown[1].first
-    local found = false
-    for _, mark in ipairs(vim.api.nvim_buf_get_extmarks(buf, syntax.ns, 0, -1, { details = true })) do
-      if mark[2] + 1 == row and mark[4].hl_group == "@markup.raw" then
-        found = built.new_lines[row]:sub(mark[3] + 1, mark[4].end_col) == "`greet`"
+      assert.are.equal("markdown", built.filetype, path)
+      -- An indent of four spaces makes an indented code block in markdown.
+      for _, line in ipairs(built.new_lines) do
+        assert.is_falsy(line:find("^    "), path .. ": " .. line)
       end
     end
-    assert.is_true(found, "no code span color on the body of the describe result")
-    vim.api.nvim_buf_delete(buf, { force = true })
+
+    local described = document(review, "codeview://agent/describe")
+    assert.is_truthy(vim.startswith(described[1], "Outdated: pr-agent ran on 3a1f2c0"), described[1])
+    assert.is_truthy(vim.tbl_contains(described, "Use `greet`."))
+    assert.is_truthy(vim.tbl_contains(described, "- one"))
+    assert.is_truthy(vim.tbl_contains(document(review, "codeview://agent/ask"), "Like **this**."))
+  end)
+
+  it("loads a pr-agent document as markdown in the view", function()
+    write("describe", {
+      version = 1,
+      tool = "describe",
+      pr = 12,
+      head_sha = "3a1f2c0e9b",
+      data = { title = "Add a greeting", description = "Use `greet`." },
+    })
+    local syntax = require("codeview.syntax")
+    local view = require("codeview.view")
+    local review = open_session()
+    agent.attach(review)
+    local state = assert(view.open(review, assert(review:index_of("codeview://agent/describe"))))
+
+    assert.are.equal("markdown", vim.bo[state.buf].filetype)
+    assert.is_not_nil(vim.treesitter.highlighter.active[state.buf])
+    -- The colors come from the filetype, not from codeview.
+    assert.are.same({}, vim.api.nvim_buf_get_extmarks(state.buf, syntax.ns, 0, -1, {}))
+    local row
+    for index, line in ipairs(vim.api.nvim_buf_get_lines(state.buf, 0, -1, false)) do
+      if line == "Use `greet`." then
+        row = index
+      end
+    end
+    assert(row, "no row with the body")
+    local captures = vim.treesitter.get_captures_at_pos(state.buf, row - 1, 5)
+    assert.is_true(
+      vim.iter(captures):any(function(capture)
+        return capture.capture == "markup.raw"
+      end),
+      "no code span color on the body of the describe result"
+    )
+    view.close()
   end)
 
   it("keeps a comment on a pr-agent document local", function()

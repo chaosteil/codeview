@@ -26,13 +26,9 @@
 --- |codeview.agent|: review, describe, and ask. Their paths are
 --- `codeview://agent/<tool>`. A comment on such a document stays local.
 ---
---- A message is markdown text. A commit document and the pull request
---- document therefore hold valid markdown, without an indent in front of the
---- message, and their buffer takes the markdown filetype.
----
---- A text of pr-agent is markdown too, but a pr-agent document holds it
---- indented. The document lists the lines that hold markdown, so that
---- |codeview.syntax| shows them in the colors of markdown.
+--- A message is markdown text, and so is a text of pr-agent. Every document
+--- therefore holds valid markdown, without an indent in front of these texts,
+--- and its buffer takes the markdown filetype.
 
 local errors = require("codeview.error")
 local tree = require("codeview.tree")
@@ -219,12 +215,7 @@ end
 
 --- Document ---------------------------------------------------------------
 
----@class codeview.message.Block
----@field first integer First line of the markdown text in the document, from 1.
----@field last integer Last line of the markdown text in the document, from 1.
----@field indent integer Number of spaces in front of each line of the text.
-
----Filetype of the buffer of a commit document and of the pull request document.
+---Filetype of the buffer of a document.
 ---@type string
 M.filetype = "markdown"
 
@@ -561,28 +552,20 @@ local function field_label(key)
   return words:sub(1, 1):upper() .. words:sub(2)
 end
 
----Add a text of pr-agent to the lines of a document, indented.
+---Add a text of pr-agent to the lines of a document.
 ---
---- pr-agent writes markdown, so the text also becomes a markdown block.
+--- pr-agent writes markdown, so the text keeps no indent.
 ---@param lines string[] Lines of the document, in place.
----@param markdown codeview.message.Block[] Markdown blocks of the document, in place.
 ---@param text string
----@param indent string
-local function add_text(lines, markdown, text, indent)
-  local first = #lines + 1
-  for _, line in ipairs(vim.split(text, "\n", { plain = true })) do
-    lines[#lines + 1] = line == "" and "" or (indent .. line)
-  end
-  markdown[#markdown + 1] = { first = first, last = #lines, indent = #indent }
+local function add_text(lines, text)
+  vim.list_extend(lines, vim.split(text, "\n", { plain = true }))
 end
 
 ---Lines of a review result: one line per field, then the key issues.
 ---@param data table JSON of pr-agent.
 ---@return string[] lines
----@return codeview.message.Block[] markdown Lines of the issue texts.
 local function review_lines(data)
   local lines = {}
-  local markdown = {}
   local review = type(data) == "table" and type(data.review) == "table" and data.review or {}
   local keys = vim.tbl_keys(review)
   table.sort(keys)
@@ -605,14 +588,14 @@ local function review_lines(data)
         where = string.format("%s:%d", where, first)
       end
       lines[#lines + 1] = ""
-      lines[#lines + 1] = string.format("    %s  %s", text_of(issue.issue_header), where)
-      add_text(lines, markdown, text_of(issue.issue_content), "    ")
+      lines[#lines + 1] = string.format("%s  %s", text_of(issue.issue_header), where)
+      add_text(lines, text_of(issue.issue_content))
     end
   end
   if #lines == 0 then
     lines[1] = "The review holds no field."
   end
-  return lines, markdown
+  return lines
 end
 
 ---New title of a describe result.
@@ -661,26 +644,22 @@ end
 ---Lines of a describe result: the new title, then the new body.
 ---@param data table JSON of pr-agent.
 ---@return string[] lines
----@return codeview.message.Block[] markdown Lines of the body.
 local function describe_lines(data)
   local lines = { "Title: " .. M.describe_title(data), "" }
-  local markdown = {}
   local body = M.describe_body(data)
   if body == "" then
-    lines[#lines + 1] = "    The result holds no body."
+    lines[#lines + 1] = "The result holds no body."
   else
-    add_text(lines, markdown, body, "    ")
+    add_text(lines, body)
   end
-  return lines, markdown
+  return lines
 end
 
 ---Lines of the questions and the answers, newest first.
 ---@param data table List of `{ question, answer, head_sha, at }`.
 ---@return string[] lines
----@return codeview.message.Block[] markdown Lines of the answers.
 local function ask_lines(data)
   local lines = {}
-  local markdown = {}
   for index, entry in ipairs(type(data) == "table" and data or {}) do
     if index > 1 then
       lines[#lines + 1] = ""
@@ -688,12 +667,12 @@ local function ask_lines(data)
     lines[#lines + 1] = "Q: " .. text_of(entry.question)
     lines[#lines + 1] = string.format("   at %s, head %s", text_of(entry.at), text_of(entry.head_sha):sub(1, 7))
     lines[#lines + 1] = ""
-    add_text(lines, markdown, text_of(entry.answer), "    ")
+    add_text(lines, text_of(entry.answer))
   end
   if #lines == 0 then
     lines[1] = "No question yet."
   end
-  return lines, markdown
+  return lines
 end
 
 ---Lines of the document of one pr-agent result.
@@ -703,7 +682,6 @@ end
 ---@param record codeview.agent.Record
 ---@param info codeview.pr.Info
 ---@return string[] lines
----@return codeview.message.Block[] markdown Lines of the texts of pr-agent.
 local function agent_lines(tool, record, info)
   local lines = {}
   local head = tostring(info.head_sha or "")
@@ -716,21 +694,16 @@ local function agent_lines(tool, record, info)
   lines[#lines + 1] = string.format("Model: %s", text_of(record.model))
   lines[#lines + 1] = string.format("Run:   %s, head %s", text_of(record.finished_at), ran:sub(1, 7))
   lines[#lines + 1] = ""
-  local body, markdown
+  local body
   if tool == "review" then
-    body, markdown = review_lines(record.data)
+    body = review_lines(record.data)
   elseif tool == "describe" then
-    body, markdown = describe_lines(record.data)
+    body = describe_lines(record.data)
   else
-    body, markdown = ask_lines(record.data)
-  end
-  -- The blocks count the lines of the body. The header comes first.
-  local shift = #lines
-  for _, block in ipairs(markdown) do
-    block.first, block.last = block.first + shift, block.last + shift
+    body = ask_lines(record.data)
   end
   vim.list_extend(lines, body)
-  return lines, markdown
+  return lines
 end
 
 ---Build the document of one pr-agent result.
@@ -755,7 +728,7 @@ function M.for_agent(session, file, cb)
     end
     return nil, err
   end
-  local lines, markdown = agent_lines(tool, record, info)
+  local lines = agent_lines(tool, record, info)
   ---@type codeview.diff.File
   local built = {
     path = file.path,
@@ -772,7 +745,7 @@ function M.for_agent(session, file, cb)
     max_lines = 0,
     context = 0,
     message = true,
-    markdown = markdown,
+    filetype = M.filetype,
     files = {},
   }
   if cb then

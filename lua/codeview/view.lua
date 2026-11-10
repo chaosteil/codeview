@@ -507,10 +507,10 @@ end
 
 ---Give the buffer of a document the filetype of the document.
 ---
---- A commit document and the pull request document hold markdown. The
---- markdown filetype starts the markdown tools of the user, for example the
---- treesitter highlighter and a render plugin. The call runs after the render,
---- while the window shows the buffer. A plugin then sees the lines, and the
+--- A document of |codeview.message| holds markdown: a commit, the pull
+--- request, or a pr-agent result. The markdown filetype starts the markdown
+--- tools of the user, for example the treesitter highlighter and a render
+--- plugin. The call runs after the render, while the window shows the buffer. A plugin then sees the lines, and the
 --- window options of the filetype go to the window of the view.
 ---
 --- The buffer shows no diagnostics. A linter of the filetype reports on the
