@@ -17,6 +17,10 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A comment box keeps the same colors after each save. Before, a save from
+  the inline editor read the colors of the editor window, so each save put a
+  new tint on top of the last one. A new comment and an edit then had boxes
+  of different colors.
 - A save keeps the sent marks that another Neovim wrote to the session file.
   Before, an open session wrote its old copy over them, and a later submit
   sent the comments again. An open session also watches its session file

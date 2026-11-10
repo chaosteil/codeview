@@ -119,26 +119,46 @@ function M.apply()
   M.apply_comment_boxes()
 end
 
+---Most links that the call follows from one group. It stops a loop of links.
+---@type integer
+local MAX_LINKS = 20
+
+---Global definition of one group, after its links.
+---
+--- The call follows the links itself. With `link = false`, `nvim_get_hl()`
+--- reads the 'winhighlight' of the current window after the window shows
+--- once. In the inline comment editor, `Normal` then gives the color of
+--- the comment box, and each new tint goes on top of the last one.
+---@param name string
+---@return table? hl Nil when the group does not exist.
+local function resolve(name)
+  for _ = 0, MAX_LINKS do
+    local ok, hl = pcall(api.nvim_get_hl, 0, { name = name })
+    if not ok or type(hl) ~= "table" then
+      return nil
+    end
+    if not hl.link then
+      return hl
+    end
+    name = hl.link
+  end
+  return nil
+end
+
 ---Background of one group, or nil when the group carries none.
 ---@param name string
 ---@return integer? bg
 local function background_of(name)
-  local ok, hl = pcall(api.nvim_get_hl, 0, { name = name, link = false })
-  if not ok or type(hl) ~= "table" then
-    return nil
-  end
-  return hl.bg
+  local hl = resolve(name)
+  return hl and hl.bg
 end
 
 ---Foreground of one group, or nil when the group carries none.
 ---@param name string
 ---@return integer? fg
 local function foreground_of(name)
-  local ok, hl = pcall(api.nvim_get_hl, 0, { name = name, link = false })
-  if not ok or type(hl) ~= "table" then
-    return nil
-  end
-  return hl.fg
+  local hl = resolve(name)
+  return hl and hl.fg
 end
 
 ---Mix of two colors, as a 24-bit integer.

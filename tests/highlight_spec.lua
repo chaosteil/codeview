@@ -124,5 +124,25 @@ describe("codeview.highlight", function()
       -- 0x10 * 0.85 + 0xff * 0.15 = 51.85, so blue is 0x34. Red and green are 0x0e.
       assert.are.equal(0x0e0e34, box.bg)
     end)
+
+    it("gives the same colors from a window that maps Normal to the box", function()
+      transparent()
+      highlight.apply_comment_boxes()
+      local first = api.nvim_get_hl(0, { name = "CodeViewCommentBox" })
+
+      -- The inline comment editor maps Normal to the box group. After the
+      -- window shows once, `link = false` reads that map.
+      local buf = api.nvim_create_buf(false, true)
+      local win = api.nvim_open_win(buf, true, { relative = "editor", row = 1, col = 1, width = 20, height = 2 })
+      vim.wo[win][0].winhighlight = "Normal:CodeViewCommentBox,FloatBorder:CodeViewCommentBorder"
+      vim.cmd.redraw()
+      highlight.apply_comment_boxes()
+      highlight.apply_comment_boxes()
+      local again = api.nvim_get_hl(0, { name = "CodeViewCommentBox" })
+      api.nvim_win_close(win, true)
+
+      assert.are.equal(0x000026, first.bg)
+      assert.are.equal(first.bg, again.bg)
+    end)
   end)
 end)

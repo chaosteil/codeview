@@ -1307,6 +1307,68 @@ describe("codeview.comments", function()
       )
     end)
 
+    it("keeps the frame and its colors after a new comment and after an edit", function()
+      local state = open_diff()
+
+      ---Colors of the box and its frame.
+      ---@return table
+      local function colors()
+        return {
+          box = api.nvim_get_hl(0, { name = "CodeViewCommentBox" }),
+          border = api.nvim_get_hl(0, { name = "CodeViewCommentBorder" }),
+        }
+      end
+
+      ---Write a body in the editor that is open and save it with `:w`.
+      ---
+      --- The redraw shows the editor once, as a real screen does. The write
+      --- then runs in the editor window, the same as a `:w` of the reviewer.
+      ---@param body string
+      local function save_with_write(body)
+        local ed = assert(editor.current())
+        api.nvim_buf_set_lines(ed.buf, 0, -1, false, { body })
+        vim.cmd.redraw()
+        vim.cmd.write()
+        assert.is_true(vim.wait(1000, function()
+          return not api.nvim_win_is_valid(ed.win)
+        end))
+      end
+
+      ---Report whether the box holds the frame and the body.
+      ---@param body string
+      local function assert_framed(body)
+        local lines = box_lines(state.buf)
+        assert.are.equal(3, #lines)
+        assert.is_true(vim.startswith(lines[1], "╭─ comment L2 (new) ─"))
+        assert.is_true(vim.startswith(lines[2], "│ " .. body))
+        assert.is_true(vim.endswith(lines[2], "│"))
+        assert.is_true(vim.startswith(lines[3], "╰─"))
+      end
+
+      require("codeview.highlight").apply_comment_boxes()
+      local expected = colors()
+
+      api.nvim_win_set_cursor(state.win, { 4, 0 })
+      assert.is_true(comments.add())
+      save_with_write("the first text")
+      assert_framed("the first text")
+      assert.are.same(expected, colors())
+
+      api.nvim_set_current_win(state.win)
+      api.nvim_win_set_cursor(state.win, { 4, 0 })
+      assert.is_true(comments.edit())
+      save_with_write("the second text")
+      assert_framed("the second text")
+      assert.are.same(expected, colors())
+
+      api.nvim_set_current_win(state.win)
+      api.nvim_win_set_cursor(state.win, { 4, 0 })
+      assert.is_true(comments.edit())
+      save_with_write("the third text")
+      assert_framed("the third text")
+      assert.are.same(expected, colors())
+    end)
+
     it("fits the box to the window again after a resize", function()
       local state = open_diff()
       comment_on(4, "a short note")
