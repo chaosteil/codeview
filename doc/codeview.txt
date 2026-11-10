@@ -277,6 +277,11 @@ subject of the commit. The newest commit reads first, and the oldest commit
 is at the bottom, as in the log of jj or git. The document of a pull request
 lists its commits in the same order.
 
+In a review of a local range, the group node of the commits shows its
+entries. In a pull request review, the group node starts collapsed, because
+the document of the pull request lists the commits already. Press `<Tab>` on
+the group node to show the commits. See |codeview-github-document|.
+
 An entry opens like a file. The document of a commit holds:
 
     - the id, the author, and the date,
@@ -351,6 +356,11 @@ directory that hides its children shows the marks of the files below it.
 The marker "▸" and the highlight group |hl-CodeViewCurrent| mark the file that
 the diff view shows. The marker moves with every file that you open. A
 directory that hides the marked file opens again.
+
+Every directory shows its children when the sidebar opens. The group node of
+the commits is the exception in a pull request review: it starts collapsed.
+See |codeview-commit-message|. The sidebar keeps the expanded state while it
+is open. A new sidebar starts again from this state.
 
                                                      *codeview-sidebar-keymaps*
 The sidebar buffer holds these maps. |codeview-config| names the keys: >
@@ -1344,6 +1354,11 @@ The sidebar lists the pull request itself as the first entry, under the node
 "Pull request". The document shows the title, the author, the branches, the
 state, the link to the web page, the description, and the commits. Press
 `gx` on the link to open the pull request in the browser.
+
+The commits of the pull request come under the node "Commits". This node
+starts collapsed, because the document of the pull request lists the commits
+already. Press `<Tab>` on the node to show the commits, and press it again to
+hide them.
 
 A comment on this document is an overall comment on the pull request. The
 send key of the editor posts it to the conversation of the pull request. A

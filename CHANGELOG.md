@@ -23,6 +23,13 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The pr-agent documents load as markdown too. The key issues of a review,
   the new body of a describe result, and the answers of ask have no indent.
 
+### Changed
+
+- In a pull request review, the Commits group of the sidebar starts
+  collapsed. The document of the pull request lists the commits already.
+  Press `<Tab>` on the group to show them. A review of a local range still
+  shows the commits. See `:help codeview-github-document`.
+
 ### Fixed
 
 - The sign of a comment stays visible on a row that also has the sign of

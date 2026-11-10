@@ -395,6 +395,82 @@ describe("codeview.sidebar", function()
     end)
   end)
 
+  describe("the commits group", function()
+    local message
+
+    ---Open a session with the commit documents, as a pull request review or
+    ---as a review of a local range.
+    ---@param pr boolean True for a pull request review.
+    ---@return codeview.Session
+    local function open_review(pr)
+      local review, err = session_mod.open(fixture.ids.init .. ".." .. fixture.ids.shuffle, {
+        dir = fixture.dir,
+        pr = pr and {
+          repo = "codeview/sidebar-spec",
+          number = 5,
+          title = "Shuffle the files",
+          author = "ada",
+          head_ref = "shuffle",
+          base_ref = "main",
+          state = "OPEN",
+          url = "https://github.com/codeview/sidebar-spec/pull/5",
+          body = "",
+          head_sha = fixture.ids.shuffle,
+        } or nil,
+      })
+      assert.is_nil(err)
+      opened = assert(review)
+      return opened
+    end
+
+    ---Report whether the sidebar shows a line for one path.
+    ---@param bar codeview.Sidebar
+    ---@param path string
+    ---@return boolean
+    local function shows(bar, path)
+      return bar.panel:find(function(node)
+        return node.path == path
+      end) ~= nil
+    end
+
+    before_each(function()
+      config.setup({ quit = "never" })
+      message = require("codeview.message")
+    end)
+
+    it("starts collapsed in a pull request review", function()
+      local review = open_review(true)
+      local bar = assert(sidebar.open())
+      assert.is_false(bar.expanded[message.group_path])
+      assert.is_true(shows(bar, message.group_path))
+      assert.is_false(shows(bar, message.path_of(review.commits[1].id)))
+      -- The other entries stay visible.
+      assert.is_true(shows(bar, message.pr_path(5)))
+      assert.is_true(shows(bar, "dir/renamed.txt"))
+    end)
+
+    it("starts expanded in a review of a local range", function()
+      local review = open_review(false)
+      local bar = assert(sidebar.open())
+      assert.is_nil(bar.expanded[message.group_path])
+      for _, commit in ipairs(review.commits) do
+        assert.is_true(shows(bar, message.path_of(commit.id)))
+      end
+    end)
+
+    it("expands with <Tab> and keeps the state over a render", function()
+      local review = open_review(true)
+      local bar = assert(sidebar.open({ focus = true }))
+      bar.panel:set_cursor(line_of(bar, message.group_path))
+      press("<Tab>")
+      assert.is_true(shows(bar, message.path_of(review.commits[1].id)))
+      bar:render()
+      assert.is_true(shows(bar, message.path_of(review.commits[1].id)))
+      press("<Tab>")
+      assert.is_false(shows(bar, message.path_of(review.commits[1].id)))
+    end)
+  end)
+
   describe("the current file", function()
     it("marks the file that the view shows", function()
       local bar = open_sidebar()

@@ -198,6 +198,21 @@ function M.entries(commits)
   return out
 end
 
+---Expanded state of the sidebar tree at the start of a session.
+---
+--- A pull request review hides the commits under their group node. The pull
+--- request document lists the commits already, and the review reads the
+--- code first. A review of a local range shows the commits, because the
+--- commits are the topic of that review.
+---@param session codeview.Session
+---@return table<string, boolean> expanded Expanded state per directory path. See |codeview.tree.Opts|.
+function M.default_expanded(session)
+  if type(session.pr) == "table" then
+    return { [M.group_path] = false }
+  end
+  return {}
+end
+
 ---File record of the pull request document, for the file list.
 ---@param info codeview.pr.Info
 ---@return codeview.vcs.FileChange

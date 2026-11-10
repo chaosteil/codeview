@@ -18,6 +18,7 @@
 local config = require("codeview.config")
 local errors = require("codeview.error")
 local highlight = require("codeview.highlight")
+local message = require("codeview.message")
 local notify = require("codeview.notify")
 local panel = require("codeview.panel")
 local session_mod = require("codeview.session")
@@ -33,7 +34,7 @@ local M = {}
 ---@field panel codeview.Panel Window of the sidebar.
 ---@field tree codeview.tree.Node Root of the tree of the last render.
 ---@field current integer? Position of the file that the diff view shows.
----@field expanded table<string, boolean> Expanded state per directory path.
+---@field expanded table<string, boolean> Expanded state per directory path. See |codeview.message.default_expanded()| for the start state.
 ---@field private autocmds integer[] Autocmds that close with the sidebar.
 ---@field private subscriptions integer[] Event handlers that close with the sidebar.
 local Sidebar = {}
@@ -491,7 +492,8 @@ local function make(session, on_close)
   local sidebar = setmetatable({
     session = session,
     current = nil,
-    expanded = {},
+    -- A pull request review starts with the commits collapsed.
+    expanded = message.default_expanded(session),
     tree = tree.build({}),
     autocmds = {},
     subscriptions = {},
