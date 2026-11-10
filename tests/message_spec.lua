@@ -276,6 +276,30 @@ describe("codeview.message", function()
       assert.are.equal(row, comments.list(session)[1].start_line)
     end)
 
+    it("keeps the comment sign over the sign of a render plugin", function()
+      local session = open_session()
+      local state = open_commit(session)
+      -- A render plugin puts a sign on a heading, with the default priority.
+      local ns = api.nvim_create_namespace("codeview.test.render")
+      local plugin = api.nvim_buf_get_extmark_by_id(
+        state.buf,
+        ns,
+        api.nvim_buf_set_extmark(state.buf, ns, 0, 0, { sign_text = "H" }),
+        { details = true }
+      )
+
+      api.nvim_win_set_cursor(state.win, { 1, 0 })
+      assert.is_true(comments.add({ view = state }))
+      api.nvim_buf_set_lines(assert(editor.current()).buf, 0, -1, false, { "a note on the header" })
+      assert.is_true(editor.submit())
+
+      local signs = vim.tbl_filter(function(mark)
+        return mark[4].sign_text ~= nil
+      end, api.nvim_buf_get_extmarks(state.buf, comments.ns, { 0, 0 }, { 0, -1 }, { details = true }))
+      assert.are.equal(1, #signs)
+      assert.is_true(signs[1][4].priority > plugin[3].priority)
+    end)
+
     it("finds the comment again after a reopen", function()
       local session = open_session()
       local state = open_commit(session)

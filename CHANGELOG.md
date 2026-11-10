@@ -25,6 +25,10 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The sign of a comment stays visible on a row that also has the sign of
+  another plugin, for example the sign of a heading of markview.nvim in a
+  commit document. The sign of a comment now has a priority above the
+  default priority of an extmark.
 - The inline comment editor no longer covers the other boxes of its row. An
   edit takes the place of the box that it edits, and a new comment comes
   after the boxes of the row.

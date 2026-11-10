@@ -769,6 +769,11 @@ The view shows a comment with extmarks only: a sign on every covered row, and
 a box of virtual lines below the range. The line count of the diff buffer
 never changes, so the line map of the render stays correct.
 
+The sign column shows one sign per row. The sign of a comment has a priority
+above the default priority of an extmark, so the sign of another plugin on
+the same row does not hide it. An example is the sign of a heading of a
+markdown render plugin in a commit document.
+
                                                      *codeview-comments-keys*
 The insert keys write comments. They do nothing in a read-only buffer, so the
 diff buffer maps them to the comment editor: >

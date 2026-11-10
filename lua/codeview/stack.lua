@@ -36,12 +36,21 @@ local M = {}
 ---@type integer
 M.ns = api.nvim_create_namespace("codeview.boxes")
 
+---Priority that each sign of a comment adds to the priority of its entry.
+---
+--- The column shows one sign per row. An extmark of another plugin has the
+--- priority 4096 by default, for example the sign of a heading of a markdown
+--- render plugin in a commit document. The sign of a comment therefore goes
+--- above that default, so the row keeps the mark of its comment.
+---@type integer
+M.sign_raise = 4096
+
 ---@class codeview.stack.Entry
 ---@field buf integer Buffer that holds the rows.
 ---@field rows integer[] Rows of the anchor, from 1, in buffer order.
 ---@field side codeview.linemap.Side Side of the anchor.
 ---@field ns integer Namespace of the signs.
----@field priority integer Priority of the signs.
+---@field priority integer Priority of the signs among the signs of codeview. |codeview.stack.sign_raise| comes on top.
 ---@field sign string Sign text. Empty for no sign.
 ---@field sign_hl string Group of the sign.
 ---@field box (fun(width: integer): table[][])? Virtual lines of the box. Nil when the entry draws no box.
@@ -112,7 +121,7 @@ local function place_signs(entry)
     local opts = {
       sign_text = entry.sign ~= "" and entry.sign or nil,
       sign_hl_group = entry.sign_hl,
-      priority = entry.priority,
+      priority = M.sign_raise + entry.priority,
     }
     local ok = pcall(api.nvim_buf_set_extmark, entry.buf, entry.ns, row - 1, 0, opts)
     if not ok then
