@@ -659,7 +659,9 @@ describe("codeview.command", function()
       write("current.txt", "here\n")
       vim.cmd.edit(vim.fn.fnameescape(dir .. "/current.txt"))
       local opened = assert(run("file"))
-      assert.are.same({ dir .. "/current.txt" }, opened.paths)
+      -- The buffer name can follow a link of the directory, for example
+      -- /var to /private/var on macOS. Compare the real paths.
+      assert.are.same({ vim.uv.fs_realpath(dir .. "/current.txt") }, vim.tbl_map(vim.uv.fs_realpath, opened.paths))
     end)
 
     it("reports a current buffer without a file", function()
