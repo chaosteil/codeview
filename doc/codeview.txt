@@ -2580,6 +2580,10 @@ Defaults: >lua
         prompt = "A code review ...",  -- see |codeview-export-prompt|
         template = false,            -- false uses the built-in renderer
       },
+      files = {                      -- see |codeview-files-limits|
+        max_files = 500,             -- highest number of files of a review
+        max_bytes = 1000000,         -- largest file of a directory walk
+      },
       github = {
         remote = "",                 -- git remote, "" picks one
         comments = true,             -- read the review comments of the PR
@@ -2705,6 +2709,24 @@ the backend of a session can rely on these rules:
   end.
 
 `lua/codeview/vcs/init.lua` holds the full interface of a backend.
+
+                                                       *codeview-files-limits*
+The `files` options set the limits of a review of files with no repository.
+A directory of such a review gives every file below it. The walk of the
+directory skips these files:
+
+- A hidden entry: a file or a directory with a name that starts with `.`.
+  This skips `.git` and `.jj` too.
+- Inside a git work tree, a file that `.gitignore` ignores.
+- A binary file: a file with a zero byte in its first 8000 bytes.
+- A file above `files.max_bytes` bytes. Set the option to 0 to remove the
+  limit.
+
+A review with more than `files.max_files` files gives an error and does not
+open. Name fewer files, or set a higher limit.
+
+A file that you name is always part of the review, also a hidden, a binary,
+or a large file.
 
                                                         *codeview-binaries*
 Three options name the executables of the external tools: `git.binary` for

@@ -74,6 +74,7 @@ local M = {}
 ---| "copied"
 ---| "typechanged"
 ---| "unmerged"
+---| "file" # A file of a review of files with no repository. It has no change.
 ---| "unknown"
 
 ---@class codeview.vcs.FileChange

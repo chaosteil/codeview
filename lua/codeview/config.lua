@@ -23,6 +23,7 @@ local M = {}
 ---@field close codeview.Config.Close Options of the close key.
 ---@field comments codeview.Config.Comments Comment editor and storage options.
 ---@field export codeview.Config.Export Export options.
+---@field files codeview.Config.Files Options of a review of files with no repository.
 ---@field github codeview.Config.GitHub Pull request options.
 ---@field hints codeview.Config.Hints Key hint row options.
 ---@field keymaps table<string, string|string[]|false> Buffer-local keymaps. A list holds more than one key for one action. Set an entry to false to disable it.
@@ -85,6 +86,10 @@ local M = {}
 ---@field register string Register that receives the exported markdown. An empty text writes no register.
 ---@field prompt string Text under the title of the export. An empty text writes no prompt.
 ---@field template fun(session: codeview.Session, data: codeview.export.Data): string|false Custom renderer. False uses the built-in renderer.
+
+---@class codeview.Config.Files
+---@field max_files integer Highest number of files of one review of files. More files give an error.
+---@field max_bytes integer Highest size of a file, in bytes, that the walk of a directory takes. The walk skips a larger file. 0 removes the limit.
 
 ---@class codeview.Config.GitHub
 ---@field remote string Git remote that holds the pull requests. An empty text takes the remote whose URL names the repository of the pull request, else upstream, github, origin, or the first remote.
@@ -168,6 +173,10 @@ M.defaults = {
       "Skip only a comment that is marked resolved.",
     }, " "),
     template = false,
+  },
+  files = {
+    max_files = 500,
+    max_bytes = 1000000,
   },
   github = {
     remote = "",
@@ -376,6 +385,10 @@ function M.validate(opts)
     vim.validate("export.template", opts.export.template, function(value)
       return value == false or type(value) == "function"
     end, "function or false")
+
+    vim.validate("files", opts.files, "table")
+    vim.validate("files.max_files", opts.files.max_files, positive_integer, "positive integer")
+    vim.validate("files.max_bytes", opts.files.max_bytes, whole_number, "positive integer, or 0")
 
     vim.validate("github", opts.github, "table")
     vim.validate("github.remote", opts.github.remote, "string")

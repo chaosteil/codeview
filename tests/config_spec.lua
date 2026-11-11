@@ -196,6 +196,18 @@ describe("codeview.config", function()
     assert.is_truthy(err:find("diff.context", 1, true), err)
   end)
 
+  it("checks the limits of a review of files", function()
+    local cfg, err = config.setup({ files = { max_files = 0 } })
+    assert.is_nil(cfg)
+    assert.is_truthy(err:find("files.max_files", 1, true), err)
+    cfg, err = config.setup({ files = { max_bytes = -1 } })
+    assert.is_nil(cfg)
+    assert.is_truthy(err:find("files.max_bytes", 1, true), err)
+    cfg = assert(config.setup({ files = { max_files = 20, max_bytes = 0 } }))
+    assert.are.equal(20, cfg.files.max_files)
+    assert.are.equal(0, cfg.files.max_bytes)
+  end)
+
   it("rejects a non-table argument", function()
     for _, value in ipairs({ false, true, 5, "opts" }) do
       local cfg, err = config.setup(value)

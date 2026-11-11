@@ -32,6 +32,9 @@ M.marks = {
   typechanged = "T",
   unmerged = "U",
   message = "",
+  -- A review of files with no repository holds no change, so a file has no
+  -- status mark.
+  file = "",
   unknown = "?",
 }
 
