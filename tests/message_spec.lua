@@ -111,6 +111,8 @@ describe("codeview.message", function()
 
   describe("the sidebar", function()
     it("groups the commits under one node", function()
+      -- A wide sidebar shows the whole subject. A narrow one cuts it.
+      config.options.sidebar.width = 60
       local session = open_session()
       local sidebar = require("codeview.sidebar")
       sidebar.open({ session = session })

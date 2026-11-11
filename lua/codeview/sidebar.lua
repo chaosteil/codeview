@@ -11,6 +11,11 @@
 --- directory that hides its children shows the mark when a file below it has
 --- comments.
 ---
+--- The marks stand in fixed columns at the right edge of the window, as
+--- virtual text of |codeview.panel|. A name that does not fit before the
+--- marks gets cut and ends with "…". The sidebar renders again when the
+--- width of the window changes.
+---
 --- The header holds the range, the number of files, and the number of
 --- commits.
 ---
@@ -79,61 +84,125 @@ local function comment_counts(session)
   return counts
 end
 
----Add the comment mark of a node to its line.
+---@class codeview.sidebar.Columns
+---@field status integer Number of screen columns of the status marks.
+---@field comment integer Number of screen columns of the comment mark. 0 without a comment column.
+
+---Status marks of one node, with their highlight groups.
+---
+--- A file shows the mark of its status. A directory that hides its children
+--- shows the marks of the files below it. The commit documents have no
+--- status mark, so the group node of the commits shows none.
+---@param node codeview.tree.Node
+---@return [string, string][] marks
+local function status_marks(node)
+  ---@type [string, string][]
+  local out = {}
+  if node.kind == "dir" and node.expanded then
+    return out
+  end
+  for _, status in ipairs(node.statuses) do
+    local mark = tree.mark(status)
+    if mark ~= "" then
+      out[#out + 1] = { mark, highlight.for_status(status) }
+    end
+  end
+  return out
+end
+
+---Report whether a node shows the comment mark.
+---@param node codeview.tree.Node
+---@return boolean
+local function shows_comment(node)
+  if config.get().sidebar.icons.comment == "" then
+    return false
+  end
+  return node.comments > 0 and not (node.kind == "dir" and node.expanded)
+end
+
+---Widths of the mark columns at the right edge.
+---
+--- The status column is as wide as the widest set of status marks of the
+--- visible nodes. The comment column is there only when a visible node
+--- shows the comment mark.
+---@param nodes codeview.tree.Node[] Visible nodes.
+---@return codeview.sidebar.Columns
+local function mark_columns(nodes)
+  local columns = { status = 0, comment = 0 }
+  for _, node in ipairs(nodes) do
+    local width = 0
+    for _, mark in ipairs(status_marks(node)) do
+      width = width + vim.fn.strdisplaywidth(mark[1])
+    end
+    columns.status = math.max(columns.status, width)
+    if shows_comment(node) then
+      columns.comment = vim.fn.strdisplaywidth(config.get().sidebar.icons.comment)
+    end
+  end
+  return columns
+end
+
+---Add the marks of a node at the right edge of its line.
+---
+--- The marks stand in fixed columns: the status marks first, then one blank
+--- column, then the comment mark. Blanks fill the columns that a node does
+--- not use, so that the marks of all lines stay in line. A node without a
+--- status mark gives its free columns to the name.
 ---@param line codeview.panel.Builder
 ---@param node codeview.tree.Node
-local function add_comment_mark(line, node)
-  local mark = config.get().sidebar.icons.comment
-  if node.comments > 0 and mark ~= "" then
-    line.add(" ")
-    line.add(mark, "CodeViewCommentMark")
+---@param columns codeview.sidebar.Columns
+local function add_marks(line, node, columns)
+  local marks = status_marks(node)
+  local width = 0
+  for _, mark in ipairs(marks) do
+    line.add_right(mark[1], mark[2])
+    width = width + vim.fn.strdisplaywidth(mark[1])
+  end
+  local comment = shows_comment(node)
+  if #marks > 0 then
+    line.add_right(string.rep(" ", columns.status - width))
+    if columns.comment > 0 then
+      line.add_right(" ")
+      if not comment then
+        line.add_right(string.rep(" ", columns.comment))
+      end
+    end
+  end
+  if comment then
+    line.add_right(config.get().sidebar.icons.comment, "CodeViewCommentMark")
   end
 end
 
 ---Build the line of one tree node.
 ---@param node codeview.tree.Node
 ---@param is_current boolean True for the file that the diff view shows.
+---@param columns codeview.sidebar.Columns Columns of the marks.
+---@param width integer Number of screen columns of the text area.
 ---@return codeview.panel.Line
-local function node_line(node, is_current)
+local function node_line(node, is_current, columns, width)
   local icons = config.get().sidebar.icons
   local line = panel.builder()
 
   line.add(is_current and icons.current .. " " or "  ", is_current and "CodeViewMarker" or nil)
   line.add(string.rep(icons.guide .. " ", node.depth), "CodeViewIndent")
+  add_marks(line, node, columns)
 
   if node.kind == "dir" then
     line.add(node.expanded and icons.expanded or icons.collapsed, "CodeViewDir")
     line.add(" ")
     line.add(node.name, "CodeViewDir")
-    if not node.expanded then
-      -- The group node of the commits holds no status, so it gets no space.
-      if #node.statuses > 0 then
-        line.add(" ")
-      end
-      for _, status in ipairs(node.statuses) do
-        line.add(tree.mark(status), highlight.for_status(status))
-      end
-      add_comment_mark(line, node)
-    end
-    return line.build({ data = node })
+    return line.build({ data = node, width = width })
   end
 
   local file = node.file --[[@as codeview.vcs.FileChange]]
-  local group = highlight.for_status(file.status)
   line.add(icons.file)
   line.add(" ")
-  line.add(node.name, group)
+  line.add(node.name, highlight.for_status(file.status))
   if file.old_path then
     line.add(" ← " .. old_name(file), "CodeViewDir")
   end
-  local mark = tree.mark(file.status)
-  if mark ~= "" then
-    line.add(" ")
-    line.add(mark, group)
-  end
-  add_comment_mark(line, node)
 
-  return line.build({ hl = is_current and "CodeViewCurrent" or nil, data = node })
+  return line.build({ hl = is_current and "CodeViewCurrent" or nil, data = node, width = width })
 end
 
 ---Line that opens the comment overview.
@@ -182,8 +251,10 @@ local function render_lines(self)
     return lines
   end
 
+  local columns = mark_columns(nodes)
+  local width = self.panel:text_width()
   for _, node in ipairs(nodes) do
-    lines[#lines + 1] = node_line(node, node.kind == "file" and node.index == self.current)
+    lines[#lines + 1] = node_line(node, node.kind == "file" and node.index == self.current, columns, width)
   end
   return lines
 end
@@ -557,6 +628,9 @@ local function make(session, on_close)
     keymaps = keymaps(sidebar),
     on_close = on_close,
     same = same_node,
+    -- The marks stand at the right edge, and a long name gets cut before
+    -- them. Both depend on the width of the window.
+    fit = true,
   })
   watch(sidebar)
   return sidebar

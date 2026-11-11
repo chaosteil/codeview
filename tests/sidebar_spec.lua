@@ -118,6 +118,53 @@ describe("codeview.sidebar", function()
     return nil
   end
 
+  ---Text of one line and the marks at its right edge.
+  ---
+  --- A "|" divides the text from the marks. The marks keep their blanks, so
+  --- the result shows the columns of the marks.
+  ---@param bar codeview.Sidebar
+  ---@param lnum integer
+  ---@return string
+  local function shown(bar, lnum)
+    local right = ""
+    for _, mark in ipairs(marks_of(bar, lnum)) do
+      local details = mark[4]
+      if details.virt_text_pos == "right_align" then
+        for _, chunk in ipairs(details.virt_text) do
+          right = right .. chunk[1]
+        end
+      end
+    end
+    return text_of(bar, lnum) .. "|" .. right
+  end
+
+  ---Rows of the tree, from the first node.
+  ---@param bar codeview.Sidebar
+  ---@return string[]
+  local function rows(bar)
+    local out = {}
+    for lnum = HEAD + 1, bar.panel:line_count() do
+      out[#out + 1] = shown(bar, lnum)
+    end
+    return out
+  end
+
+  ---Highlight group of a mark at the right edge.
+  ---@param bar codeview.Sidebar
+  ---@param lnum integer
+  ---@param needle string Text of one part of the marks.
+  ---@return string? group
+  local function right_hl(bar, lnum, needle)
+    for _, mark in ipairs(marks_of(bar, lnum)) do
+      for _, chunk in ipairs(mark[4].virt_text or {}) do
+        if chunk[1] == needle then
+          return chunk[2]
+        end
+      end
+    end
+    return nil
+  end
+
   ---Highlight group of a part of a line.
   ---@param bar codeview.Sidebar
   ---@param lnum integer
@@ -232,11 +279,15 @@ describe("codeview.sidebar", function()
       local bar = open_sidebar()
       local lines = bar.panel:lines()
       assert.are.equal(HEAD + 5, #lines)
-      assert.are.equal("  ▾ dir", lines[HEAD + 1])
-      assert.are.equal("  │   renamed.txt ← nested.txt R", lines[HEAD + 2])
-      assert.are.equal("    a.txt M", lines[HEAD + 3])
-      assert.are.equal("    added.txt A", lines[HEAD + 4])
-      assert.are.equal("    keep.txt D", lines[HEAD + 5])
+      -- The sidebar is 20 columns wide, so the old path of the rename gets
+      -- cut before its mark.
+      assert.are.same({
+        "  ▾ dir|",
+        "  │   renamed.txt…|R",
+        "    a.txt|M",
+        "    added.txt|A",
+        "    keep.txt|D",
+      }, rows(bar))
     end)
 
     it("keeps the node of the line in the line data", function()
@@ -258,8 +309,8 @@ describe("codeview.sidebar", function()
         ["keep.txt"] = "CodeViewDeleted",
       }) do
         local lnum = line_of(bar, path)
-        local text = text_of(bar, lnum)
-        assert.are.equal(group, hl_at(bar, lnum, #text - 1))
+        local mark = shown(bar, lnum):sub(-1)
+        assert.are.equal(group, right_hl(bar, lnum, mark))
       end
     end)
 
@@ -270,6 +321,7 @@ describe("codeview.sidebar", function()
     end)
 
     it("highlights the directory, the icon, and the old path", function()
+      config.setup({ commit_message = false, sidebar = { width = 40 } })
       local bar = open_sidebar()
       local dir = line_of(bar, "dir")
       assert.are.equal("CodeViewDir", hl_of(bar, dir, "▾"))
@@ -289,10 +341,13 @@ describe("codeview.sidebar", function()
     end)
 
     it("takes the icons from the configuration", function()
-      config.setup({ commit_message = false, sidebar = { icons = { expanded = "-", file = ".", guide = ":" } } })
+      config.setup({
+        commit_message = false,
+        sidebar = { width = 40, icons = { expanded = "-", file = ".", guide = ":" } },
+      })
       local bar = open_sidebar()
-      assert.are.equal("  - dir", text_of(bar, line_of(bar, "dir")))
-      assert.are.equal("  : . renamed.txt ← nested.txt R", text_of(bar, line_of(bar, "dir/renamed.txt")))
+      assert.are.equal("  - dir|", shown(bar, line_of(bar, "dir")))
+      assert.are.equal("  : . renamed.txt ← nested.txt|R", shown(bar, line_of(bar, "dir/renamed.txt")))
     end)
 
     it("reports an empty file list", function()
@@ -309,7 +364,122 @@ describe("codeview.sidebar", function()
       local review = assert(opened)
       review.files = { { path = "only.txt", status = "added" } }
       api.nvim_exec_autocmds("User", { pattern = "CodeViewSessionRefreshed", data = { id = review.id } })
-      assert.are.equal("    only.txt A", bar.panel:lines()[HEAD + 1])
+      assert.are.equal("    only.txt|A", shown(bar, HEAD + 1))
+    end)
+  end)
+
+  describe("the marks at the right edge", function()
+    it("puts the marks at the right edge of the window", function()
+      local bar = open_sidebar()
+      local lnum = line_of(bar, "a.txt")
+      local found = vim.tbl_filter(function(mark)
+        return mark[4].virt_text ~= nil
+      end, marks_of(bar, lnum))
+      assert.are.equal(1, #found)
+      assert.are.equal("right_align", found[1][4].virt_text_pos)
+      -- The mark is not part of the text, so the line data stays the node.
+      assert.are.equal("    a.txt", text_of(bar, lnum))
+      assert.are.equal("a.txt", bar.panel:data(lnum).path)
+    end)
+
+    it("cuts a long name and keeps the mark", function()
+      open_session(fixture.ids.edit)
+      local review = assert(opened)
+      review.files = { { path = "a-file-with-a-very-long-name.txt", status = "added" } }
+      local bar = assert(sidebar.open())
+      local lnum = HEAD + 1
+      assert.are.equal("    a-file-with-a…|A", shown(bar, lnum))
+      -- 20 columns: 18 for the text, 1 blank column, 1 for the mark.
+      assert.are.equal(18, vim.fn.strdisplaywidth(text_of(bar, lnum)))
+      assert.are.equal("CodeViewAdded", hl_of(bar, lnum, "…"))
+    end)
+
+    it("cuts a long commit title, which has no status mark", function()
+      config.setup({ quit = "never", comments = { dir = fixtures.tempdir("codeview-mark") } })
+      open_session()
+      local review = assert(opened)
+      local message = require("codeview.message")
+      local commit = vim.deepcopy(review.commits[1])
+      commit.subject = "Move the files to a new directory and keep the old names"
+      review.files = message.entries({ commit })
+      local bar = assert(sidebar.open())
+      local lnum = line_of(bar, message.path_of(commit.id))
+      local text = text_of(bar, lnum)
+      -- Without a mark, the title takes the full width.
+      assert.are.equal(20, vim.fn.strdisplaywidth(text))
+      assert.are.equal("…", vim.fn.strcharpart(text, vim.fn.strchars(text) - 1))
+      assert.are.equal("|", shown(bar, lnum):sub(-1))
+
+      assert(require("codeview.comments").create(review, {
+        file = commit and message.path_of(commit.id),
+        start_line = 1,
+        end_line = 1,
+        side = "new",
+        commit = fixture.ids.shuffle,
+        body = "a note",
+      }))
+      text = text_of(bar, lnum)
+      -- 20 columns: 18 for the title, 1 blank column, 1 for the comment mark.
+      assert.are.equal(18, vim.fn.strdisplaywidth(text))
+      assert.are.equal("|C", shown(bar, lnum):sub(-2))
+    end)
+
+    it("keeps the columns of a collapsed directory with several marks", function()
+      config.setup({ commit_message = false, quit = "never", comments = { dir = fixtures.tempdir("codeview-mark") } })
+      open_session(fixture.ids.edit)
+      local review = assert(opened)
+      review.files = {
+        { path = "lib/one.txt", status = "added" },
+        { path = "lib/two.txt", status = "modified" },
+        { path = "lib/three.txt", status = "deleted" },
+        { path = "root.txt", status = "modified" },
+        { path = "zed.txt", status = "renamed", old_path = "old.txt" },
+      }
+      local bar = assert(sidebar.open())
+      assert(require("codeview.comments").create(review, {
+        file = "lib/two.txt",
+        start_line = 1,
+        end_line = 1,
+        side = "new",
+        commit = fixture.ids.edit,
+        body = "a note",
+      }))
+      bar:collapse_all()
+      -- The status column is three columns wide, for the marks of lib. The
+      -- comment column follows after one blank column. Blanks fill the
+      -- columns that a line does not use.
+      assert.are.same({
+        "  ▸ lib|AMD C",
+        "    root.txt|M    ",
+        "    zed.txt ←…|R    ",
+      }, rows(bar))
+    end)
+
+    it("renders again for a new width", function()
+      local bar = open_sidebar()
+      local win = assert(bar.panel:window())
+      local lnum = line_of(bar, "dir/renamed.txt")
+      assert.are.equal("  │   renamed.txt…|R", shown(bar, lnum))
+
+      api.nvim_win_set_width(win, 40)
+      -- Neovim runs WinResized from the main loop, which a headless test
+      -- does not reach. The test runs the event itself.
+      api.nvim_exec_autocmds("WinResized", {})
+      assert.are.equal("  │   renamed.txt ← nested.txt|R", shown(bar, lnum))
+
+      api.nvim_win_set_width(win, 12)
+      api.nvim_exec_autocmds("WinResized", {})
+      assert.are.equal("  │   ren…|R", shown(bar, lnum))
+      assert.are.equal("    a.txt|M", shown(bar, line_of(bar, "a.txt")))
+    end)
+
+    it("keeps the mark visible in a window that is too narrow", function()
+      local bar = open_sidebar()
+      api.nvim_win_set_width(assert(bar.panel:window()), 2)
+      api.nvim_exec_autocmds("WinResized", {})
+      -- The text has no room left, but the mark stays.
+      assert.are.equal("|R", shown(bar, line_of(bar, "dir/renamed.txt")))
+      assert.are.equal(" …|", shown(bar, line_of(bar, "dir")))
     end)
   end)
 
@@ -330,7 +500,9 @@ describe("codeview.sidebar", function()
     it("hides the children of a directory", function()
       local bar = nested()
       assert.is_true(bar:toggle_node(bar.tree.children[1]))
-      assert.are.same({ "  ▸ dir AD", "    root.txt M" }, vim.list_slice(bar.panel:lines(), HEAD + 1))
+      -- The collapsed directory shows two marks, so the status column is two
+      -- columns wide.
+      assert.are.same({ "  ▸ dir|AD", "    root.txt|M " }, rows(bar))
       assert.is_false(bar.expanded["dir"])
     end)
 
@@ -346,14 +518,14 @@ describe("codeview.sidebar", function()
       local bar = nested()
       bar:toggle_node(bar.tree.children[1])
       bar:render()
-      assert.are.equal("  ▸ dir AD", bar.panel:lines()[HEAD + 1])
+      assert.are.equal("  ▸ dir|AD", shown(bar, HEAD + 1))
     end)
 
     it("acts on the directory of a file line", function()
       local bar = nested()
       bar.panel:set_cursor(line_of(bar, "dir/one.txt"))
       assert.is_true(bar:toggle_node())
-      assert.are.equal("  ▸ dir AD", bar.panel:lines()[HEAD + 1])
+      assert.are.equal("  ▸ dir|AD", shown(bar, HEAD + 1))
       local win = assert(bar.panel:window())
       assert.are.equal(line_of(bar, "dir"), api.nvim_win_get_cursor(win)[1])
     end)
@@ -367,7 +539,7 @@ describe("codeview.sidebar", function()
     it("collapses and expands every directory", function()
       local bar = nested()
       bar:collapse_all()
-      assert.are.same({ "  ▸ dir AD", "    root.txt M" }, vim.list_slice(bar.panel:lines(), HEAD + 1))
+      assert.are.same({ "  ▸ dir|AD", "    root.txt|M " }, rows(bar))
 
       bar:expand_all()
       assert.are.equal(HEAD + 4, #bar.panel:lines())
@@ -379,9 +551,9 @@ describe("codeview.sidebar", function()
       bar:focus()
       bar.panel:set_cursor(line_of(bar, "dir"))
       press("<CR>")
-      assert.are.equal("  ▸ dir AD", bar.panel:lines()[HEAD + 1])
+      assert.are.equal("  ▸ dir|AD", shown(bar, HEAD + 1))
       press("<Tab>")
-      assert.are.equal("  ▾ dir", bar.panel:lines()[HEAD + 1])
+      assert.are.equal("  ▾ dir|", shown(bar, HEAD + 1))
       assert.is_nil(view.current())
     end)
 
@@ -389,9 +561,9 @@ describe("codeview.sidebar", function()
       local bar = nested()
       bar:focus()
       press("zM")
-      assert.are.equal("  ▸ dir AD", bar.panel:lines()[HEAD + 1])
+      assert.are.equal("  ▸ dir|AD", shown(bar, HEAD + 1))
       press("zR")
-      assert.are.equal("  ▾ dir", bar.panel:lines()[HEAD + 1])
+      assert.are.equal("  ▾ dir|", shown(bar, HEAD + 1))
     end)
   end)
 
@@ -555,7 +727,7 @@ describe("codeview.sidebar", function()
           body = "a note",
         }))
       end
-      assert.are.equal("  ▸ Commits C", text_of(bar, line_of(bar, message.group_path)))
+      assert.are.equal("  ▸ Commits|C", shown(bar, line_of(bar, message.group_path)))
 
       local _, err = await(function(cb)
         view.next_comment(review, cb)
@@ -596,7 +768,7 @@ describe("codeview.sidebar", function()
 
       assert.are.equal(2, bar.current)
       local lnum = line_of(bar, "added.txt")
-      assert.are.equal("▸   added.txt A", text_of(bar, lnum))
+      assert.are.equal("▸   added.txt|A", shown(bar, lnum))
       assert.are.equal("CodeViewCurrent", marks_of(bar, lnum)[1][4].line_hl_group)
       assert.are.equal("CodeViewMarker", hl_at(bar, lnum, 0))
     end)
@@ -610,9 +782,9 @@ describe("codeview.sidebar", function()
         view.open(assert(opened), 3, cb)
       end)
 
-      assert.are.equal("    a.txt M", text_of(bar, line_of(bar, "a.txt")))
+      assert.are.equal("    a.txt|M", shown(bar, line_of(bar, "a.txt")))
       assert.are.equal(3, bar.current)
-      assert.are.equal("▸ │   renamed.txt ← nested.txt R", text_of(bar, line_of(bar, "dir/renamed.txt")))
+      assert.are.equal("▸ │   renamed.txt…|R", shown(bar, line_of(bar, "dir/renamed.txt")))
     end)
 
     it("moves the cursor to the file of the view", function()
@@ -627,7 +799,7 @@ describe("codeview.sidebar", function()
     it("shows the directory of the current file again", function()
       local bar = open_sidebar()
       bar:toggle_node(bar.tree.children[1])
-      assert.are.equal("  ▸ dir R", bar.panel:lines()[HEAD + 1])
+      assert.are.equal("  ▸ dir|R", shown(bar, HEAD + 1))
 
       local _, err = await(function(cb)
         view.open(assert(opened), 3, cb)
@@ -636,7 +808,7 @@ describe("codeview.sidebar", function()
 
       assert.are.equal(3, bar.current)
       local lnum = line_of(bar, "dir/renamed.txt")
-      assert.are.equal("▸ │   renamed.txt ← nested.txt R", text_of(bar, lnum))
+      assert.are.equal("▸ │   renamed.txt…|R", shown(bar, lnum))
       assert.are.equal("CodeViewCurrent", marks_of(bar, lnum)[1][4].line_hl_group)
       assert.is_nil(bar.expanded["dir"])
       local win = assert(bar.panel:window())
@@ -649,7 +821,7 @@ describe("codeview.sidebar", function()
         view.open(assert(opened), 1, cb)
       end)
       bar:set_current(nil)
-      assert.are.equal("    a.txt M", text_of(bar, line_of(bar, "a.txt")))
+      assert.are.equal("    a.txt|M", shown(bar, line_of(bar, "a.txt")))
     end)
   end)
 
@@ -853,17 +1025,18 @@ describe("codeview.sidebar", function()
 
     it("shows no mark without comments", function()
       local bar = open_sidebar()
-      assert.are.equal("    a.txt M", text_of(bar, line_of(bar, "a.txt")))
+      assert.are.equal("    a.txt|M", shown(bar, line_of(bar, "a.txt")))
     end)
 
     it("marks a file with a local comment", function()
       local bar, review = open_sidebar()
       add_comment(review, "a.txt")
       local lnum = line_of(bar, "a.txt")
-      assert.are.equal("    a.txt M C", text_of(bar, lnum))
-      assert.are.equal("CodeViewCommentMark", hl_at(bar, lnum, #text_of(bar, lnum) - 1))
-      assert.are.equal("CodeViewModified", hl_of(bar, lnum, "M"))
-      assert.are.equal("    added.txt A", text_of(bar, line_of(bar, "added.txt")))
+      assert.are.equal("    a.txt|M C", shown(bar, lnum))
+      assert.are.equal("CodeViewCommentMark", right_hl(bar, lnum, "C"))
+      assert.are.equal("CodeViewModified", right_hl(bar, lnum, "M"))
+      -- A file without comments keeps its status mark in the same column.
+      assert.are.equal("    added.txt|A  ", shown(bar, line_of(bar, "added.txt")))
     end)
 
     it("removes the mark with the last comment of the file", function()
@@ -874,20 +1047,20 @@ describe("codeview.sidebar", function()
       for _, comment in ipairs({ first, second }) do
         assert.is_truthy(store:remove(comment.id))
         events.emit("comment_deleted", { id = comment.id, file = comment.file, session = review.id })
-        local expected = comment == first and "    a.txt M C" or "    a.txt M"
-        assert.are.equal(expected, text_of(bar, line_of(bar, "a.txt")))
+        local expected = comment == first and "    a.txt|M C" or "    a.txt|M"
+        assert.are.equal(expected, shown(bar, line_of(bar, "a.txt")))
       end
     end)
 
     it("marks a directory that hides a file with comments", function()
       local bar, review = open_sidebar()
       add_comment(review, "dir/renamed.txt")
-      assert.are.equal("  ▾ dir", text_of(bar, line_of(bar, "dir")))
-      assert.are.equal("  │   renamed.txt ← nested.txt R C", text_of(bar, line_of(bar, "dir/renamed.txt")))
+      assert.are.equal("  ▾ dir|", shown(bar, line_of(bar, "dir")))
+      assert.are.equal("  │   renamed.t…|R C", shown(bar, line_of(bar, "dir/renamed.txt")))
       bar:toggle_node(bar.panel:data(line_of(bar, "dir")))
       local lnum = line_of(bar, "dir")
-      assert.are.equal("  ▸ dir R C", text_of(bar, lnum))
-      assert.are.equal("CodeViewCommentMark", hl_at(bar, lnum, #text_of(bar, lnum) - 1))
+      assert.are.equal("  ▸ dir|R C", shown(bar, lnum))
+      assert.are.equal("CodeViewCommentMark", right_hl(bar, lnum, "C"))
     end)
 
     it("marks a file with a comment of GitHub", function()
@@ -907,9 +1080,9 @@ describe("codeview.sidebar", function()
           outdated = false,
         },
       })
-      assert.are.equal("    added.txt A C", text_of(bar, line_of(bar, "added.txt")))
+      assert.are.equal("    added.txt|A C", shown(bar, line_of(bar, "added.txt")))
       remote.clear(review)
-      assert.are.equal("    added.txt A", text_of(bar, line_of(bar, "added.txt")))
+      assert.are.equal("    added.txt|A", shown(bar, line_of(bar, "added.txt")))
     end)
 
     it("takes the mark from the configuration", function()
@@ -921,10 +1094,12 @@ describe("codeview.sidebar", function()
       })
       local bar, review = open_sidebar()
       add_comment(review, "a.txt")
-      assert.are.equal("    a.txt M *", text_of(bar, line_of(bar, "a.txt")))
+      assert.are.equal("    a.txt|M *", shown(bar, line_of(bar, "a.txt")))
       config.options.sidebar.icons.comment = ""
       bar:render()
-      assert.are.equal("    a.txt M", text_of(bar, line_of(bar, "a.txt")))
+      -- No mark gives no comment column: the status marks stand at the edge.
+      assert.are.equal("    a.txt|M", shown(bar, line_of(bar, "a.txt")))
+      assert.are.equal("    added.txt|A", shown(bar, line_of(bar, "added.txt")))
     end)
 
     it("links the highlight group to the color of the comments", function()

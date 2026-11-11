@@ -22,12 +22,12 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   of a diff. See `:help codeview-commit-message`.
 - The pr-agent documents load as markdown too. The key issues of a review,
   the new body of a describe result, and the answers of ask have no indent.
-- The sidebar marks a file with comments with a `C` after its status mark.
-  The local comments and the comments of GitHub count. A collapsed directory
-  shows the mark when a file below it has comments. The mark follows each
-  change of a comment at once. The `sidebar.icons.comment` option sets the
-  text, and the highlight group `CodeViewCommentMark` sets the color. See
-  `:help codeview-sidebar-comment-mark`.
+- The sidebar marks a file with comments with a `C` right of its status
+  mark. The local comments and the comments of GitHub count. A collapsed
+  directory shows the mark when a file below it has comments. The mark
+  follows each change of a comment at once. The `sidebar.icons.comment`
+  option sets the text, and the highlight group `CodeViewCommentMark` sets
+  the color. See `:help codeview-sidebar-comment-mark`.
 - `]c` and `[c` jump to the next and the previous comment, in the diff view
   and in the sidebar. The local comments and the threads of GitHub are
   stops. After the last comment of a file, `]c` opens the next file with
@@ -39,6 +39,11 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- The status marks and the comment mark of the sidebar stand in fixed
+  columns at the right edge of the window. A long name or a long commit
+  title gets cut and ends with "…", so the marks stay visible at every width
+  of the sidebar. The sidebar draws the lines again when its width changes.
+  See `:help codeview-sidebar-columns`.
 - In a pull request review, the Commits group of the sidebar starts
   collapsed. The document of the pull request lists the commits already.
   Press `<Tab>` on the group to show them. A review of a local range still

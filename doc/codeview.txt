@@ -329,17 +329,17 @@ comes after an empty line: >
     4 files, 2 commits
 
       ▾ dir
-      │   renamed.txt ← nested.txt R
-    ▸   a.txt M
-        added.txt A
-        keep.txt D
+      │   renamed.txt ← nested.txt     R
+    ▸   a.txt                          M
+        added.txt                      A
+        keep.txt                       D
 <
 The tree holds one node per directory and one node per file. A chain of
 directories with one child each becomes one node, for example
 `lua/codeview/vcs`. Directories come before files, and both come in
 alphabetical order.
 
-Each file line ends with a status mark: >
+Each file line shows a status mark at the right edge of the window: >
 
     A    the range adds the file
     M    the range changes the file
@@ -351,17 +351,37 @@ Each file line ends with a status mark: >
     ?    the backend gave another status
 <
 A rename line and a copy line also show the old path, after an arrow. A
-directory that hides its children shows the marks of the files below it.
+directory that hides its children shows the marks of the files below it, for
+example `AMD`.
+
+                                                    *codeview-sidebar-columns*
+The marks stand in fixed columns at the right edge of the window, so they
+stay visible at every width of the sidebar. The status column is as wide as
+the widest set of status marks of the lines that you see. A name that does
+not fit before the marks gets cut, and it ends with "…". The sidebar draws
+the lines again when its width changes. A commit has no status mark, so its
+title can use the full width. A sidebar of 24 columns: >
+
+      ▾ Commits
+      │   9b2688a5 Move the…
+      ▾ dir
+      │   renamed.txt ← n… R
+    ▸   a.txt              M
+<
+The marks are virtual text. They are not part of the buffer text, so the
+cursor does not go on them.
 
                                                *codeview-sidebar-comment-mark*
-A file with comments shows the comment mark `C` after its status mark: >
+A file with comments shows the comment mark `C` in its own column, right of
+the status marks: >
 
       ▾ dir
-      │   renamed.txt ← nested.txt R
-    ▸   a.txt M C
-        added.txt A
-        keep.txt D
+      │   renamed.txt ← nested.txt   R
+    ▸   a.txt                        M C
+        added.txt                    A
+        keep.txt                     D
 <
+The comment column is there only when a line that you see shows the mark.
 These comments count:
 
 - The local comments of the review, also the resolved comments and the
@@ -377,7 +397,8 @@ The sidebar draws the marks again when you add, edit, delete, resolve, or
 send a comment, and when the comments of GitHub arrive. The highlight group
 of the mark is |hl-CodeViewCommentMark|. The status mark of a copied file is
 `C` too, but it has the color of its status. Set `sidebar.icons.comment` to
-another text to change the mark, or to "" to show no mark.
+another text to change the mark, or to "" to show no mark. Then the sidebar
+has no comment column.
 
 Press `]c` to jump to the next comment, also in another file. See
 |codeview-diff-comment-keys|.
