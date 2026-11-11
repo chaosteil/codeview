@@ -8,6 +8,15 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `:Codeview file {path}...` reviews files that no repository tracks: files
+  outside every repository, or untracked files. The review reads the files
+  from the disk, and never runs git or jj to read them. A directory gives
+  every file below it, without the hidden, ignored, binary, and large files.
+  A file shows as a plain document with its own filetype, and you comment on
+  it as on a diff. The comment store takes the paths and a digest of the
+  contents as its key, so a change of a file starts a new review. The
+  `files.max_files` and `files.max_bytes` options set the limits.
+  `codeview.review_files()` is the Lua form. See `:help codeview-files`.
 - Another tool can send chosen comments of a pull request as one review. It
   runs `require('codeview.bridge').submit_file('<path>')` in a headless
   Neovim, with a JSON request and a JSON result. See `:help codeview-bridge`.

@@ -560,6 +560,141 @@ describe("codeview.command", function()
     end)
   end)
 
+  describe(":Codeview file", function()
+    ---@type string
+    local dir
+
+    ---Write a file below the test directory.
+    ---@param path string
+    ---@param content string
+    local function write(path, content)
+      local full = vim.fs.joinpath(dir, path)
+      vim.fn.mkdir(vim.fs.dirname(full), "p")
+      local handle = assert(io.open(full, "wb"))
+      handle:write(content)
+      handle:close()
+    end
+
+    ---Run the command and wait for its answer.
+    ---@param args string
+    ---@return codeview.Session? session
+    ---@return codeview.Error? err
+    local function run(args)
+      local out, finished = {}, false
+      command.run({
+        args = args,
+        dir = dir,
+        on_open = function(opened, err)
+          out.session, out.err, finished = opened, err, true
+        end,
+      })
+      wait_for(function()
+        return finished
+      end)
+      return out.session, out.err
+    end
+
+    before_each(function()
+      dir = vim.fs.normalize(fixtures.tempdir("command-files"))
+      require("codeview.config").setup({
+        commit_message = false,
+        quit = "never",
+        comments = { dir = dir .. "-store" },
+      })
+    end)
+
+    after_each(function()
+      vim.cmd("silent! %bwipeout!")
+      vim.fn.delete(dir, "rf")
+      vim.fn.delete(dir .. "-store", "rf")
+    end)
+
+    it("reads the paths after the word file", function()
+      local parsed = assert(command.parse("file a.md docs/ ++quit"))
+      assert.are.equal("files", parsed.action)
+      assert.are.same({ "a.md", "docs/" }, parsed.paths)
+      assert.is_true(parsed.quit)
+      parsed = assert(command.parse("FILE"))
+      assert.are.equal("files", parsed.action)
+      assert.are.same({}, parsed.paths)
+    end)
+
+    it("keeps a space after a backslash", function()
+      assert.are.same({ "my notes.md", "b" }, command.split_paths([[my\ notes.md  b]]))
+      assert.are.same({ [[a\b]] }, command.split_paths([[a\\b]]))
+      assert.are.same({}, command.split_paths("   "))
+    end)
+
+    it("opens a review of the files", function()
+      write("plan.md", "# Plan\n")
+      write("docs/a.md", "a\n")
+      local opened, err = run("file plan.md docs")
+      assert.is_nil(err)
+      opened = assert(opened)
+      assert.is_true(opened:is_files())
+      assert.are.equal(dir, opened.repo.root)
+      assert.are.same(
+        { "docs/a.md", "plan.md" },
+        vim.tbl_map(function(file)
+          return file.path
+        end, opened.files)
+      )
+    end)
+
+    it("expands a wildcard", function()
+      write("one.md", "1\n")
+      write("two.md", "2\n")
+      write("skip.txt", "x\n")
+      local opened = assert(run("file " .. dir .. "/*.md"))
+      assert.are.equal(2, opened:changed_count())
+    end)
+
+    it("reports a wildcard without a match", function()
+      local opened, err = run("file " .. dir .. "/*.nothing")
+      assert.is_nil(opened)
+      assert.matches("no file matches", err.message)
+    end)
+
+    it("takes the file of the current buffer without a path", function()
+      write("current.txt", "here\n")
+      vim.cmd.edit(vim.fn.fnameescape(dir .. "/current.txt"))
+      local opened = assert(run("file"))
+      assert.are.same({ dir .. "/current.txt" }, opened.paths)
+    end)
+
+    it("reports a current buffer without a file", function()
+      vim.cmd.enew()
+      local opened, err = run("file")
+      assert.is_nil(opened)
+      assert.matches("the current buffer holds no file", err.message)
+    end)
+
+    it("opens a review of files from the Lua call", function()
+      write("plan.md", "# Plan\n")
+      local out, finished = {}, false
+      command.review_files({ "plan.md" }, { dir = dir }, function(opened, err)
+        out.session, out.err, finished = opened, err, true
+      end)
+      wait_for(function()
+        return finished
+      end)
+      assert.is_nil(out.err)
+      assert.is_true(assert(out.session):is_files())
+    end)
+
+    it("completes the word file, and then the paths", function()
+      local res = helpers.clean_nvim('print(vim.inspect(vim.fn.getcompletion("Codeview fi", "cmdline")))')
+      assert.are.equal(0, res.code)
+      assert.is_truthy(res.output:find('"file"', 1, true), res.output)
+      write("plan.md", "x\n")
+      res = helpers.clean_nvim(
+        string.format('print(vim.inspect(vim.fn.getcompletion("Codeview file %s/pl", "cmdline")))', dir)
+      )
+      assert.are.equal(0, res.code)
+      assert.is_truthy(res.output:find("plan.md", 1, true), res.output)
+    end)
+  end)
+
   it("removes the fixture", function()
     fixture.cleanup()
     assert.are.equal(0, vim.fn.isdirectory(fixture.dir))

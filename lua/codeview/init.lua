@@ -3,9 +3,9 @@
 --- The public API of the plugin. The modules under `codeview.*` hold the
 --- work.
 ---
---- These calls are stable: `setup`, `open`, `review`, `open_pr`, `close`,
---- `reopen`, `session`, `comments`, `export`, `export_text`, `submit`, and
---- `refresh`.
+--- These calls are stable: `setup`, `open`, `review`, `review_files`,
+--- `open_pr`, `close`, `reopen`, `session`, `comments`, `export`,
+--- `export_text`, `submit`, and `refresh`.
 --- Their names, arguments, and results stay the same within version 0.x.
 --- Every other call is unstable. It can change before version 1.0, and its
 --- doc comment says so. Some calls return internal tables, for example a
@@ -76,6 +76,27 @@ end
 ---@param opts? { dir?: string, export_file?: string, quit?: boolean }
 function M.review(spec, opts)
   require("codeview.command").review(spec, opts)
+end
+
+---Open a review of files the way `:Codeview file {path}` does.
+---
+--- The review is for files that no repository tracks: files outside every
+--- repository, or untracked files. Review tracked changes with
+--- |codeview.review()|. The call reads the files from the disk, and never
+--- runs git or jj to read them. A directory gives every file below it. See
+--- |codeview-files|.
+---
+--- The call takes the paths as they are, with no expansion of `%`, `~`, or
+--- wildcards. A relative path starts at `opts.dir`, or at the current
+--- directory. It returns at once. An error goes to the user as a message.
+--- `opts.export_file` and `opts.quit` work as in |codeview.review()|.
+---@param paths string|string[] One path, or a list of files and directories.
+---@param opts? { dir?: string, export_file?: string, quit?: boolean }
+function M.review_files(paths, opts)
+  if type(paths) == "string" then
+    paths = { paths }
+  end
+  require("codeview.command").review_files(paths, opts)
 end
 
 ---Open the commit picker.

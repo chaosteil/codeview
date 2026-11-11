@@ -25,6 +25,9 @@ the comments as markdown, and you send them to a GitHub pull request.
 - Shows each GitHub review thread as one box, oldest comment first. You write
   a draft reply with `r`, and it goes out with your other comments. Resolve,
   edit, delete, and reactions go to GitHub at once.
+- Reviews files that no repository tracks, for example a plan that an agent
+  wrote. `:Codeview file plan.md` shows the plain file, and you comment on it
+  in the same way. A directory gives every file below it.
 - Writes no file in your project. The comments live in one markdown file per
   review, in the data directory of Neovim.
 - No runtime dependency. The plugin uses the standard library of Neovim.
@@ -110,6 +113,10 @@ On a jj repository the argument is a revset, for example
 example chaoshub, can send chosen comments through a headless codeview. See
 `:help codeview-bridge`.
 
+For files that no repository tracks, run `:Codeview file <path>`. The review
+reads the files from the disk, with no diff and no commit. Use it only for
+files outside a repository, or for untracked files. See `:help codeview-files`.
+
 ## Commands
 
 ```vim
@@ -120,6 +127,7 @@ example chaoshub, can send chosen comments through a headless codeview. See
 :Codeview pr               " review the pull request of the branch
 :Codeview                  " pick one commit from the log
 :Codeview!                 " pick two commits for a range
+:Codeview file plan.md     " review files that no repository tracks
 :Codeview close            " close the session
 :Codeview reopen           " open the last closed session again
 :Codeview files            " open or close the changed-files sidebar

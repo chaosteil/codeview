@@ -6,7 +6,10 @@
 --- `:Codeview trunk()..@`. `:Codeview` without an argument opens the commit
 --- picker, and `:Codeview!` opens the picker in the range mode.
 ---
---- The first word can also name a subcommand: `pr`, or one name of
+--- `:Codeview file <path>...` reviews files and directories with no
+--- repository. See |codeview-files|.
+---
+--- The first word can also name a subcommand: `pr`, `file`, or one name of
 --- `M.subcommands`. That table holds the handler, the values of the argument
 --- completion, and the description of every subcommand. A subcommand name
 --- wins over a revision of the same name. Write such a revision as a range,
@@ -37,8 +40,9 @@ local fn = vim.fn
 local M = {}
 
 ---@class codeview.command.Args
----@field action "review"|"pick"|"pr"|"subcommand" What the argument asks for.
+---@field action "review"|"pick"|"pr"|"files"|"subcommand" What the argument asks for.
 ---@field text string? Revision argument of a review action, or the text after the name of a subcommand.
+---@field paths string[]? Paths of a files action, as the user wrote them. Empty for the file of the current buffer.
 ---@field range codeview.vcs.RangeSpec? Form of the revision argument, in git terms.
 ---@field mode "single"|"range"? Number of picks of a pick action.
 ---@field number integer? Number of the pull request of a pr action. Nil for the pull request of the branch.
@@ -235,6 +239,26 @@ function M.review(spec, opts, on_open)
   session.open(spec, { dir = opts.dir, export_file = opts.export_file }, done)
 end
 
+---Open a review of files the way `:Codeview file {path}` does.
+---
+--- The call takes the paths as they are: it expands no `%`, `~`, or
+--- wildcard. A relative path starts at `opts.dir`, or at the current
+--- directory. The answer goes to |codeview.command.opened()|, or to
+--- `on_open`. `opts.quit` works as in |codeview.command.review()|.
+---@param paths string[] Files and directories.
+---@param opts? { dir?: string, export_file?: string, quit?: boolean }
+---@param on_open? fun(session: codeview.Session?, err: codeview.Error?) Handler of the answer.
+function M.review_files(paths, opts, on_open)
+  opts = opts or {}
+  local done = on_open or M.opened
+  if opts.quit == true then
+    done = quitting(done)
+  elseif opts.quit == false then
+    pcall(api.nvim_del_augroup_by_name, M.quit_group)
+  end
+  session.open_files(paths, { dir = opts.dir, export_file = opts.export_file }, done)
+end
+
 ---Make the panels of a reopened session match the record.
 ---
 --- The `auto_open` options can open a panel that was closed, or keep closed a
@@ -348,7 +372,83 @@ function M.reopen(cb)
     )
     return
   end
+  if record.paths then
+    session.open_files(record.paths, { export_file = record.export_file }, on_open)
+    return
+  end
   session.open(record.input, { dir = record.dir, export_file = record.export_file }, on_open)
+end
+
+---Split the text of `:Codeview file` into paths.
+---
+--- White space ends a path. A backslash keeps the next character, so `\ `
+--- keeps a space in a path, and `\\` gives one backslash.
+---@param text string
+---@return string[] paths
+function M.split_paths(text)
+  local out = {}
+  local current = {}
+  local escaped = false
+  for char in text:gmatch(".") do
+    if escaped then
+      current[#current + 1] = char
+      escaped = false
+    elseif char == "\\" then
+      escaped = true
+    elseif char:match("%s") then
+      if #current > 0 then
+        out[#out + 1] = table.concat(current)
+        current = {}
+      end
+    else
+      current[#current + 1] = char
+    end
+  end
+  if escaped then
+    current[#current + 1] = "\\"
+  end
+  if #current > 0 then
+    out[#out + 1] = table.concat(current)
+  end
+  return out
+end
+
+---Expand the paths of `:Codeview file`.
+---
+--- Each path expands like a file name of a command: `%` names the file of
+--- the current buffer, and `~`, environment variables, and wildcards expand.
+--- A wildcard without a match gives an error. Without a path the call takes
+--- the file of the current buffer.
+---@param paths string[] Paths as the user wrote them.
+---@param dir? string Directory of a relative path. The current directory by default.
+---@return string[]? expanded
+---@return codeview.Error? err
+function M.expand_paths(paths, dir)
+  if #paths == 0 then
+    local buf = api.nvim_get_current_buf()
+    local name = api.nvim_buf_get_name(buf)
+    if name == "" or vim.bo[buf].buftype ~= "" or fn.filereadable(name) ~= 1 then
+      return nil,
+        errors.new(errors.codes.INVALID_ARG, "the current buffer holds no file: name a path, :Codeview file <path>")
+    end
+    return { name }, nil
+  end
+  local base = dir or vim.uv.cwd() or "/"
+  local absolute = require("codeview.vcs.file").absolute
+  local out = {}
+  for _, path in ipairs(paths) do
+    local ok, matches = pcall(fn.expand, path, false, true)
+    -- A wildcard without a match expands to itself, so the check reads the
+    -- disk.
+    local found = vim.tbl_filter(function(match)
+      return match ~= "" and vim.uv.fs_stat(absolute(match, base)) ~= nil
+    end, ok and type(matches) == "table" and matches or {})
+    if #found == 0 then
+      return nil, errors.new(errors.codes.NOT_FOUND, "no file matches " .. path)
+    end
+    vim.list_extend(out, found)
+  end
+  return out, nil
 end
 
 ---Read the arguments of `:Codeview` without the flags.
@@ -366,6 +466,12 @@ local function parse_text(text, bang)
   local first = text:match("^%S+") or text
   if M.subcommands[first:lower()] then
     return { action = "subcommand", name = first:lower(), text = vim.trim(text:sub(#first + 1)) }, nil
+  end
+
+  -- The file review is no subcommand of a session: it starts a review, so the
+  -- flags of the quit apply to it.
+  if first:lower() == "file" then
+    return { action = "files", paths = M.split_paths(vim.trim(text:sub(#first + 1))) }, nil
   end
 
   local lower = text:lower()
@@ -474,6 +580,16 @@ function M.run(opts)
 
   if parsed.action == "pick" then
     picker.pick({ mode = parsed.mode, dir = opts.dir }, done)
+    return
+  end
+
+  if parsed.action == "files" then
+    local paths, path_err = M.expand_paths(parsed.paths or {}, opts.dir)
+    if not paths then
+      done(nil, path_err)
+      return
+    end
+    M.review_files(paths, { dir = opts.dir }, done)
     return
   end
 

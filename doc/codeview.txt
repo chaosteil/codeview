@@ -128,6 +128,25 @@ plugin then calls setup() with that table: >lua
         :Codeview pr 128
         :Codeview pr
 <
+                                                              *:Codeview-file*
+:Codeview file [{path} ...]
+    Review files that no repository tracks: files outside every repository,
+    or untracked files. Each {path} is a file or a directory. A directory
+    gives every file below it. Without {path} the command takes the file of
+    the current buffer. For tracked changes, use a revision instead, for
+    example `:Codeview HEAD` or `:Codeview @`. See |codeview-files|.
+
+    The command expands each {path} like a file name of a command: `%` is
+    the file of the current buffer, and `~`, environment variables, and
+    wildcards expand. Put a backslash before a space in a path.
+
+    Examples: >vim
+
+        :Codeview file %
+        :Codeview file ~/notes/plan.md
+        :Codeview file docs/*.md README.md
+        :Codeview file /tmp/agent-output
+<
 :Codeview
     Open the commit picker. Select one commit to review it.
 
@@ -137,8 +156,8 @@ plugin then calls setup() with that table: >lua
     holds only the descendants of the first commit.
 
                                                         *codeview-subcommands*
-The first word of the argument can also name a subcommand. A subcommand name
-wins over a revision of the same name. To review a revision that a subcommand
+The first word of the argument can also name a subcommand. A subcommand name,
+`pr`, and `file` win over a revision of the same name. To review a revision that a subcommand
 names, write the revision as a range, for example `:Codeview close^..close`.
 
                                                              *:Codeview-close*
@@ -148,9 +167,9 @@ names, write the revision as a range, for example `:Codeview close^..close`.
 
                                                             *:Codeview-reopen*
 :Codeview reopen
-    Open the session that closed last again. The command opens the same range
-    or pull request, then the same file on the same line, in the same diff
-    style. The sidebar and the overview open or close as they were, and the
+    Open the session that closed last again. The command opens the same
+    range, pull request, or files, then the same file on the same line, in
+    the same diff style. The sidebar and the overview open or close as they were, and the
     sidebar gets its expanded directories again. The plugin keeps the record
     in memory only, so it does not survive a restart of Neovim. Without a
     closed session, or while a session runs, the command gives a warning.
@@ -323,6 +342,50 @@ Set `commit_message` to false to leave the commits out: >lua
 
     require("codeview").setup({ commit_message = false })
 <
+                                                              *codeview-files*
+A review of files shows files that no repository tracks, for example a plan
+that an agent wrote outside a repository. |:Codeview-file| and
+|codeview.review_files()| open it. Use it only for such files: files outside
+every repository, or untracked files. A tracked change has a commit, so
+review it with |:Codeview| {rev}. The review of a revision shows the diff and
+the commit of each line.
+
+The review reads the files from the disk. It never runs git or jj to read a
+file, also for a file inside a repository. A directory gives every file below
+it. The walk of a directory skips hidden, ignored, binary, and large files,
+and a message names the count of the skipped binary and large files. See
+|codeview-files-limits|.
+
+The sidebar shows the files as a tree, relative to the deepest directory
+that holds every path. A file has no status mark, because it holds no change.
+The review has no commits, so the sidebar shows no commit documents, and the
+header names the files only.
+
+A file opens as a document: the lines of the file, the line numbers of the
+file, and no diff marks. The buffer takes the filetype of the file, so the
+syntax colours of your configuration apply. The buffer stays read-only, and
+it shows no diagnostics. Set `diff.syntax` to false to keep the filetype of a
+diff. A file has one side, so it stays in the inline style. A binary file and
+an empty file show a note. A file above the `diff.max_lines` or the
+`diff.max_bytes` limit waits for the load key, as a large diff does.
+
+Comment on a line as in a diff. A comment names its lines, the side `new`,
+and no commit. The comment store of the review takes the paths and a digest
+of the contents of the files as its key. A second review of the same files
+with the same contents shows the comments again. A change of a file starts a
+new review with no comments, the way a new commit does for a range.
+
+These parts of a review work in the same way: the comment overview, the
+export, the edit key and |:Codeview-back|, |:Codeview-reopen|, and the quit
+after a review from the command line. |:Codeview-refresh| and the refresh key
+read the files again from the disk, so a new file of a directory reaches the
+review. A review of files has no repository watcher, so `auto_refresh` does
+nothing for it.
+
+A review of files has no pull request, so |:Codeview-submit| and the send key
+of the editor give an error. The hint row does not show the hunk, the unfold,
+and the style keys, because a file has no hunk and one side.
+
 ==============================================================================
 6. SIDEBAR                                                    *codeview-sidebar*
 
@@ -2059,11 +2122,11 @@ The session file is a read interface for other tools, stable within version
 
                                                          *codeview-api-stable*
 These calls are stable: |codeview.setup()|, |codeview.open()|,
-|codeview.review()|, |codeview.open_pr()|, |codeview.close()|,
-|codeview.reopen()|, |codeview.session()|, |codeview.comments()|,
-|codeview.export()|, |codeview.export_text()|, |codeview.submit()|, and
-|codeview.refresh()|. Their names, arguments, and results stay the same
-within version 0.x.
+|codeview.review()|, |codeview.review_files()|, |codeview.open_pr()|,
+|codeview.close()|, |codeview.reopen()|, |codeview.session()|,
+|codeview.comments()|, |codeview.export()|, |codeview.export_text()|,
+|codeview.submit()|, and |codeview.refresh()|. Their names, arguments, and
+results stay the same within version 0.x.
 
 Every other call of the `codeview` module is unstable before version 1.0. It
 can change in any release before 1.0. Its doc comment in
@@ -2132,6 +2195,30 @@ codeview.review({spec}, {opts})
     A tool outside Neovim starts a review with an export file: >sh
 
         nvim -c "lua require('codeview').review('main..@',
+          { export_file = '/tmp/review.md', quit = true })"
+<
+                                                     *codeview.review_files()*
+codeview.review_files({paths}, {opts})
+    Open a review of files the way |:Codeview-file| does. {paths} is one
+    path, or a list of files and directories. The review is only for files
+    that no repository tracks: files outside every repository, or untracked
+    files. For tracked changes, use |codeview.review()|. See |codeview-files|.
+
+    The call takes each path as it is, with no expansion of `%`, `~`, or
+    wildcards. A relative path starts at `dir`. {opts} accepts these fields:
+    >lua
+
+        {
+          dir = nil,         -- directory of a relative path, cwd by default
+          export_file = nil, -- path of a file for the export of the session
+          quit = nil,        -- true quits Neovim when the review ends
+        }
+<
+    `export_file` and `quit` work as in |codeview.review()|. The call
+    returns at once. If the open fails, you get the error as a message.
+    Example: >sh
+
+        nvim -c "lua require('codeview').review_files({ '/tmp/plan.md' },
           { export_file = '/tmp/review.md', quit = true })"
 <
 

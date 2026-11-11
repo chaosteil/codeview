@@ -39,9 +39,14 @@ end, {
     local values = {}
     if done == 0 then
       values[#values + 1] = "pr"
+      values[#values + 1] = "file"
       for name in pairs(subcommands) do
         values[#values + 1] = name
       end
+    elseif words[1]:lower() == "file" then
+      -- Every word after `file` is a path. The file completion of Neovim
+      -- filters the names itself.
+      return vim.fn.getcompletion(lead, "file")
     elseif done == 1 then
       local sub = subcommands[words[1]:lower()]
       values = sub and sub.args or {}
@@ -56,5 +61,5 @@ end, {
     table.sort(names)
     return names
   end,
-  desc = "Review a commit, a range, a jj revset, or a pull request, and run a subcommand of the session",
+  desc = "Review a commit, a range, a jj revset, a pull request, or files, and run a subcommand of the session",
 })
