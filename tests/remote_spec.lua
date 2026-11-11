@@ -424,6 +424,30 @@ describe("codeview.remote", function()
         assert.are.equal(remote.thread_pages, #graphql)
       end)
 
+      it("starts the comments and the threads before the first answer", function()
+        local answered = 0
+        local before_answer = {}
+        local capture = require("codeview.exec").capture
+        require("codeview.exec").capture = function(cmd, opts, cb) ---@diagnostic disable-line: duplicate-set-field
+          if answered == 0 then
+            before_answer[#before_answer + 1] = cmd[3] == "graphql" and "graphql" or "rest"
+          end
+          return capture(cmd, opts, function(result, err)
+            answered = answered + 1
+            cb(result, err)
+          end)
+        end
+        local finished = false
+        remote.fetch({ repo = "ada/demo", number = 12, max = 1 }, function(comments)
+          finished = comments ~= nil
+        end)
+        assert.is_true(vim.wait(5000, function()
+          return finished
+        end, 5))
+        table.sort(before_answer)
+        assert.are.same({ "graphql", "rest" }, before_answer)
+      end)
+
       it("keeps the comments when the GraphQL call fails", function()
         threads_answer = function()
           return vim.json.encode({ errors = { { message = "Something went wrong" } } })

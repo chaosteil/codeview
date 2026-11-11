@@ -64,6 +64,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   of GitHub comes about 0.1 seconds faster. The review reads the commits
   from the repository, as before. The table of `codeview.pr()` has no
   `commits` field any more. Read the `commits` field of the session.
+- The review comments of a pull request and their thread state load at the
+  same time, so the comments show about 0.35 seconds sooner.
 
 ### Fixed
 

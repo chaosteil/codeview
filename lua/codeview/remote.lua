@@ -576,6 +576,9 @@ end
 --- The endpoint answers the oldest comment first. When the fetch stops at
 --- `max` and GitHub holds more comments, the list holds the field
 --- `truncated = true`.
+---
+--- In the async form the review comments and the review threads load at the
+--- same time.
 ---@param opts { repo: string, number: integer, max?: integer, dir?: string, host?: string } `repo` is `owner/name`.
 ---@param cb? fun(comments: codeview.remote.Comment[]?, err: codeview.Error?) Callback for the async form.
 ---@return codeview.remote.Comment[]? comments
@@ -632,15 +635,28 @@ function M.fetch(opts, cb)
     return with_threads(comments, M.fetch_threads(thread_opts)), nil
   end
 
-  gh.api_list(path, api_opts, function(entries, err)
-    if not entries then
-      cb(nil, err)
+  -- The two calls do not depend on each other, so they run at the same
+  -- time. The answer waits for both.
+  local entries, entries_err, threads, threads_err
+  local left = 2
+  local function finish()
+    left = left - 1
+    if left > 0 then
       return
     end
-    local comments = read(entries)
-    M.fetch_threads(thread_opts, function(threads, thread_err)
-      cb(with_threads(comments, threads, thread_err), nil)
-    end)
+    if not entries then
+      cb(nil, entries_err)
+      return
+    end
+    cb(with_threads(read(entries), threads, threads_err), nil)
+  end
+  gh.api_list(path, api_opts, function(answer, err)
+    entries, entries_err = answer, err
+    finish()
+  end)
+  M.fetch_threads(thread_opts, function(answer, err)
+    threads, threads_err = answer, err
+    finish()
   end)
   return nil, nil
 end
