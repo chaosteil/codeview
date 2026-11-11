@@ -723,6 +723,109 @@ describe("codeview.export", function()
     end)
   end)
 
+  describe("a review of files", function()
+    ---@type string
+    local root
+
+    ---Open a review of two files and comment on them.
+    ---@return codeview.Session
+    local function open_files()
+      root = vim.fs.normalize(fixtures.tempdir("export-files"))
+      vim.fn.mkdir(root .. "/docs", "p")
+      vim.fn.writefile({ "one", "two", "three", "four", "five" }, root .. "/plan.md")
+      vim.fn.writefile({ "a" }, root .. "/docs/a.md")
+      opened = assert(session_mod.open_files({ root .. "/plan.md", root .. "/docs" }))
+      local store = assert(comments.store(opened))
+      assert(
+        store:add({ file = "plan.md", start_line = 3, end_line = 5, side = "new", commit = "", body = "say more" })
+      )
+      assert(store:add({
+        file = "plan.md",
+        start_line = 1,
+        end_line = 1,
+        side = "new",
+        commit = "",
+        state = "resolved",
+        body = "done",
+      }))
+      assert.is_true(store:save())
+      return opened
+    end
+
+    after_each(function()
+      if root then
+        vim.fn.delete(root, "rf")
+      end
+    end)
+
+    it("holds the kind, the root, the paths, and the prompt of a review of files", function()
+      open_files()
+      local data = assert(export.data())
+      assert.are.equal("files", data.kind)
+      assert.are.equal(root, data.repo)
+      assert.are.same({ "docs/a.md", "plan.md" }, data.paths)
+      assert.are.equal(config.defaults.export.file_prompt, data.prompt)
+    end)
+
+    it("names the range kind for a range", function()
+      add_comment({ file = "call.lua", start_line = 1, end_line = 1 })
+      local data = assert(export.data())
+      assert.are.equal("range", data.kind)
+      assert.are.same({}, data.paths)
+    end)
+
+    it("lists the files, and gives the lines of each comment only", function()
+      open_files()
+      local text = assert(export.render())
+      local expected = table.concat({
+        "# codeview review: " .. vim.fn.fnamemodify(root .. "/plan.md", ":~:.") .. " " .. vim.fn.fnamemodify(
+          root .. "/docs",
+          ":~:."
+        ),
+        "",
+        config.defaults.export.file_prompt,
+        "",
+        "- root: `" .. root .. "`",
+        "- files: 2",
+        "  - `docs/a.md`",
+        "  - `plan.md`",
+        "- comments: 2 on 1 file, 1 resolved",
+        "",
+        "## `plan.md`",
+        "",
+        "### L1 · resolved",
+        "",
+        "done",
+        "",
+        "### L3-5",
+        "",
+        "say more",
+        "",
+      }, "\n")
+      assert.are.equal(expected, text)
+      assert.is_nil(text:find("range:", 1, true))
+      assert.is_nil(text:find("commits:", 1, true))
+    end)
+
+    it("stops the list of files after the limit", function()
+      root = vim.fs.normalize(fixtures.tempdir("export-many"))
+      for index = 1, export.max_header_files + 3 do
+        vim.fn.writefile({ "x" }, string.format("%s/%02d.txt", root, index))
+      end
+      opened = assert(session_mod.open_files({ root }))
+      local text = assert(export.render())
+      assert.is_truthy(text:find("  - and 3 more", 1, true), text)
+      assert.is_nil(text:find(string.format("%02d.txt", export.max_header_files + 1), 1, true))
+    end)
+
+    it("takes the file prompt of the configuration", function()
+      config.setup({ comments = { dir = dir }, export = { register = "z", file_prompt = "Fix these files." } })
+      open_files()
+      local text = assert(export.render())
+      assert.is_truthy(text:find("\n\nFix these files.\n\n", 1, true), text)
+    end)
+  end)
+
   it("leaves no windows behind", function()
     assert.are.equal(1, #api.nvim_tabpage_list_wins(0))
   end)

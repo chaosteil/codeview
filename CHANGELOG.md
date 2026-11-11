@@ -17,6 +17,10 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   contents as its key, so a change of a file starts a new review. The
   `files.max_files` and `files.max_bytes` options set the limits.
   `codeview.review_files()` is the Lua form. See `:help codeview-files`.
+- The export of a review of files gives the root and the files in its
+  header, and the lines of each comment, with no side and no commit. The
+  `export.file_prompt` option holds the text under its title. A template
+  reads `data.kind` and `data.paths`. See `:help codeview-export-files`.
 - Another tool can send chosen comments of a pull request as one review. It
   runs `require('codeview.bridge').submit_file('<path>')` in a headless
   Neovim, with a JSON request and a JSON result. See `:help codeview-bridge`.

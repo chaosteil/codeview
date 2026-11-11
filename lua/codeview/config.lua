@@ -85,6 +85,7 @@ local M = {}
 ---@class codeview.Config.Export
 ---@field register string Register that receives the exported markdown. An empty text writes no register.
 ---@field prompt string Text under the title of the export. An empty text writes no prompt.
+---@field file_prompt string Text under the title of the export of a review of files. An empty text writes no prompt.
 ---@field template fun(session: codeview.Session, data: codeview.export.Data): string|false Custom renderer. False uses the built-in renderer.
 
 ---@class codeview.Config.Files
@@ -169,6 +170,13 @@ M.defaults = {
     prompt = table.concat({
       "A code review of this change produced the comments below.",
       "Each comment names its lines, its side of the diff (old or new), and the commit that holds the lines.",
+      "Make the change that each comment asks for.",
+      "Skip only a comment that is marked resolved.",
+    }, " "),
+    -- A review of files has no diff and no commit, so it has a text of its own.
+    file_prompt = table.concat({
+      "A review of the files below produced the comments below.",
+      "Each comment names its lines in the file. The paths are relative to the root.",
       "Make the change that each comment asks for.",
       "Skip only a comment that is marked resolved.",
     }, " "),
@@ -382,6 +390,7 @@ function M.validate(opts)
     vim.validate("export", opts.export, "table")
     vim.validate("export.register", opts.export.register, "string")
     vim.validate("export.prompt", opts.export.prompt, "string")
+    vim.validate("export.file_prompt", opts.export.file_prompt, "string")
     vim.validate("export.template", opts.export.template, function(value)
       return value == false or type(value) == "function"
     end, "function or false")

@@ -373,7 +373,8 @@ Comment on a line as in a diff. A comment names its lines, the side `new`,
 and no commit. The comment store of the review takes the paths and a digest
 of the contents of the files as its key. A second review of the same files
 with the same contents shows the comments again. A change of a file starts a
-new review with no comments, the way a new commit does for a range.
+new review with no comments, the way a new commit does for a range. The
+export of the review lists the files. See |codeview-export-files|.
 
 These parts of a review work in the same way: the comment overview, the
 export, the edit key and |:Codeview-back|, |:Codeview-reopen|, and the quit
@@ -1398,6 +1399,35 @@ The files come in the order of the changed-files sidebar, and the comments of
 one file come in line order. A file with comments that the range does not
 change any more comes last, with the note "(outside the range)".
 
+                                                       *codeview-export-files*
+The export of a review of files has no range, no commits, and no sides. See
+|codeview-files|. Its header gives the root and every file of the review.
+The list stops after 20 files, with a count of the rest. The header of a
+comment gives its lines and its state only: >markdown
+
+    # codeview review: plan.md
+
+    A review of the files below produced the comments below. Each comment
+    names its lines in the file. The paths are relative to the root. Make
+    the change that each comment asks for. Skip only a comment that is
+    marked resolved.
+
+    - root: `/home/ada/notes`
+    - files: 1
+      - `plan.md`
+    - comments: 1 on 1 file
+
+    ## `plan.md`
+
+    ### L3-5
+
+    say more
+<
+The `export.file_prompt` option holds the text under the title of this
+export, in the same way as `export.prompt`. A file with comments that the
+review does not hold any more comes last, with the note "(not in the
+review)".
+
 `q` closes the window of the export buffer. A second export of the same session
 replaces the buffer of the first one. |:Codeview-close| closes the export
 window with the other windows of the session.
@@ -1450,12 +1480,16 @@ the session and the data of the export, and returns the text: >lua
 <
 The data table holds these fields: >lua
 
+    data.kind       -- "range", or "files" for a review of files
     data.session    -- session of the export
     data.store      -- comment store of the session
     data.spec       -- text that names the range
     data.range      -- resolved range, with short revision ids
-    data.repo       -- absolute path of the repository root
-    data.prompt     -- text under the title, from the export.prompt option
+    data.repo       -- absolute path of the repository root, or the root
+                    -- of the files of a review of files
+    data.paths      -- every file of a review of files, empty for a range
+    data.prompt     -- text under the title, from the export.prompt option,
+                    -- or from export.file_prompt for a review of files
     data.files      -- files with comments, each with its comment list
                     -- and `old_path`, the old path of a renamed file
     data.comments   -- every comment, in the order of the render
@@ -2665,6 +2699,7 @@ Defaults: >lua
       export = {
         register = "+",
         prompt = "A code review ...",  -- see |codeview-export-prompt|
+        file_prompt = "A review ...",  -- see |codeview-export-files|
         template = false,            -- false uses the built-in renderer
       },
       files = {                      -- see |codeview-files-limits|

@@ -38,6 +38,29 @@
 ---
 --- The `export.prompt` option replaces the text under the title.
 ---
+--- A review of files of |codeview.session.open_files()| has no range, no
+--- commits, and no sides. Its header gives the root and the files, and the
+--- header of a comment gives its lines only: >markdown
+---
+---     # codeview review: plan.md
+---
+---     A review of the files below produced the comments below. ...
+---
+---     - root: `/home/ada/notes`
+---     - files: 1
+---       - `plan.md`
+---     - comments: 1 on 1 file
+---
+---     ## `plan.md`
+---
+---     ### L3-5
+---
+---     say more
+--- <
+---
+--- The `export.file_prompt` option replaces the text under the title of a
+--- review of files.
+---
 --- Every comment holds its line range, its side, and the commit that the lines
 --- come from. A reader locates the code with those three values alone, without
 --- the plugin.
@@ -83,12 +106,14 @@ local M = {}
 ---@field comments codeview.store.Comment[] Comments of the file, by line.
 
 ---@class codeview.export.Data
+---@field kind "range"|"files" Kind of the review. "files" is a review of files with no repository.
 ---@field session codeview.Session Session that holds the comments.
 ---@field store codeview.store.Store Comment store of the session.
 ---@field spec string Text that names the range.
 ---@field range string Resolved range, with short revision ids.
----@field repo string Absolute path of the repository root.
----@field prompt string Text under the title, from the `export.prompt` option. Empty for no prompt.
+---@field repo string Absolute path of the repository root. For a review of files, the root of the files.
+---@field paths string[] Paths of every file of a review of files, relative to the root. Empty for a range.
+---@field prompt string Text under the title, from the `export.prompt` option, or from `export.file_prompt` for a review of files. Empty for no prompt.
 ---@field files codeview.export.File[] Files with comments, in sidebar order.
 ---@field comments codeview.store.Comment[] Every comment, in the order of the render.
 ---@field count integer Number of comments.
@@ -191,13 +216,26 @@ function M.data(session)
     vim.list_extend(ordered, file.comments)
   end
 
+  local is_files = session:is_files()
+  local paths = {}
+  if is_files then
+    for _, index in ipairs(tree.order(session.files)) do
+      local file = session:file(index)
+      if file and not file.virtual then
+        paths[#paths + 1] = file.path
+      end
+    end
+  end
+
   return {
+    kind = is_files and "files" or "range",
     session = session,
     store = store,
     spec = session:label(),
     range = range_text(session),
     repo = session.repo.root,
-    prompt = config.get().export.prompt,
+    paths = paths,
+    prompt = is_files and config.get().export.file_prompt or config.get().export.prompt,
     files = files,
     comments = ordered,
     count = #ordered,
@@ -238,12 +276,21 @@ end
 ---
 --- An old-side comment on a renamed file also names the old path. A draft
 --- reply names the thread: `reply to @author`, or `reply to #<id>` when the
---- session does not hold the thread.
+--- session does not hold the thread. A comment of a review of files names its
+--- lines and its state only, because a file of such a review has one side and
+--- no commit.
 ---@param comment codeview.store.Comment
 ---@param file codeview.export.File File of the comment.
 ---@param session codeview.Session Session of the comment.
 ---@return string
 local function locator(comment, file, session)
+  if session:is_files() then
+    local parts = { lines_text(comment) }
+    if comment.state == "resolved" then
+      parts[#parts + 1] = "resolved"
+    end
+    return table.concat(parts, " · ")
+  end
   local parts = { lines_text(comment), comment.side }
   if (comment.reply_to or "") ~= "" then
     parts[#parts + 1] = "reply to " .. require("codeview.remote").reply_target(session, comment.reply_to)
@@ -311,6 +358,31 @@ local function counts(data)
   return text
 end
 
+---Highest number of files that the header of a review of files names.
+---@type integer
+M.max_header_files = 20
+
+---Header lines of a review of files: the root and the files.
+---
+--- The list stops after |codeview.export.max_header_files| files, with a
+--- count of the rest.
+---@param data codeview.export.Data
+---@return string[] lines
+local function files_header(data)
+  local out = {
+    "- root: " .. code(data.repo),
+    string.format("- files: %d", #data.paths),
+  }
+  for index, path in ipairs(data.paths) do
+    if index > M.max_header_files then
+      out[#out + 1] = string.format("  - and %d more", #data.paths - M.max_header_files)
+      break
+    end
+    out[#out + 1] = "  - " .. code(path)
+  end
+  return out
+end
+
 ---Render the collected data with the built-in template.
 ---@param data codeview.export.Data
 ---@return string text Markdown that ends with one newline.
@@ -325,8 +397,12 @@ function M.markdown(data)
     out[#out + 1] = ""
   end
 
-  out[#out + 1] = "- range: `" .. data.range .. "`"
-  out[#out + 1] = string.format("- commits: %d", #data.session.commits)
+  if data.kind == "files" then
+    vim.list_extend(out, files_header(data))
+  else
+    out[#out + 1] = "- range: `" .. data.range .. "`"
+    out[#out + 1] = string.format("- commits: %d", #data.session.commits)
+  end
   out[#out + 1] = counts(data)
 
   if data.count == 0 then
@@ -344,7 +420,8 @@ function M.markdown(data)
       -- `pkg/__init__.py`. A code span keeps it as it is.
       name = code(name)
     end
-    out[#out + 1] = "## " .. name .. (file.changed and "" or " (outside the range)")
+    local note = data.kind == "files" and " (not in the review)" or " (outside the range)"
+    out[#out + 1] = "## " .. name .. (file.changed and "" or note)
     for _, comment in ipairs(file.comments) do
       out[#out + 1] = ""
       out[#out + 1] = "### " .. locator(comment, file, data.session)
