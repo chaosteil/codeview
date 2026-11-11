@@ -1494,6 +1494,11 @@ this case. Set `github.fetch` to "always" to fetch every time. Without the
 fetch, the command does not see a base branch that the remote deleted, so it
 shows no warning for it.
 
+When the repository lacks a commit, the command fetches only what is missing:
+the head, the base branch, or both, in one `git fetch` call. With "always" it
+fetches both. When the remote no longer holds the base branch, that call
+fails, so the command fetches the head alone.
+
                                                          *codeview-github-env*
 A tool that starts Neovim for a review can hold the pull request data already,
 for example chaoshub. It then puts the data into the environment variable

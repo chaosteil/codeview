@@ -532,11 +532,12 @@ end
 --- and runs no fetch. git writes no ref to a commit that it does not hold, so
 --- one `update-ref` transaction answers both questions.
 ---
---- The head and the base come in two calls, because one call writes no ref
---- when one refspec fails. A base branch that the remote no longer holds is
---- normal for a merged pull request. In that case the call writes the base
---- commit that GitHub reports into the base ref, and it reports the missing
---- branch in `warning`.
+--- Else the call fetches only the commits that the repository lacks, in one
+--- `git fetch` with one refspec for each of them. With "always" it fetches
+--- both. One call writes no ref when one refspec fails. A base branch that
+--- the remote no longer holds is normal for a merged pull request. In that
+--- case the call fetches the head alone, writes the base commit that GitHub
+--- reports into the base ref, and reports the missing branch in `warning`.
 ---@param root string Absolute path of the repository root.
 ---@param info codeview.pr.Info Metadata of the pull request.
 ---@param opts? { remote?: string, repo?: string } `remote` is the name of the git remote, the configuration value by default. `repo` is the `owner/name` that the user named.
@@ -561,10 +562,10 @@ function M.fetch(root, info, opts, cb)
 
   ---Arguments of one fetch.
   ---@param name string Name of the git remote.
-  ---@param refspec string
+  ---@param refspecs string[]
   ---@return string[]
-  local function fetch_args(name, refspec)
-    return { "fetch", "--no-tags", "--force", "--quiet", name, refspec }
+  local function fetch_args(name, refspecs)
+    return vim.list_extend({ "fetch", "--no-tags", "--force", "--quiet", name }, refspecs)
   end
 
   ---Error of a fetch that failed.
@@ -585,17 +586,106 @@ function M.fetch(root, info, opts, cb)
   ---@param name string Name of the git remote.
   ---@return codeview.pr.Step[]
   local function steps_for(name)
+    local head_refspec = string.format("refs/pull/%d/head:%s", info.number, refs.head)
+    local base_refspec = nil
+    if info.base_ref ~= "" then
+      base_refspec = string.format("refs/heads/%s:%s", info.base_ref, refs.base)
+    end
+    -- The commits that the repository holds. The fetch leaves them out.
+    local have = { head = false, base = false }
     ---@type codeview.ExecResult?
     local failed
 
-    ---Fetch the head of the pull request. A failure stops the chain.
+    ---Error of a fetch of the head that failed.
+    ---@param result codeview.ExecResult
+    ---@return codeview.Error
+    local function head_error(result)
+      return fetch_error(name, string.format("cannot fetch pull request %d from %s", info.number, name), result)
+    end
+
+    ---Find the commits that the repository holds. "always" fetches both.
     ---@type codeview.pr.Step
-    local function head_step(step_cb)
-      local refspec = string.format("refs/pull/%d/head:%s", info.number, refs.head)
-      return git(root, fetch_args(name, refspec), function(result)
+    local function probe_step(step_cb)
+      if config.get().github.fetch ~= "auto" then
+        return done(step_cb, true, nil)
+      end
+      local stdin = info.head_sha .. "\n"
+      if info.base_sha ~= "" then
+        stdin = stdin .. info.base_sha .. "\n"
+      end
+      return git(root, { "cat-file", "--batch-check" }, function(result)
+        if result.code == 0 then
+          local lines = exec.lines(result.stdout)
+          have.head = (lines[1] or ""):match("^%x+ commit ") ~= nil
+          have.base = info.base_sha ~= "" and (lines[2] or ""):match("^%x+ commit ") ~= nil
+        end
+        return true, nil
+      end, step_cb, nil, stdin)
+    end
+
+    ---Write the refs of the commits that the repository holds.
+    ---@type codeview.pr.Step
+    local function local_step(step_cb)
+      local stdin = ""
+      if have.head then
+        stdin = stdin .. string.format("update %s %s\n", refs.head, info.head_sha)
+      end
+      if have.base then
+        stdin = stdin .. string.format("update %s %s\n", refs.base, info.base_sha)
+      end
+      if stdin == "" then
+        return done(step_cb, true, nil)
+      end
+      return git(root, { "update-ref", "--stdin" }, function(result)
         if result.code ~= 0 then
           return nil,
-            fetch_error(name, string.format("cannot fetch pull request %d from %s", info.number, name), result)
+            errors.new(
+              errors.codes.COMMAND_FAILED,
+              string.format("cannot write the refs of pull request %d", info.number),
+              { command = result.command, stderr = result.stderr }
+            )
+        end
+        refs.remote = name
+        return true, nil
+      end, step_cb, nil, stdin)
+    end
+
+    ---Fetch the commits that the repository lacks, in one call. A failure
+    ---with the base branch in it waits for the retry.
+    ---@type codeview.pr.Step
+    local function fetch_step(step_cb)
+      local refspecs = {}
+      if not have.head then
+        refspecs[#refspecs + 1] = head_refspec
+      end
+      if not have.base and base_refspec then
+        refspecs[#refspecs + 1] = base_refspec
+      end
+      if #refspecs == 0 then
+        return done(step_cb, true, nil)
+      end
+      return git(root, fetch_args(name, refspecs), function(result)
+        if result.code == 0 then
+          refs.remote = name
+          return true, nil
+        end
+        if have.base or not base_refspec then
+          return nil, head_error(result)
+        end
+        failed = result
+        return true, nil
+      end, step_cb, M.fetch_timeout)
+    end
+
+    ---Fetch the head alone after a failed fetch with the base branch.
+    ---@type codeview.pr.Step
+    local function retry_step(step_cb)
+      if not failed or have.head then
+        return done(step_cb, true, nil)
+      end
+      return git(root, fetch_args(name, { head_refspec }), function(result)
+        if result.code ~= 0 then
+          return nil, head_error(result)
         end
         refs.remote = name
         return true, nil
@@ -609,6 +699,9 @@ function M.fetch(root, info, opts, cb)
     --- know, so the open stops.
     ---@type codeview.pr.Step
     local function check_step(step_cb)
+      if have.head then
+        return done(step_cb, true, nil)
+      end
       return git(root, { "rev-parse", "--verify", "--quiet", refs.head .. "^{commit}" }, function(result)
         local fetched = vim.trim(result.stdout or ""):lower()
         if result.code ~= 0 or fetched ~= info.head_sha:lower() then
@@ -626,21 +719,6 @@ function M.fetch(root, info, opts, cb)
         end
         return true, nil
       end, step_cb)
-    end
-
-    ---Fetch the tip of the base branch. A failure waits for the fallback.
-    ---@type codeview.pr.Step
-    local function base_step(step_cb)
-      if info.base_ref == "" then
-        return done(step_cb, true, nil)
-      end
-      local refspec = string.format("refs/heads/%s:%s", info.base_ref, refs.base)
-      return git(root, fetch_args(name, refspec), function(result)
-        if result.code ~= 0 then
-          failed = result
-        end
-        return true, nil
-      end, step_cb, M.fetch_timeout)
     end
 
     ---Write the base commit of GitHub into the base ref.
@@ -671,7 +749,7 @@ function M.fetch(root, info, opts, cb)
       end, step_cb)
     end
 
-    return { head_step, check_step, base_step, fallback_step }
+    return { probe_step, local_step, fetch_step, retry_step, check_step, fallback_step }
   end
 
   ---Write the two refs from the commits of the repository. The answer is

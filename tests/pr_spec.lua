@@ -315,6 +315,69 @@ describe("codeview.pr", function()
       assert.is_true(vim.tbl_contains(subcommands, "fetch"), table.concat(subcommands, " "))
     end)
 
+    ---Run a fetch and keep the fetch calls of git.
+    ---@param info codeview.pr.Info
+    ---@return codeview.pr.Refs? refs
+    ---@return string[][] fetches The remote and the refspecs of each fetch call.
+    local function record_fetches(info)
+      local fetches = {}
+      local outer = exec.capture
+      exec.capture = function(cmd, opts, cb) ---@diagnostic disable-line: duplicate-set-field
+        if cmd[1] ~= gh.binary() and cmd[5] == "fetch" then
+          fetches[#fetches + 1] = vim.list_slice(cmd, 9)
+        end
+        return outer(cmd, opts, cb)
+      end
+      local refs = pr.fetch(fixture.root, info)
+      exec.capture = outer
+      return refs, fetches
+    end
+
+    local head_refspec = "refs/pull/12/head:refs/codeview/pr/12/head"
+    local base_refspec = "refs/heads/main:refs/codeview/pr/12/base"
+
+    it("fetches the head and the base branch in one call", function()
+      assert(require("codeview.config").setup({ commit_message = false, github = { fetch = "always" } }))
+      local info = assert(pr.view(12, { dir = fixture.dir }))
+      local refs, fetches = record_fetches(info)
+      assert(refs)
+      assert.are.same({ { "origin", head_refspec, base_refspec } }, fetches)
+      assert.are.equal(fixture.ids.pr_two, git({ "rev-parse", refs.head }))
+      assert.are.equal(fixture.ids.main_two, git({ "rev-parse", refs.base }))
+    end)
+
+    it("fetches only the base branch when the repository holds the head", function()
+      local info = assert(pr.view(12, { dir = fixture.dir }))
+      info.base_sha = string.rep("c", 40)
+      local refs, fetches = record_fetches(info)
+      assert(refs)
+      assert.are.same({ { "origin", base_refspec } }, fetches)
+      assert.are.equal(fixture.ids.pr_two, git({ "rev-parse", refs.head }))
+      assert.are.equal(fixture.ids.main_two, git({ "rev-parse", refs.base }))
+    end)
+
+    it("fetches only the head when the repository holds the base", function()
+      local info = assert(pr.view(12, { dir = fixture.dir }))
+      info.head_sha = string.rep("b", 40)
+      local refs, fetches = record_fetches(info)
+      -- The fetch gives the real head, so the head check stops the open.
+      assert.is_nil(refs)
+      assert.are.same({ { "origin", head_refspec } }, fetches)
+    end)
+
+    it("fetches the head alone after a fetch that fails on the base branch", function()
+      assert(require("codeview.config").setup({ commit_message = false, github = { fetch = "always" } }))
+      local info = assert(pr.view(12, { dir = fixture.dir }))
+      info.base_ref = "gone"
+      local refs, fetches = record_fetches(info)
+      assert(refs)
+      assert.are.same(
+        { { "origin", head_refspec, "refs/heads/gone:refs/codeview/pr/12/base" }, { "origin", head_refspec } },
+        fetches
+      )
+      assert.are.equal(fixture.ids.main_two, git({ "rev-parse", refs.base }))
+    end)
+
     it("reports a base branch that neither the remote nor the repository holds", function()
       local info = assert(pr.view(12, { dir = fixture.dir }))
       info.base_ref = "gone"

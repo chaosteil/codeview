@@ -66,6 +66,10 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `commits` field any more. Read the `commits` field of the session.
 - The review comments of a pull request and their thread state load at the
   same time, so the comments show about 0.35 seconds sooner.
+- `:Codeview pr` fetches only the commits that the repository lacks, and it
+  fetches the head and the base branch in one `git fetch` call, not in two
+  calls one after the other. With a new base branch and a known head, the
+  review opens about 1 second sooner.
 
 ### Fixed
 
