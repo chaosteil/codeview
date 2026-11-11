@@ -1528,11 +1528,12 @@ GitHub: with both commits in the repository, it opens without a network call.
 
 The command then reads the pull request with gh in the background. When
 GitHub reports other values, the review takes them and reads its data again.
-A new head commit or a new base commit also fetches the commits. The check
-prints no message, also after a failure. The session stays open, so the review does not end. When the
-open with the data of the tool fails, for example because the head commit is
-not the head of GitHub, the command opens the pull request again with the
-data of GitHub.
+A new head commit or a new base commit also fetches the commits, and a short
+message says so. A failed check gives a message too. These messages show in a
+popup, see |codeview-background-messages|. The session stays open, so the
+review does not end. When the open with the data of the tool fails, for
+example because the head commit is not the head of GitHub, the command opens
+the pull request again with the data of GitHub.
 
 The check sends this event at the end: >
 
@@ -1546,10 +1547,22 @@ head commit of the data but lacks its base commit, the review still opens at
 once. It shows the diff against the last known base: the newer of the
 remote-tracking branch of the base branch and the base ref of the last review.
 The command then fetches the base branch in the background and reads the
-review again in the same session, without a message. A reload of the check
-waits for the end of that fetch. Without a base commit in the data, or without
-a last known base, the command fetches the base branch before the review
-opens.
+review again in the same session. A popup then says "updated to the new
+base". When the range stays the same, nothing reads again and no message
+shows. A reload of the check waits for the end of that fetch. Without a base
+commit in the data, or without a last known base, the command fetches the
+base branch before the review opens.
+
+                                                *codeview-background-messages*
+The background work of a review sends its messages to a popup, never to the
+command line, so they never ask you to press Enter. These are the messages of
+the check, of the update to the new base, of a base branch that the remote
+deleted, and of a comment file that does not load. When a plugin replaced
+|vim.notify()|, for example nvim-notify, the messages go to it. Else codeview
+shows a small float in the top-right corner. The float takes no focus, and it
+closes by itself after about 3 seconds, a warning or an error after about 5
+seconds. More messages stack below each other. The `log_level` option applies
+to them too.
 
                                                        *codeview-github-store*
 The session key of the comment file is `pr-{number}-{head commit}`. A new push
@@ -2064,7 +2077,7 @@ in any release. The comment code lives in `codeview.comments`, with the
 anchors in `codeview.anchor` and the extmarks in `codeview.marks`. The map of
 an anchor to a position of the GitHub diff lives in `codeview.position`. Every
 message of the plugin goes through `codeview.notify`, which reads the
-`log_level` option.
+`log_level` option. See |codeview-background-messages|.
 
                                                              *codeview.open()*
 codeview.open({spec}, {opts}, {cb})

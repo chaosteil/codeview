@@ -1020,7 +1020,7 @@ function M.open(number, opts, cb)
       opts.progress:start("open")
     end
     if refs.warning then
-      notify.warn(refs.warning)
+      notify.background(refs.warning, vim.log.levels.WARN)
     end
     local open_opts = {
       repo = state.repo,
@@ -1145,18 +1145,21 @@ end
 --- The session stays open, so a handler of CodeViewSessionClosed does not
 --- run. For a new head or a new base, the call writes the refs and the range
 --- first. A new head commit gives a new key of the comment store, so the
---- session loads the comment file of that key.
+--- session loads the comment file of that key. When the session keeps its
+--- metadata and the fetch gives the same range, nothing changes, and the
+--- call reads nothing again. A warning shows in a popup, see
+--- |codeview.notify.background()|.
 ---@param session codeview.Session
 ---@param fresh codeview.pr.Info Metadata of GitHub.
 ---@param fetch boolean True to fetch the commits and write the range first.
----@param cb fun(ok: boolean, err: codeview.Error?)
+---@param cb fun(ok: boolean, err: codeview.Error?, changed: boolean) `changed` is false when the review stayed as it was.
 local function reload(session, fresh, fetch, cb)
   local pr_opts = session.pr_opts or {}
 
   ---@param range codeview.vcs.Range? New range. Nil keeps the range.
   local function apply(range)
     if session.closed then
-      cb(false, errors.new(errors.codes.INVALID_ARG, "the session is closed"))
+      cb(false, errors.new(errors.codes.INVALID_ARG, "the session is closed"), false)
       return
     end
     session.pr = fresh
@@ -1168,7 +1171,7 @@ local function reload(session, fresh, fetch, cb)
       session.store_key = key
       local _, store_err = comments.attach(session)
       if store_err then
-        notify.warn(tostring(store_err))
+        notify.background(tostring(store_err), vim.log.levels.WARN)
       end
     end
     if range then
@@ -1177,12 +1180,12 @@ local function reload(session, fresh, fetch, cb)
     local refresh = { snapshot = false, range = range or session.range }
     if session_mod.current() == session then
       require("codeview.view").refresh(refresh, function(ok)
-        cb(ok, nil)
+        cb(ok, nil, true)
       end)
       return
     end
     session:refresh(refresh, function(_, err)
-      cb(err == nil, err)
+      cb(err == nil, err, true)
     end)
   end
 
@@ -1192,15 +1195,20 @@ local function reload(session, fresh, fetch, cb)
   end
   M.fetch(session.repo.root, fresh, { remote = pr_opts.remote, repo = pr_opts.repo }, function(refs, err)
     if not refs then
-      cb(false, err)
+      cb(false, err, false)
       return
     end
     if refs.warning then
-      notify.warn(refs.warning)
+      notify.background(refs.warning, vim.log.levels.WARN)
     end
     M.range(session.repo, fresh, function(range, range_err)
       if not range then
-        cb(false, range_err)
+        cb(false, range_err, false)
+        return
+      end
+      local held = session.range or {}
+      if fresh == session.pr and range.from == held.from and range.to == held.to then
+        cb(true, nil, false)
         return
       end
       apply(range)
@@ -1213,9 +1221,10 @@ end
 --- A review that opens with the metadata of the caller shows it at once,
 --- without a wait for GitHub. This call then reads the pull request with gh.
 --- When GitHub reports other values, the session takes them and reads the
---- review again. A new head commit or a new base commit also fetches the
---- commits. The session stays open the whole time. The call prints no message,
---- also after a failure.
+--- review again, with a short message. A new head commit or a new base
+--- commit also fetches the commits. The session stays open the whole time.
+--- The messages show in a popup, not on the command line, see
+--- |codeview.notify.background()|.
 ---
 --- The call sends `User CodeViewPrChecked` at the end. The `data` field holds
 --- `id`, the number of the session, `ok`, false after a failure, and
@@ -1236,6 +1245,12 @@ function M.check(session, cb)
   ---@param changed boolean
   ---@param err codeview.Error?
   local function finish(ok, changed, err)
+    if not ok and err then
+      notify.background(
+        string.format("the check of PR #%d failed: %s", held.number, tostring(err)),
+        vim.log.levels.WARN
+      )
+    end
     announce_check(session, { ok = ok, changed = changed })
     if cb then
       cb(changed, err)
@@ -1264,6 +1279,15 @@ function M.check(session, cb)
       finish(true, false, nil)
       return
     end
+    if moved(held, fresh) then
+      notify.background(
+        string.format(
+          "PR #%d changed on GitHub: the review reloads with head %s",
+          fresh.number,
+          fresh.head_sha:sub(1, 8)
+        )
+      )
+    end
     local function go()
       reload(session, fresh, moved(held, fresh), function(ok, reload_err)
         finish(ok, ok, reload_err)
@@ -1283,9 +1307,11 @@ end
 --- A review that opens with the metadata of the caller can lack the base
 --- commit, for example after a push to the base branch. It then shows the
 --- diff against the last known base. This call fetches the base branch,
---- writes the new range, and reads the review again in the same session. It
---- prints no message. A reload of |codeview.pr.check()| waits for the end of
---- this call.
+--- writes the new range, and reads the review again in the same session. A
+--- popup says so, see |codeview.notify.background()|. When the range stays
+--- the same, nothing reads again and no message shows. A failure shows in a
+--- popup too. A reload of |codeview.pr.check()| waits for the end of this
+--- call.
 ---@param session codeview.Session Session of a pull request.
 ---@param cb? fun(ok: boolean, err: codeview.Error?)
 function M.update_base(session, cb)
@@ -1297,9 +1323,19 @@ function M.update_base(session, cb)
     return
   end
   session.pr_base_waiters = {}
-  reload(session, info, true, function(ok, err)
+  reload(session, info, true, function(ok, err, changed)
     local waiters = session.pr_base_waiters or {}
     session.pr_base_waiters = nil
+    if session.closed then
+      ok = false
+    elseif not ok then
+      notify.background(
+        string.format("PR #%d: the update to the new base failed: %s", info.number, tostring(err)),
+        vim.log.levels.WARN
+      )
+    elseif changed then
+      notify.background(string.format("PR #%d: updated to the new base", info.number))
+    end
     if cb then
       cb(ok, err)
     end

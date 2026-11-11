@@ -41,8 +41,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `$CODEVIEW_PR`, as the JSON of `gh pr view --json`. `:Codeview pr` then
   shows the review without a wait for GitHub, and checks the data with gh in
   the background. When GitHub reports a new head, the review reads its data
-  again and stays open. The check prints no message. `codeview.open_pr()`
-  takes the same data as `info`. See `:help codeview-github-env`.
+  again and stays open. `codeview.open_pr()` takes the same data as `info`.
+  See `:help codeview-github-env`.
 
 ### Changed
 
@@ -73,10 +73,17 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - With the pull request data of the caller, a review whose base branch moved
   after the last fetch opens at once, with the diff against the last known
   base. The new base loads in the background, and the review then reads its
-  data again, without a message. See `:help codeview-github-env`.
+  data again. See `:help codeview-github-env`.
 
 ### Fixed
 
+- The messages of background work show in a popup, never on the command line,
+  so they never ask you to press Enter: the check of a pull request, the
+  update to the new base, a deleted base branch, and a comment file that does
+  not load. With a plugin that replaced `vim.notify`, for example
+  nvim-notify, they go to that plugin. Else a small float in the top-right
+  corner shows them and closes after about 3 seconds (5 seconds for a
+  warning). See `:help codeview-background-messages`.
 - Neovim no longer asks you to press Enter after the open of a review with a
   long title. With the sidebar, the open prints no message, because the
   sidebar header shows the title and the counts. Without the sidebar, the

@@ -1097,6 +1097,39 @@ describe("codeview.pr", function()
       assert.is_true(open_before_view)
     end)
 
+    it("shows the messages of the check in a popup, not on the command line", function()
+      local messages, popups = {}, {}
+      local notify = require("codeview.notify")
+      notify.notify = function(message) ---@diagnostic disable-line: duplicate-set-field
+        messages[#messages + 1] = message
+      end
+      notify.background = function(message) ---@diagnostic disable-line: duplicate-set-field
+        popups[#popups + 1] = message
+      end
+      local wait = on_check()
+      assert(open(12, { info = given({ headRefOid = fixture.ids.pr_one }), comments = false }))
+      assert.is_true(wait().changed)
+      assert.are.same({}, messages)
+      assert.are.same(
+        { "PR #12 changed on GitHub: the review reloads with head " .. fixture.ids.pr_two:sub(1, 8) },
+        popups
+      )
+
+      answer = function(cmd)
+        if cmd[2] == "pr" and cmd[3] == "view" then
+          return { code = 1, stderr = "HTTP 502" }
+        end
+        return default_answer(cmd)
+      end
+      popups = {}
+      wait = on_check()
+      assert(open(12, { info = given(), comments = false }))
+      assert.is_false(wait().ok)
+      assert.are.same({}, messages)
+      assert.are.equal(1, #popups)
+      assert.is_truthy(popups[1]:find("the check of PR #12 failed", 1, true), popups[1])
+    end)
+
     describe("with a base commit that the repository lacks", function()
       local side = vim.fn.tempname()
 
@@ -1148,7 +1181,7 @@ describe("codeview.pr", function()
         git({ "update-ref", "refs/remotes/origin/main", fixture.ids.main_two })
       end)
 
-      it("opens against the last known base, then fetches the new base without a message", function()
+      it("opens against the last known base, then fetches the new base and says so in a popup", function()
         local new_base = push_base()
         answer = function(cmd)
           if cmd[2] == "pr" and cmd[3] == "view" then
@@ -1158,10 +1191,13 @@ describe("codeview.pr", function()
           end
           return default_answer(cmd)
         end
-        local messages = {}
+        local messages, popups = {}, {}
         local notify = require("codeview.notify")
         notify.notify = function(message) ---@diagnostic disable-line: duplicate-set-field
           messages[#messages + 1] = message
+        end
+        notify.background = function(message) ---@diagnostic disable-line: duplicate-set-field
+          popups[#popups + 1] = message
         end
         local updated
         local real_update = pr.update_base
@@ -1186,6 +1222,17 @@ describe("codeview.pr", function()
         assert.are.equal(opened, session.current())
         assert.are.same({ "a.txt" }, paths_of(opened))
         assert.are.same({}, messages)
+        assert.are.same({ "PR #12: updated to the new base" }, popups)
+
+        -- A second update finds the same range: nothing reads again, and no
+        -- message shows.
+        updated = nil
+        pr.update_base(opened)
+        wait_for(function()
+          return updated ~= nil
+        end, "the second update did not end")
+        assert.is_true(updated.ok)
+        assert.are.same({ "PR #12: updated to the new base" }, popups)
       end)
 
       it("fetches before the open without a base commit of the caller", function()
