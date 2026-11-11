@@ -64,8 +64,10 @@ end
 
 ---Open a review the way `:Codeview {rev}` does.
 ---
---- The call opens the session, the sidebar, the overview, and the hints, and
---- shows the summary of the session. It returns at once. An error goes to the
+--- The call opens the session, the sidebar, the overview, and the hints. It
+--- prints no message, because the sidebar header shows the label and the
+--- counts. With `sidebar.auto_open = false`, it shows the summary of the
+--- session, cut to fit `v:echospace`. It returns at once. An error goes to the
 --- user as a message. With `opts.export_file`, the session keeps its export
 --- in that file. See |codeview.open()|.
 --- With `opts.quit = true`, Neovim quits when the review ends, as with

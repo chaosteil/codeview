@@ -1213,8 +1213,9 @@ end
 --- A review that opens with the metadata of the caller shows it at once,
 --- without a wait for GitHub. This call then reads the pull request with gh.
 --- When GitHub reports other values, the session takes them and reads the
---- review again, with a short message. A new head commit or a new base commit
---- also fetches the commits. The session stays open the whole time.
+--- review again. A new head commit or a new base commit also fetches the
+--- commits. The session stays open the whole time. The call prints no message,
+--- also after a failure.
 ---
 --- The call sends `User CodeViewPrChecked` at the end. The `data` field holds
 --- `id`, the number of the session, `ok`, false after a failure, and
@@ -1235,9 +1236,6 @@ function M.check(session, cb)
   ---@param changed boolean
   ---@param err codeview.Error?
   local function finish(ok, changed, err)
-    if not ok and err then
-      notify.warn("the check of the pull request failed: " .. tostring(err))
-    end
     announce_check(session, { ok = ok, changed = changed })
     if cb then
       cb(changed, err)
@@ -1265,15 +1263,6 @@ function M.check(session, cb)
     if same then
       finish(true, false, nil)
       return
-    end
-    if moved(held, fresh) then
-      notify.info(
-        string.format(
-          "PR #%d changed on GitHub: the review reloads with head %s",
-          fresh.number,
-          fresh.head_sha:sub(1, 8)
-        )
-      )
     end
     local function go()
       reload(session, fresh, moved(held, fresh), function(ok, reload_err)

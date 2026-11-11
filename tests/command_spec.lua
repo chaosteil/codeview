@@ -254,6 +254,69 @@ describe("codeview.command", function()
     end)
   end)
 
+  describe("the open message", function()
+    ---Hand a session to `command.opened()` and keep the echo messages.
+    ---@param opened codeview.Session
+    ---@return string[] messages
+    local function echoes(opened)
+      local seen = {}
+      local echo = vim.api.nvim_echo
+      vim.api.nvim_echo = function(chunks) ---@diagnostic disable-line: duplicate-set-field
+        local text = {}
+        for _, chunk in ipairs(chunks) do
+          text[#text + 1] = chunk[1]
+        end
+        seen[#seen + 1] = table.concat(text)
+      end
+      local ok, err = pcall(command.opened, opened, nil)
+      vim.api.nvim_echo = echo
+      assert.is_true(ok, tostring(err))
+      return seen
+    end
+
+    ---Make a session look like the review of a pull request with a title.
+    ---@param opened codeview.Session
+    ---@param title string
+    local function as_pr(opened, title)
+      opened.pr = { number = 128, title = title }
+      opened.spec = "PR #128 " .. title
+    end
+
+    it("prints nothing when the sidebar opens", function()
+      local opened = assert(session.open(fixture.ids.edit, { dir = fixture.dir }))
+      as_pr(opened, string.rep("a long title ", 10))
+      assert.are.same({}, echoes(opened))
+    end)
+
+    it("cuts the message without the sidebar to fit v:echospace", function()
+      assert(require("codeview.config").setup({
+        commit_message = false,
+        quit = "never",
+        sidebar = { auto_open = false },
+      }))
+      local opened = assert(session.open(fixture.ids.edit, { dir = fixture.dir }))
+      for _, title in ipairs({ string.rep("a long title ", 10), string.rep("長いタイトル", 10) }) do
+        as_pr(opened, title)
+        local seen = echoes(opened)
+        assert.are.equal(1, #seen)
+        local line = seen[1]
+        assert.is_true(vim.fn.strdisplaywidth(line) <= vim.v.echospace, line)
+        assert.is_truthy(vim.startswith(line, "codeview: PR #128 "), line)
+        assert.is_truthy(vim.endswith(line, "…: " .. opened:counts()), line)
+      end
+    end)
+
+    it("keeps a short message as it is", function()
+      local opened = assert(session.open(fixture.ids.edit, { dir = fixture.dir }))
+      as_pr(opened, "Fix it")
+      assert.are.equal("codeview: PR #128 Fix it: " .. opened:counts(), command.summary_line(opened, 80))
+      assert.are.equal(
+        "codeview: PR #128 F…: " .. opened:counts(),
+        command.summary_line(opened, 22 + #opened:counts())
+      )
+    end)
+  end)
+
   describe("quit", function()
     local quits
 

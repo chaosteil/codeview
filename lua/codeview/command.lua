@@ -32,6 +32,7 @@ local sidebar = require("codeview.sidebar")
 local vcs = require("codeview.vcs")
 
 local api = vim.api
+local fn = vim.fn
 
 local M = {}
 
@@ -116,11 +117,62 @@ local function quitting(done)
   end
 end
 
+---Cut a text to a display width. A cut text ends with "…".
+---@param text string
+---@param width integer Most display cells of the answer.
+---@return string text
+local function cut(text, width)
+  if fn.strdisplaywidth(text) <= width then
+    return text
+  end
+  if width < 1 then
+    return ""
+  end
+  local out, used = {}, 0
+  for _, char in ipairs(fn.split(text, "\\zs")) do
+    local cells = fn.strdisplaywidth(char)
+    if used + cells > width - 1 then
+      break
+    end
+    out[#out + 1] = char
+    used = used + cells
+  end
+  return table.concat(out) .. "…"
+end
+
+---Summary line of a session that fits a width.
+---
+--- Neovim shows the hit-enter prompt for a message that is wider than
+--- `v:echospace`. The call cuts the title of a pull request, or the label of
+--- another session, and ends it with "…". The number of the pull request and
+--- the counts stay.
+---@param review codeview.Session
+---@param width integer Most display cells of the line, for example `v:echospace`.
+---@return string line
+function M.summary_line(review, width)
+  local label = review:label()
+  local head = "codeview: "
+  local info = review.pr
+  if type(info) == "table" and type(info.number) == "number" then
+    local number = string.format("PR #%d", info.number)
+    if label:sub(1, #number) == number then
+      head = head .. number
+      label = label:sub(#number + 1)
+    end
+  end
+  local tail = ": " .. review:counts()
+  local room = width - fn.strdisplaywidth(head .. tail)
+  return cut(head .. cut(label, room) .. tail, width)
+end
+
 ---Handle the answer of an open call.
 ---
 --- The call reports an error. For a session, it opens the sidebar, the
---- overview, and the hints, and it shows the summary of the session.
---- |:Codeview| and |codeview.review()| both use it.
+--- overview, and the hints. The sidebar header shows the label and the
+--- counts, so the call prints no message. With `sidebar.auto_open = false`,
+--- it shows the summary of the session, cut to fit `v:echospace`, so that
+--- Neovim does not ask for Enter. |:Codeview| and |codeview.review()| both
+--- use it.
 ---@param review codeview.Session?
 ---@param err codeview.Error?
 function M.opened(review, err)
@@ -148,7 +200,9 @@ function M.opened(review, err)
     end
   end
   require("codeview.hints").open({ session = review })
-  api.nvim_echo({ { "codeview: " .. review:summary() } }, false, {})
+  if not cfg.sidebar.auto_open then
+    api.nvim_echo({ { M.summary_line(review, vim.v.echospace) } }, false, {})
+  end
   -- The main window shows the top entry of the sidebar at once: the pull
   -- request, the first commit, or the first file. A review without an entry
   -- shows nothing.

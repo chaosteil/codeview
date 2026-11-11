@@ -41,8 +41,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `$CODEVIEW_PR`, as the JSON of `gh pr view --json`. `:Codeview pr` then
   shows the review without a wait for GitHub, and checks the data with gh in
   the background. When GitHub reports a new head, the review reads its data
-  again, with a short message, and stays open. `codeview.open_pr()` takes the
-  same data as `info`. See `:help codeview-github-env`.
+  again and stays open. The check prints no message. `codeview.open_pr()`
+  takes the same data as `info`. See `:help codeview-github-env`.
 
 ### Changed
 
@@ -77,6 +77,10 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Neovim no longer asks you to press Enter after the open of a review with a
+  long title. With the sidebar, the open prints no message, because the
+  sidebar header shows the title and the counts. Without the sidebar, the
+  summary line is cut to fit `v:echospace`. See `:help codeview-open-message`.
 - The sign of a comment stays visible on a row that also has the sign of
   another plugin, for example the sign of a heading of markview.nvim in a
   commit document. The sign of a comment now has a priority above the

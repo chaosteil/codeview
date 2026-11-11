@@ -265,6 +265,17 @@ session object. To use the session methods, read the session with
 The close event comes after the session ended. |codeview.session()| gives nil
 in that handler.
 
+                                                       *codeview-open-message*
+After an open, the sidebar header shows the label and the counts of the
+session, so |:Codeview| prints no message. With `sidebar.auto_open = false`,
+the command shows the summary line instead. The line is cut to fit
+`v:echospace`, so Neovim does not ask you to press Enter. A long title of a
+pull request ends with "…". The number of the pull request and the counts
+stay: >
+
+    codeview: PR #128 Add the rolling age limit of the…: 26 files, 2 commits
+<
+
 A session reads its data again with `session:refresh()`. On a review of the
 working-copy commit, `session:reload()` also takes the new state of the
 working copy. The diff view and the sidebar make that call for you. See
@@ -1517,8 +1528,8 @@ GitHub: with both commits in the repository, it opens without a network call.
 
 The command then reads the pull request with gh in the background. When
 GitHub reports other values, the review takes them and reads its data again.
-A new head commit or a new base commit also fetches the commits, and a short
-message says so. The session stays open, so the review does not end. When the
+A new head commit or a new base commit also fetches the commits. The check
+prints no message, also after a failure. The session stays open, so the review does not end. When the
 open with the data of the tool fails, for example because the head commit is
 not the head of GitHub, the command opens the pull request again with the
 data of GitHub.
@@ -2079,8 +2090,9 @@ codeview.open({spec}, {opts}, {cb})
                                                            *codeview.review()*
 codeview.review({spec}, {opts})
     Open a review the way |:Codeview| {rev} does. The call opens the session,
-    the sidebar, the overview, and the hints, and it shows the summary of the
-    session. It returns at once. If the open fails, you get the error as a
+    the sidebar, the overview, and the hints. It shows the summary of the
+    session only without the sidebar. See |codeview-open-message|. It returns
+    at once. If the open fails, you get the error as a
     message, the same as from |:Codeview|.
 
     {opts} accepts these fields: >lua
@@ -2457,7 +2469,7 @@ codeview.version
 A session answers these calls: >lua
 
     session:label()          -- text of the range
-    session:summary()        -- range, file count, and commit count
+    session:summary()        -- range, file count, and commit count, uncut
     session:changed_files()  -- list of changed files
     session:file(index)      -- one changed file
     session:counts()         -- file count and commit count, as text
