@@ -71,7 +71,8 @@ local M = {}
 ---@field max_lines integer Line limit that applied. 0 when the line limit did not apply.
 ---@field byte_count integer? Number of bytes of the two sides together.
 ---@field max_bytes integer? Byte limit that applied. 0 or nil when the byte limit did not apply.
----@field message boolean? True for the commit message document, which holds no diff.
+---@field message boolean? True for a document, which holds no diff: a commit message, or a file of a review of files.
+---@field plain boolean? True for a file of a review of files. See |codeview.diff.plain()|.
 ---@field filetype string? Filetype of the buffer of a document, for example "markdown". Nil keeps the filetype of a diff.
 ---@field old_eol boolean? False when the old side does not end with a line break. Nil or true otherwise.
 ---@field new_eol boolean? False when the new side does not end with a line break. Nil or true otherwise.
@@ -178,11 +179,17 @@ end
 --- An added file has no old side, and a deleted file has no new side. A range
 --- without a base has no old side at all, because the base is the state before
 --- the first commit.
+---
+--- A file of a review of files comes from the disk, not from a commit. Both
+--- revisions are nil there, so a comment on it names no commit.
 ---@param session codeview.Session Session that owns the file.
 ---@param file codeview.vcs.FileChange File of the session.
 ---@return string? old_rev Revision of the old side.
 ---@return string? new_rev Revision of the new side.
 function M.revisions(session, file)
+  if session.repo and session.repo.backend == "file" then
+    return nil, nil
+  end
   local old_rev = session.range.from
   local new_rev = session.range.to
   if file.status == "added" then
@@ -340,6 +347,72 @@ local function read_sides(repo, old_rev, old_path, new_rev, new_path, cb)
   return nil, nil, nil
 end
 
+---Build the document of a file of a review of files.
+---
+--- The document holds the lines of the file as they are, with no diff. It
+--- carries `message = true`, so the renderer writes every line as a line of
+--- the new side, and `plain = true`. Its filetype is the filetype of the path,
+--- so the syntax colours of the user apply. See |codeview-files|.
+---
+--- A binary file, an empty file, and a file above the limits get no lines.
+--- The renderer then shows the note of a diff. A file above the limits counts
+--- one side, so a file of a review of files can hold twice the lines of a
+--- diff.
+---@param path string Path of the file in the review.
+---@param text string Content of the file.
+---@param opts? codeview.diff.Opts Only `max_lines` and `max_bytes` matter.
+---@return codeview.diff.File
+function M.plain(path, text, opts)
+  opts = opts or {}
+  local cfg = config.get().diff
+  local max_lines = opts.max_lines or cfg.max_lines
+  local max_bytes = opts.max_bytes or (opts.max_lines == 0 and 0 or cfg.max_bytes)
+  local binary = M.is_binary(text)
+  local lines = binary and {} or M.split(text)
+
+  ---@type codeview.diff.File
+  local out = {
+    path = path,
+    old_path = path,
+    status = "file",
+    old_rev = nil,
+    new_rev = nil,
+    old_lines = {},
+    new_lines = lines,
+    hunks = {},
+    binary = binary,
+    limited = false,
+    line_count = #lines,
+    max_lines = 0,
+    byte_count = #text,
+    max_bytes = 0,
+    new_eol = M.ends_with_newline(text),
+    plain = true,
+  }
+  if binary then
+    return out
+  end
+  if max_lines > 0 and #lines > max_lines then
+    out.limited = true
+    out.max_lines = max_lines
+    out.new_lines = {}
+    return out
+  end
+  if max_bytes > 0 and #text > max_bytes then
+    out.limited = true
+    out.max_bytes = max_bytes
+    out.new_lines = {}
+    return out
+  end
+  if #lines == 0 then
+    -- The note of an empty file says more than an empty buffer.
+    return out
+  end
+  out.message = true
+  out.filetype = vim.filetype.match({ filename = path, contents = lines })
+  return out
+end
+
 ---Build the diff of one changed file of a session.
 ---
 --- Without a callback the call blocks and returns `diff, err`. With a callback
@@ -369,6 +442,26 @@ function M.for_file(session, file, opts, cb)
       return nil, nil
     end
     return nil, err
+  end
+
+  if session.repo.backend == "file" then
+    -- A review of files reads one side from the disk, and shows no diff.
+    local rev = session.range and session.range.to or ""
+    if not cb then
+      local text, err = session.repo:file_content(rev, file.path)
+      if not text then
+        return nil, err
+      end
+      return M.plain(file.path, text, opts), nil
+    end
+    session.repo:file_content(rev, file.path, function(text, err)
+      if not text then
+        cb(nil, err)
+        return
+      end
+      cb(M.plain(file.path, text, opts), nil)
+    end)
+    return nil, nil
   end
 
   local old_rev, new_rev = M.revisions(session, file)
@@ -416,10 +509,17 @@ end
 ---@param diff codeview.diff.File
 ---@return string message
 function M.limit_message(diff)
+  -- A file of a review of files is no diff, so the text names the file.
+  local noun = diff.plain and "file" or "diff"
   if (diff.max_bytes or 0) > 0 then
-    return string.format("The diff holds %d bytes. The limit diff.max_bytes is %d.", diff.byte_count, diff.max_bytes)
+    return string.format(
+      "The %s holds %d bytes. The limit diff.max_bytes is %d.",
+      noun,
+      diff.byte_count,
+      diff.max_bytes
+    )
   end
-  return string.format("The diff holds %d lines. The limit diff.max_lines is %d.", diff.line_count, diff.max_lines)
+  return string.format("The %s holds %d lines. The limit diff.max_lines is %d.", noun, diff.line_count, diff.max_lines)
 end
 
 ---Number of added lines and removed lines of a diff.

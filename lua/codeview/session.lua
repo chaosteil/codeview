@@ -16,6 +16,10 @@
 --- resolves the argument of the open call again, so the range follows the new
 --- commits of the repository. On a review of the working-copy commit,
 --- |codeview.Session:reload()| takes the new state of the working copy only.
+---
+--- |codeview.session.open_files()| opens a review of files with no
+--- repository. The handle of |codeview.vcs.file| reads the files from the
+--- disk, and the session works as it does for a range.
 
 local config = require("codeview.config")
 local errors = require("codeview.error")
@@ -43,6 +47,7 @@ local M = {}
 ---@field pr codeview.pr.Info? Pull request that the session reviews. Nil for a local range.
 ---@field pr_opts codeview.session.PrOpts? Options of the open call of the pull request. Nil for a local range.
 ---@field export_file string? Path of the file that holds the export of the session.
+---@field paths string[]? Absolute paths of a review of files. Nil for a review of a range.
 ---@field opened_at integer Time of the open call, in seconds since the epoch.
 ---@field closed boolean True after |codeview.Session:close()|.
 ---@field private windows integer[] Windows that close with the session.
@@ -75,6 +80,7 @@ local counter = 0
 ---@field dir string Root of the repository.
 ---@field pr codeview.session.LastPr? Pull request of the session. Nil for a local range.
 ---@field export_file string? Path of the export file of the session.
+---@field paths string[]? Absolute paths of a review of files. Nil for a review of a range.
 ---@field path string? Path of the open file. Nil when no file was open.
 ---@field line integer? Line of the new side under the cursor.
 ---@field style "inline"|"split"? Diff style of the open file.
@@ -195,6 +201,7 @@ end
 ---@field pr codeview.pr.Info? Pull request that the session reviews.
 ---@field pr_opts codeview.session.PrOpts? Options of the open call of the pull request.
 ---@field export_file string? Path of a file that holds the export of the session. The session keeps it up to date.
+---@field paths string[]? Absolute paths of a review of files. |codeview.session.open_files()| sets them.
 
 ---Write the export of a session to a file.
 ---
@@ -308,6 +315,7 @@ function M.open(spec, opts, cb)
       pr = opts.pr,
       pr_opts = opts.pr_opts,
       export_file = opts.export_file,
+      paths = opts.paths and vim.deepcopy(opts.paths) or nil,
       opened_at = os.time(),
       closed = false,
       windows = {},
@@ -344,6 +352,88 @@ function M.open(spec, opts, cb)
       return
     end
     cb(build(), nil)
+  end)
+  return nil, nil
+end
+
+---Label of a review of files.
+---
+--- The label holds each path as the user reads it: relative to the current
+--- directory, or with `~` for the home directory.
+---@param paths string[] Absolute paths.
+---@return string
+local function files_label(paths)
+  local names = {}
+  for _, path in ipairs(paths) do
+    names[#names + 1] = vim.fn.fnamemodify(path, ":~:.")
+  end
+  return table.concat(names, " ")
+end
+
+---Text of the files that a directory walk skipped.
+---@param skipped codeview.vcs.file.Skipped
+---@return string? text Nil when the walk skipped no file.
+local function skipped_text(skipped)
+  local parts = {}
+  if skipped.binary > 0 then
+    parts[#parts + 1] = string.format("%d binary %s", skipped.binary, skipped.binary == 1 and "file" or "files")
+  end
+  if skipped.large > 0 then
+    parts[#parts + 1] =
+      string.format("%d %s above files.max_bytes", skipped.large, skipped.large == 1 and "file" or "files")
+  end
+  if #parts == 0 then
+    return nil
+  end
+  return "the review skips " .. table.concat(parts, " and ")
+end
+
+---Open a review of files with no repository.
+---
+--- The files come from the disk. A directory gives every file below it. See
+--- |codeview.vcs.file| for the rules of the walk. The call never runs git or
+--- jj to read a file, also for a file inside a repository.
+---
+--- The comment store of the review takes the paths and a digest of the
+--- contents as its key. A change of a file therefore starts a new review, the
+--- way a new commit does for a range.
+---@param paths string[] Files and directories. A relative path starts at `opts.dir`.
+---@param opts? { dir?: string, export_file?: string } `dir` is the directory of a relative path. The current directory by default.
+---@param cb? fun(session: codeview.Session?, err: codeview.Error?) Callback for the async form.
+---@return codeview.Session? session Nil after an error.
+---@return codeview.Error? err
+function M.open_files(paths, opts, cb)
+  if type(opts) == "function" then
+    cb, opts = opts, nil
+  end
+  opts = opts or {}
+  if type(paths) == "string" then
+    paths = { paths }
+  end
+  local file = require("codeview.vcs.file")
+  local repo, err = file.new(paths, { dir = opts.dir })
+  if not repo then
+    return done(cb, nil, err)
+  end
+  local label = files_label(repo.inputs)
+  local open_opts = { repo = repo, label = label, export_file = opts.export_file, paths = repo.inputs }
+
+  ---@param session codeview.Session?
+  local function report(session)
+    local text = session and skipped_text(repo.skipped)
+    if text then
+      notify.info(text)
+    end
+  end
+
+  if not cb then
+    local session, open_err = M.open(label, open_opts)
+    report(session)
+    return session, open_err
+  end
+  M.open(label, open_opts, function(session, open_err)
+    report(session)
+    cb(session, open_err)
   end)
   return nil, nil
 end
@@ -441,6 +531,14 @@ function Session:label()
   return self.spec
 end
 
+---Report whether the session reviews files with no repository.
+---
+--- See |codeview.session.open_files()|.
+---@return boolean
+function Session:is_files()
+  return self.repo ~= nil and self.repo.backend == "file"
+end
+
 ---One line with the range, the file count, and the commit count.
 ---@return string
 function Session:summary()
@@ -450,10 +548,14 @@ end
 ---Text with the file count and the commit count.
 ---
 --- The commit documents do not change the range, so they do not count. See
---- |codeview.Session:changed_count()|.
+--- |codeview.Session:changed_count()|. A review of files has no commits, so
+--- its text names the files only.
 ---@return string
 function Session:counts()
   local count = self:changed_count()
+  if self:is_files() then
+    return string.format("%d %s", count, count == 1 and "file" or "files")
+  end
   return string.format(
     "%d %s, %d %s",
     count,
@@ -860,6 +962,7 @@ local function record_of(session)
     input = vim.deepcopy(session.input),
     dir = session.repo.root,
     export_file = session.export_file,
+    paths = session.paths and vim.deepcopy(session.paths) or nil,
     sidebar = false,
     overview = false,
   }

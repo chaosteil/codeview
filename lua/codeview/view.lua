@@ -989,8 +989,9 @@ function load(session, index, opts, cb, dropped)
       new_rev = new_rev,
       diff = result,
       -- A document holds one side only, so the side-by-side style has nothing
-      -- to put in the other window.
-      style = file.virtual and "inline" or next_style(),
+      -- to put in the other window. A file of a review of files has one side
+      -- too.
+      style = (file.virtual or result.plain) and "inline" or next_style(),
       map = linemap.new(),
       old_map = nil,
       expanded = {},
@@ -1598,10 +1599,13 @@ function M.set_style(style)
   if not view or view.style == style then
     return style
   end
-  if view.diff and view.diff.message then
+  if view.diff and (view.diff.message or view.diff.plain) then
     -- A document has one side. The next file takes the new style, but this
     -- view stays inline.
-    notify.info("the document has no side-by-side style")
+    notify.info(
+      view.diff.plain and "a file of a review of files has no side-by-side style"
+        or "the document has no side-by-side style"
+    )
     return view.style
   end
 

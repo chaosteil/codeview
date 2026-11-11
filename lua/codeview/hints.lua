@@ -79,6 +79,16 @@ M.actions = {
   },
 }
 
+---Actions that a review of files does not show. Its files hold no hunk and
+--- no collapsed section, and they have one side only.
+---@type table<string, boolean>
+M.no_diff = {
+  next_hunk = true,
+  prev_hunk = true,
+  expand_context = true,
+  toggle_style = true,
+}
+
 ---Hint row of the session that runs.
 ---@type { buf: integer, win: integer, session: codeview.Session, group: integer, surface: string? }?
 local state = nil
@@ -135,12 +145,16 @@ function M.chunks(name, session)
   local actions = (cfg.hints.actions or {})[name] or M.actions[name] or {}
   local keys = cfg.keymaps
   local agent = require("codeview.agent").has_items(session)
+  local files = session ~= nil and type(session.is_files) == "function" and session:is_files()
 
   ---@type { text: string, hl: string }[]
   local out = {}
   for _, entry in ipairs(actions) do
     local lhs = config.keys(keys[entry.action])[1]
     if entry.action == "adopt" and not agent then
+      lhs = nil
+    end
+    if files and M.no_diff[entry.action] then
       lhs = nil
     end
     if lhs then
