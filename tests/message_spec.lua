@@ -178,7 +178,11 @@ describe("codeview.message", function()
       local session = open_session()
       local state = open_commit(session)
       assert.are.equal("markdown", vim.bo[state.buf].filetype)
-      assert.is_not_nil(vim.treesitter.highlighter.active[state.buf])
+      if helpers.markdown_treesitter then
+        assert.is_not_nil(vim.treesitter.highlighter.active[state.buf])
+      else
+        assert.are.equal("markdown", vim.bo[state.buf].syntax)
+      end
       -- The view keeps its own keys.
       local map = api.nvim_buf_call(state.buf, function()
         return vim.fn.maparg("]f", "n", false, true)
@@ -250,6 +254,7 @@ describe("codeview.message", function()
       local session = open_session()
       session.commits[1].body = "Some `code` in the body."
       local state = open_commit(session)
+      helpers.start_markdown_treesitter(state.buf)
       local row
       for index, line in ipairs(api.nvim_buf_get_lines(state.buf, 0, -1, false)) do
         if line == session.commits[1].body then

@@ -50,6 +50,25 @@ function M.clean_nvim(lua, pre)
   return res
 end
 
+---True when the markdown filetype of Neovim starts the treesitter highlighter.
+---
+--- The markdown ftplugin of Neovim 0.12 starts it. On Neovim 0.11, the
+--- configuration of the user starts it, for example nvim-treesitter. Without
+--- it, the syntax file of Vim colors the markdown.
+---@type boolean
+M.markdown_treesitter = vim.fn.has("nvim-0.12") == 1
+
+---Start the treesitter highlighter of a markdown buffer, as a user configuration does.
+---
+--- On Neovim 0.12 and later, the call does nothing. A spec then still finds
+--- no highlighter when the filetype does not start it.
+---@param buf integer
+function M.start_markdown_treesitter(buf)
+  if not M.markdown_treesitter then
+    vim.treesitter.start(buf, "markdown")
+  end
+end
+
 ---Highlight captures at a position of a buffer, with the injected languages.
 ---
 --- The treesitter highlighter parses only the rows that a window draws. A

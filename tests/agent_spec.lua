@@ -407,6 +407,7 @@ describe("codeview.agent in a pull request review", function()
     local review = open_session()
     agent.attach(review)
     local state = assert(view.open(review, assert(review:index_of("codeview://agent/describe"))))
+    helpers.start_markdown_treesitter(state.buf)
 
     assert.are.equal("markdown", vim.bo[state.buf].filetype)
     assert.is_not_nil(vim.treesitter.highlighter.active[state.buf])

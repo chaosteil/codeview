@@ -325,7 +325,11 @@ describe("codeview.syntax", function()
       local index = assert(session:index_of(message.path_of(session.commits[1].id)))
       local state = assert(view.open(session, index))
       assert.are.equal("markdown", vim.bo[state.buf].filetype)
-      assert.is_not_nil(vim.treesitter.highlighter.active[state.buf])
+      if helpers.markdown_treesitter then
+        assert.is_not_nil(vim.treesitter.highlighter.active[state.buf])
+      else
+        assert.are.equal("markdown", vim.bo[state.buf].syntax)
+      end
       assert.are.equal(0, #marks_of(state.buf))
     end)
   end)
