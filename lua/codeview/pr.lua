@@ -111,6 +111,7 @@ M.fields = {
 ---@field base string Local ref that holds the tip of the base branch.
 ---@field remote string Git remote that the refs come from. An address when no remote names the repository.
 ---@field warning string? Line about a step that did not run as planned.
+---@field base_pending boolean? True when the base ref holds the last known base, because the repository lacks the base commit of GitHub. |codeview.pr.update_base()| fetches it.
 
 ---@class codeview.pr.Remote
 ---@field name string Name of the git remote.
@@ -538,9 +539,15 @@ end
 --- the remote no longer holds is normal for a merged pull request. In that
 --- case the call fetches the head alone, writes the base commit that GitHub
 --- reports into the base ref, and reports the missing branch in `warning`.
+---
+--- With `defer_base`, a repository that holds the head but lacks only the base
+--- commit gets no fetch. The base ref then holds the last known base: the
+--- newer commit of the remote-tracking branch of the base branch and the old
+--- base ref. The call sets `base_pending`. Without a last known base, the
+--- call fetches as usual.
 ---@param root string Absolute path of the repository root.
 ---@param info codeview.pr.Info Metadata of the pull request.
----@param opts? { remote?: string, repo?: string } `remote` is the name of the git remote, the configuration value by default. `repo` is the `owner/name` that the user named.
+---@param opts? { remote?: string, repo?: string, defer_base?: boolean } `remote` is the name of the git remote, the configuration value by default. `repo` is the `owner/name` that the user named.
 ---@param cb? fun(refs: codeview.pr.Refs?, err: codeview.Error?) Callback for the async form.
 ---@return codeview.pr.Refs? refs
 ---@return codeview.Error? err
@@ -593,6 +600,8 @@ function M.fetch(root, info, opts, cb)
     end
     -- The commits that the repository holds. The fetch leaves them out.
     local have = { head = false, base = false }
+    -- The commit that the base ref gets when the repository holds it.
+    local base_oid = info.base_sha
     ---@type codeview.ExecResult?
     local failed
 
@@ -623,6 +632,35 @@ function M.fetch(root, info, opts, cb)
       end, step_cb, nil, stdin)
     end
 
+    ---Find the last known base when only the base commit is missing. The
+    ---newer commit of the remote-tracking branch and the old base ref wins.
+    ---@type codeview.pr.Step
+    local function last_step(step_cb)
+      if not opts.defer_base or not have.head or have.base or info.base_sha == "" or not base_refspec then
+        return done(step_cb, true, nil)
+      end
+      local tracking = string.format("refs/remotes/%s/%s", name, info.base_ref)
+      local args = { "for-each-ref", "--format=%(objectname) %(committerdate:unix) %(refname)", tracking, refs.base }
+      return git(root, args, function(result)
+        if result.code ~= 0 then
+          return true, nil
+        end
+        local newest, newest_date
+        for _, line in ipairs(exec.lines(result.stdout)) do
+          local oid, date, ref = line:match("^(%x+) (%d+) (%S+)$")
+          if oid and (ref == tracking or ref == refs.base) and (not newest_date or tonumber(date) > newest_date) then
+            newest, newest_date = oid, tonumber(date)
+          end
+        end
+        if newest then
+          base_oid = newest
+          have.base = true
+          refs.base_pending = true
+        end
+        return true, nil
+      end, step_cb)
+    end
+
     ---Write the refs of the commits that the repository holds.
     ---@type codeview.pr.Step
     local function local_step(step_cb)
@@ -631,7 +669,7 @@ function M.fetch(root, info, opts, cb)
         stdin = stdin .. string.format("update %s %s\n", refs.head, info.head_sha)
       end
       if have.base then
-        stdin = stdin .. string.format("update %s %s\n", refs.base, info.base_sha)
+        stdin = stdin .. string.format("update %s %s\n", refs.base, base_oid)
       end
       if stdin == "" then
         return done(step_cb, true, nil)
@@ -749,7 +787,7 @@ function M.fetch(root, info, opts, cb)
       end, step_cb)
     end
 
-    return { probe_step, local_step, fetch_step, retry_step, check_step, fallback_step }
+    return { probe_step, last_step, local_step, fetch_step, retry_step, check_step, fallback_step }
   end
 
   ---Write the two refs from the commits of the repository. The answer is
@@ -885,7 +923,10 @@ end
 --- wait for GitHub before the review shows. |codeview.pr.check()| then reads
 --- the pull request in the background. When the open with that metadata
 --- fails, for example because it is old, the call opens again with the
---- metadata of GitHub.
+--- metadata of GitHub. When the repository holds the head but lacks the base
+--- commit of that metadata, the review shows the diff against the last known
+--- base, and |codeview.pr.update_base()| fetches the new base in the
+--- background.
 ---@param number integer? Number of the pull request.
 ---@param opts? { dir?: string, repo?: string, remote?: string, comments?: boolean, progress?: codeview.pr.Progress, info?: codeview.pr.Info } `repo` is `owner/name`.
 ---@param cb? fun(session: codeview.Session?, err: codeview.Error?) Callback for the async form.
@@ -951,7 +992,15 @@ function M.open(number, opts, cb)
     if opts.progress then
       opts.progress:set_title(M.label(state.info))
     end
-    return M.fetch(state.repo.root, state.info, { remote = opts.remote, repo = opts.repo }, step_cb)
+    -- With the base commit of the caller, a missing base waits for
+    -- |codeview.pr.update_base()|, so the review shows at once.
+    local defer_base = given ~= nil and given.base_sha ~= ""
+    return M.fetch(
+      state.repo.root,
+      state.info,
+      { remote = opts.remote, repo = opts.repo, defer_base = defer_base },
+      step_cb
+    )
   end, "refs")
   step(function(step_cb)
     return M.range(state.repo, state.info, step_cb)
@@ -996,6 +1045,9 @@ function M.open(number, opts, cb)
       -- The results of pr-agent are files on the disk, so they read at once.
       if session then
         require("codeview.agent").attach(session)
+      end
+      if session and refs.base_pending then
+        M.update_base(session)
       end
       if session and given then
         M.check(session)
@@ -1096,8 +1148,9 @@ end
 --- session loads the comment file of that key.
 ---@param session codeview.Session
 ---@param fresh codeview.pr.Info Metadata of GitHub.
+---@param fetch boolean True to fetch the commits and write the range first.
 ---@param cb fun(ok: boolean, err: codeview.Error?)
-local function reload(session, fresh, cb)
+local function reload(session, fresh, fetch, cb)
   local pr_opts = session.pr_opts or {}
 
   ---@param range codeview.vcs.Range? New range. Nil keeps the range.
@@ -1133,7 +1186,7 @@ local function reload(session, fresh, cb)
     end)
   end
 
-  if not moved(session.pr, fresh) then
+  if not fetch then
     apply(nil)
     return
   end
@@ -1222,9 +1275,48 @@ function M.check(session, cb)
         )
       )
     end
-    reload(session, fresh, function(ok, reload_err)
-      finish(ok, ok, reload_err)
-    end)
+    local function go()
+      reload(session, fresh, moved(held, fresh), function(ok, reload_err)
+        finish(ok, ok, reload_err)
+      end)
+    end
+    -- Two fetches at the same time can fail on the lock of a ref.
+    if session.pr_base_waiters then
+      table.insert(session.pr_base_waiters, go)
+      return
+    end
+    go()
+  end)
+end
+
+---Fetch the base commit that the review lacks, and read the review again.
+---
+--- A review that opens with the metadata of the caller can lack the base
+--- commit, for example after a push to the base branch. It then shows the
+--- diff against the last known base. This call fetches the base branch,
+--- writes the new range, and reads the review again in the same session. It
+--- prints no message. A reload of |codeview.pr.check()| waits for the end of
+--- this call.
+---@param session codeview.Session Session of a pull request.
+---@param cb? fun(ok: boolean, err: codeview.Error?)
+function M.update_base(session, cb)
+  local info = M.current(session)
+  if not info then
+    if cb then
+      cb(false, errors.new(errors.codes.INVALID_ARG, "the session does not review a pull request"))
+    end
+    return
+  end
+  session.pr_base_waiters = {}
+  reload(session, info, true, function(ok, err)
+    local waiters = session.pr_base_waiters or {}
+    session.pr_base_waiters = nil
+    if cb then
+      cb(ok, err)
+    end
+    for _, waiter in ipairs(waiters) do
+      waiter()
+    end
   end)
 end
 

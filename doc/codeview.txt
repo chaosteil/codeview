@@ -1530,6 +1530,16 @@ The check sends this event at the end: >
 Its `data` field holds `id`, the number of the session, `ok`, false when the
 check failed, and `changed`, true when the review took new values.
 
+The base branch can move after the last fetch. When the repository holds the
+head commit of the data but lacks its base commit, the review still opens at
+once. It shows the diff against the last known base: the newer of the
+remote-tracking branch of the base branch and the base ref of the last review.
+The command then fetches the base branch in the background and reads the
+review again in the same session, without a message. A reload of the check
+waits for the end of that fetch. Without a base commit in the data, or without
+a last known base, the command fetches the base branch before the review
+opens.
+
                                                        *codeview-github-store*
 The session key of the comment file is `pr-{number}-{head commit}`. A new push
 to the pull request gives a new head commit, so the next review starts with an

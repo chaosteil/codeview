@@ -70,6 +70,10 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   fetches the head and the base branch in one `git fetch` call, not in two
   calls one after the other. With a new base branch and a known head, the
   review opens about 1 second sooner.
+- With the pull request data of the caller, a review whose base branch moved
+  after the last fetch opens at once, with the diff against the last known
+  base. The new base loads in the background, and the review then reads its
+  data again, without a message. See `:help codeview-github-env`.
 
 ### Fixed
 

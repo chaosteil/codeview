@@ -1096,6 +1096,110 @@ describe("codeview.pr", function()
       assert.are.equal(fixture.ids.pr_two, out.session.pr.head_sha)
       assert.is_true(open_before_view)
     end)
+
+    describe("with a base commit that the repository lacks", function()
+      local side = vim.fn.tempname()
+
+      ---Run git in the side clone.
+      ---@param args string[]
+      ---@return string stdout
+      local function side_git(args)
+        local cmd = vim.list_extend({ "git", "-C", side }, args)
+        local res = vim.system(cmd, { text = true, env = fixture.env }):wait(20000)
+        assert.are.equal(0, res.code, table.concat(cmd, " ") .. ": " .. (res.stderr or ""))
+        return vim.trim(res.stdout or "")
+      end
+
+      ---Push a new tip of main to the remote: a merge of the first commit of
+      ---the pull request. The merge base with the head then moves, and the
+      ---review lists only a.txt.
+      ---@return string id
+      local function push_base()
+        local origin = git({ "remote", "get-url", "origin" })
+        local res = vim
+          .system({ "git", "clone", "--quiet", origin, side }, { text = true, env = fixture.env })
+          :wait(20000)
+        assert.are.equal(0, res.code, res.stderr)
+        side_git({ "fetch", "--quiet", "origin", "refs/pull/12/head" })
+        side_git({ "merge", "--quiet", "--no-edit", fixture.ids.pr_one })
+        side_git({ "push", "--quiet", "origin", "HEAD:refs/heads/main" })
+        return side_git({ "rev-parse", "HEAD" })
+      end
+
+      ---Paths of the changed files of a session.
+      ---@param opened codeview.Session
+      ---@return string[]
+      local function paths_of(opened)
+        local paths = {}
+        for _, file in ipairs(opened:changed_files()) do
+          if not file.virtual then
+            paths[#paths + 1] = file.path
+          end
+        end
+        table.sort(paths)
+        return paths
+      end
+
+      after_each(function()
+        if vim.fn.isdirectory(side) == 1 then
+          side_git({ "push", "--quiet", "--force", "origin", fixture.ids.main_two .. ":refs/heads/main" })
+          vim.fn.delete(side, "rf")
+        end
+        git({ "update-ref", "refs/remotes/origin/main", fixture.ids.main_two })
+      end)
+
+      it("opens against the last known base, then fetches the new base without a message", function()
+        local new_base = push_base()
+        answer = function(cmd)
+          if cmd[2] == "pr" and cmd[3] == "view" then
+            local data = vim.json.decode(pr_view())
+            data.baseRefOid = new_base
+            return { stdout = vim.json.encode(data) }
+          end
+          return default_answer(cmd)
+        end
+        local messages = {}
+        local notify = require("codeview.notify")
+        notify.notify = function(message) ---@diagnostic disable-line: duplicate-set-field
+          messages[#messages + 1] = message
+        end
+        local updated
+        local real_update = pr.update_base
+        pr.update_base = function(opened, cb) ---@diagnostic disable-line: duplicate-set-field
+          real_update(opened, function(ok, err)
+            updated = { ok = ok, err = err }
+            if cb then
+              cb(ok, err)
+            end
+          end)
+        end
+
+        local opened = assert(open(12, { info = given({ baseRefOid = new_base }), comments = false }))
+        assert.are.same({ "a.txt", "feature.txt" }, paths_of(opened))
+        assert.are.equal(fixture.ids.pr_two, opened.range.to)
+
+        wait_for(function()
+          return updated ~= nil
+        end, "the base did not update")
+        assert.is_true(updated.ok, tostring(updated.err))
+        assert.are.equal(new_base, git({ "rev-parse", pr.refs(12).base }))
+        assert.are.equal(opened, session.current())
+        assert.are.same({ "a.txt" }, paths_of(opened))
+        assert.are.same({}, messages)
+      end)
+
+      it("fetches before the open without a base commit of the caller", function()
+        local new_base = push_base()
+        local deferred = false
+        pr.update_base = function() ---@diagnostic disable-line: duplicate-set-field
+          deferred = true
+        end
+        local opened = assert(open(12, { info = given({ baseRefOid = "" }), comments = false }))
+        assert.is_false(deferred)
+        assert.are.equal(new_base, git({ "rev-parse", pr.refs(12).base }))
+        assert.are.same({ "a.txt" }, paths_of(opened))
+      end)
+    end)
   end)
 
   it("removes the fixture", function()
