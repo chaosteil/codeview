@@ -419,7 +419,7 @@ describe("codeview.agent in a pull request review", function()
       end
     end
     assert(row, "no row with the body")
-    local captures = vim.treesitter.get_captures_at_pos(state.buf, row - 1, 5)
+    local captures = helpers.captures_at(state.buf, row - 1, 5)
     assert.is_true(
       vim.iter(captures):any(function(capture)
         return capture.capture == "markup.raw"
