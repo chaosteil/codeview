@@ -427,7 +427,9 @@ function M.run(opts)
     local pr = require("codeview.pr")
     local title = parsed.number and ("PR #" .. parsed.number) or "the pull request of the branch"
     local view = require("codeview.loading").open({ title = title, steps = pr.steps })
-    pr.open(parsed.number, { dir = opts.dir, progress = view }, function(review, open_err)
+    -- A tool that starts Neovim can give the metadata. See |codeview-github-env|.
+    local info = pr.from_env(parsed.number)
+    pr.open(parsed.number, { dir = opts.dir, progress = view, info = info }, function(review, open_err)
       if not open_err then
         view:close()
       elseif view:visible() then

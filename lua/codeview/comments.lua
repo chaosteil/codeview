@@ -213,6 +213,24 @@ function M.attach(session)
   return store, nil
 end
 
+---Drop the comment file of a session, and keep the session open.
+---
+--- A session that changes its `store_key` calls this, and then
+--- |codeview.comments.attach()| loads the file of the new key. A pull request
+--- review does this when GitHub reports a new head commit.
+---@param session codeview.Session
+---@return boolean detached False when the session held no comment file.
+function M.detach(session)
+  if type(session) ~= "table" or not stores[session.id] then
+    return false
+  end
+  unwatch(session)
+  stores[session.id] = nil
+  -- The editor float holds the store of the old file.
+  require("codeview.editor").cancel()
+  return true
+end
+
 ---Store of a session.
 ---@param session? codeview.Session Session of the store. The active session by default.
 ---@return codeview.store.Store? store

@@ -858,6 +858,183 @@ describe("codeview.pr", function()
     end)
   end)
 
+  describe("the pull request data of the caller", function()
+    ---Metadata as a caller gives it: the answer of gh with other fields.
+    ---@param fields? table Fields of `gh pr view --json` to change.
+    ---@return codeview.pr.Info
+    local function given(fields)
+      return assert(pr.parse(vim.tbl_extend("force", vim.json.decode(pr_view()), fields or {})))
+    end
+
+    ---Start to wait for the end of the next check.
+    ---@return fun(): table data Waits, then returns the data of the event.
+    local function on_check()
+      local seen
+      local id = vim.api.nvim_create_autocmd("User", {
+        pattern = "CodeViewPrChecked",
+        once = true,
+        callback = function(event)
+          seen = event.data
+        end,
+      })
+      return function()
+        wait_for(function()
+          return seen ~= nil
+        end, "the check did not end")
+        pcall(vim.api.nvim_del_autocmd, id)
+        return seen
+      end
+    end
+
+    ---Count the closes of a session.
+    ---@return fun(): integer count
+    local function count_closes()
+      local count = 0
+      local id = vim.api.nvim_create_autocmd("User", {
+        pattern = "CodeViewSessionClosed",
+        callback = function()
+          count = count + 1
+        end,
+      })
+      return function()
+        pcall(vim.api.nvim_del_autocmd, id)
+        return count
+      end
+    end
+
+    before_each(function()
+      -- The repository must hold the commits of the pull request.
+      assert(pr.fetch(fixture.root, assert(pr.view(12, { dir = fixture.dir }))))
+      gh_calls = {}
+    end)
+
+    after_each(function()
+      vim.env[pr.env_var] = nil
+    end)
+
+    it("reads the variable once, and only for the same pull request", function()
+      vim.env[pr.env_var] = pr_view()
+      local info = assert(pr.from_env(12))
+      assert.are.equal(fixture.ids.pr_two, info.head_sha)
+      assert.are.equal("the body of the pull request", info.body)
+      assert.is_nil(vim.env[pr.env_var])
+      assert.is_nil(pr.from_env(12))
+
+      vim.env[pr.env_var] = pr_view()
+      assert.is_nil(pr.from_env(13))
+      assert.is_nil(vim.env[pr.env_var])
+
+      vim.env[pr.env_var] = "{not json"
+      assert.is_nil(pr.from_env(12))
+      assert.is_nil(pr.from_env(nil))
+    end)
+
+    it("opens the review before it asks GitHub, and checks it after", function()
+      local open_before_view = nil
+      answer = function(cmd)
+        if cmd[2] == "pr" and cmd[3] == "view" then
+          open_before_view = session.current() ~= nil
+        end
+        return default_answer(cmd)
+      end
+      local wait = on_check()
+      local opened = assert(open(12, { info = given(), comments = false }))
+      assert.are.equal(fixture.ids.pr_two, opened.range.to)
+      local data = wait()
+      assert.is_true(open_before_view)
+      assert.are.same({ id = opened.id, ok = true, changed = false }, data)
+      assert.are.equal(opened, session.current())
+    end)
+
+    it("reads the review again in the same session when GitHub reports a new head", function()
+      local closes = count_closes()
+      local wait = on_check()
+      local opened = assert(open(12, { info = given({ headRefOid = fixture.ids.pr_one }), comments = false }))
+      assert.are.equal(fixture.ids.pr_one, opened.range.to)
+      assert.are.equal("pr-12-" .. fixture.ids.pr_one, opened.store_key)
+
+      local data = wait()
+      assert.is_true(data.ok)
+      assert.is_true(data.changed)
+      assert.are.equal(0, closes())
+      assert.are.equal(opened, session.current())
+      assert.are.equal(fixture.ids.pr_two, opened.pr.head_sha)
+      assert.are.equal(fixture.ids.pr_two, opened.range.to)
+      assert.are.equal(fixture.ids.pr_two, opened.input.to)
+      assert.are.equal("pr-12-" .. fixture.ids.pr_two, opened.store_key)
+      local session_store = assert(require("codeview.comments").store(opened))
+      assert.are.equal(store.path(fixture.root, "pr-12-" .. fixture.ids.pr_two), session_store.path)
+      local paths = {}
+      for _, file in ipairs(opened:changed_files()) do
+        if not file.virtual then
+          paths[#paths + 1] = file.path
+        end
+      end
+      table.sort(paths)
+      assert.are.same({ "a.txt", "feature.txt" }, paths)
+    end)
+
+    it("takes a new title without a fetch", function()
+      local first_label
+      vim.api.nvim_create_autocmd("User", {
+        pattern = "CodeViewSessionOpened",
+        once = true,
+        callback = function()
+          first_label = session.current():label()
+        end,
+      })
+      local wait = on_check()
+      local opened = assert(open(12, { info = given({ title = "An old title" }), comments = false }))
+      local data = wait()
+      assert.are.equal("PR #12 An old title", first_label)
+      assert.is_true(data.changed)
+      assert.are.equal("PR #12 Add the feature", opened:label())
+      assert.are.equal("Add the feature", opened.pr.title)
+    end)
+
+    it("opens with the data of GitHub when the data of the caller does not open", function()
+      local opened, err = open(12, { info = given({ headRefOid = string.rep("b", 40) }), comments = false })
+      assert.is_nil(err)
+      assert.are.equal(fixture.ids.pr_two, opened.pr.head_sha)
+      assert.are.equal(fixture.ids.pr_two, opened.range.to)
+    end)
+
+    it("ignores the data of another pull request", function()
+      local opened = assert(open(12, { info = given({ number = 13 }), comments = false }))
+      assert.are.equal(12, opened.pr.number)
+      assert.are.equal("pr", gh_calls[1][2])
+    end)
+
+    it("takes the variable from the command", function()
+      local command = require("codeview.command")
+      vim.env[pr.env_var] = pr_view()
+      local open_before_view = nil
+      answer = function(cmd)
+        if cmd[2] == "pr" and cmd[3] == "view" then
+          open_before_view = session.current() ~= nil
+        end
+        return default_answer(cmd)
+      end
+      local wait = on_check()
+      local out, finished = {}, false
+      command.run({
+        args = "pr 12",
+        dir = fixture.dir,
+        on_open = function(opened, err)
+          out.session, out.err, finished = opened, err, true
+        end,
+      })
+      wait_for(function()
+        return finished
+      end, "the command did not answer")
+      wait()
+      assert.is_nil(out.err)
+      assert.is_nil(vim.env[pr.env_var])
+      assert.are.equal(fixture.ids.pr_two, out.session.pr.head_sha)
+      assert.is_true(open_before_view)
+    end)
+  end)
+
   it("removes the fixture", function()
     fixture.cleanup()
     assert.are.equal(0, vim.fn.isdirectory(fixture.root))

@@ -91,7 +91,7 @@ end
 --- the refs of the plugin, and opens the range `base...head`. The working copy
 --- does not change. The command `:Codeview pr <number>` calls this function.
 ---@param number integer? Number of the pull request. Nil takes the pull request of the branch.
----@param opts? { dir?: string, repo?: string, remote?: string, comments?: boolean }
+---@param opts? { dir?: string, repo?: string, remote?: string, comments?: boolean, info?: codeview.pr.Info } `info` is the pull request data of the caller.
 ---@param cb? fun(session: codeview.Session?, err: codeview.Error?) Callback for the async form.
 ---@return codeview.Session? session
 ---@return codeview.Error? err

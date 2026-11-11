@@ -37,6 +37,13 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `codeview.prev_comment()` do the same from Lua. See
   `:help codeview-diff-comment-keys`.
 
+- A tool that starts Neovim for a review can give the pull request data in
+  `$CODEVIEW_PR`, as the JSON of `gh pr view --json`. `:Codeview pr` then
+  shows the review without a wait for GitHub, and checks the data with gh in
+  the background. When GitHub reports a new head, the review reads its data
+  again, with a short message, and stays open. `codeview.open_pr()` takes the
+  same data as `info`. See `:help codeview-github-env`.
+
 ### Changed
 
 - The status marks and the comment mark of the sidebar stand in fixed

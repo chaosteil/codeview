@@ -1494,6 +1494,37 @@ this case. Set `github.fetch` to "always" to fetch every time. Without the
 fetch, the command does not see a base branch that the remote deleted, so it
 shows no warning for it.
 
+                                                         *codeview-github-env*
+A tool that starts Neovim for a review can hold the pull request data already,
+for example chaoshub. It then puts the data into the environment variable
+`$CODEVIEW_PR`, as the JSON object of `gh pr view --json` with these fields:
+number, title, state, isDraft, url, author, headRefName, baseRefName,
+headRefOid, baseRefOid, headRepository, headRepositoryOwner,
+isCrossRepository, and body. For example: >sh
+
+    CODEVIEW_PR="$(gh pr view 128 --json number,title,...)" \
+      nvim -c "Codeview pr 128"
+<
+`:Codeview pr {number}` reads the variable once and removes it, so that a
+process of Neovim does not get it. The command uses the data only when it
+names the same pull request. The review then shows without a wait for
+GitHub: with both commits in the repository, it opens without a network call.
+
+The command then reads the pull request with gh in the background. When
+GitHub reports other values, the review takes them and reads its data again.
+A new head commit or a new base commit also fetches the commits, and a short
+message says so. The session stays open, so the review does not end. When the
+open with the data of the tool fails, for example because the head commit is
+not the head of GitHub, the command opens the pull request again with the
+data of GitHub.
+
+The check sends this event at the end: >
+
+    User CodeViewPrChecked   the background check of a pull request ended
+<
+Its `data` field holds `id`, the number of the session, `ok`, false when the
+check failed, and `changed`, true when the review took new values.
+
                                                        *codeview-github-store*
 The session key of the comment file is `pr-{number}-{head commit}`. A new push
 to the pull request gives a new head commit, so the next review starts with an
@@ -2076,8 +2107,13 @@ codeview.open_pr({number}, {opts}, {cb})
           repo = nil,      -- "owner/name" of another repository
           remote = nil,    -- git remote, the config value by default
           comments = true, -- read the review comments of the pull request
+          info = nil,      -- pull request data of the caller
         }
 <
+    `info` is a table of `require("codeview.pr").parse()`. With it the review
+    shows without a wait for GitHub, and the call checks the data in the
+    background. See |codeview-github-env|.
+
     Without {cb} the call blocks and returns `session, err`. With {cb} the
     call returns at once and calls `cb(session, err)`.
 

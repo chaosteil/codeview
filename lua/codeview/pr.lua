@@ -266,6 +266,39 @@ function M.view(number, opts, cb)
   return nil, nil
 end
 
+---Name of the environment variable that holds the metadata of a pull request.
+---@type string
+M.env_var = "CODEVIEW_PR"
+
+---Read the metadata of a pull request that the caller of Neovim gives.
+---
+--- A tool that starts Neovim for a review can hold the metadata already, for
+--- example chaoshub. The tool puts the JSON object of `gh pr view --json` into
+--- the variable of |codeview.pr.env_var|, with the fields of
+--- |codeview.pr.fields|. The call reads the variable once and clears it, so
+--- that a process of Neovim does not get it.
+---@param number integer? Number of the pull request of the command.
+---@return codeview.pr.Info? info Nil without the variable, for another number, or for a value that is not valid.
+function M.from_env(number)
+  local text = vim.env[M.env_var]
+  if text == nil or text == "" then
+    return nil
+  end
+  vim.env[M.env_var] = nil
+  if type(number) ~= "number" then
+    return nil
+  end
+  local ok, data = pcall(vim.json.decode, text, { luanil = { object = true, array = true } })
+  if not ok then
+    return nil
+  end
+  local info = M.parse(data)
+  if not info or info.number ~= number then
+    return nil
+  end
+  return info
+end
+
 --- Refs -------------------------------------------------------------------------
 
 ---Names of the two refs of one pull request.
@@ -769,8 +802,14 @@ end
 --- Without a number the call takes the pull request of the current branch.
 --- The session shows the title of the pull request in the sidebar header, and
 --- it stores its comments under the key of |codeview.pr.store_key()|.
+---
+--- With `opts.info` the call takes the metadata of the caller, and it does not
+--- wait for GitHub before the review shows. |codeview.pr.check()| then reads
+--- the pull request in the background. When the open with that metadata
+--- fails, for example because it is old, the call opens again with the
+--- metadata of GitHub.
 ---@param number integer? Number of the pull request.
----@param opts? { dir?: string, repo?: string, remote?: string, comments?: boolean, progress?: codeview.pr.Progress } `repo` is `owner/name`.
+---@param opts? { dir?: string, repo?: string, remote?: string, comments?: boolean, progress?: codeview.pr.Progress, info?: codeview.pr.Info } `repo` is `owner/name`.
 ---@param cb? fun(session: codeview.Session?, err: codeview.Error?) Callback for the async form.
 ---@return codeview.Session? session
 ---@return codeview.Error? err
@@ -781,6 +820,12 @@ function M.open(number, opts, cb)
   opts = opts or {}
   if not gh.available() then
     return done(cb, nil, errors.new(errors.codes.UNSUPPORTED, "pull request review needs the gh CLI in $PATH"))
+  end
+
+  -- Metadata of the caller, for the same pull request only.
+  local given = opts.info
+  if type(given) ~= "table" or type(given.number) ~= "number" or given.number ~= number then
+    given = nil
   end
 
   local state = {}
@@ -819,6 +864,9 @@ function M.open(number, opts, cb)
     return detect(opts.dir, step_cb)
   end, "repo")
   step(function(step_cb)
+    if given then
+      return done(step_cb, given, nil)
+    end
     return M.view(number, { dir = opts.dir, repo = opts.repo }, step_cb)
   end, "info")
   step(function(step_cb)
@@ -871,6 +919,9 @@ function M.open(number, opts, cb)
       if session then
         require("codeview.agent").attach(session)
       end
+      if session and given then
+        M.check(session)
+      end
       return session, err
     end
 
@@ -883,9 +934,18 @@ function M.open(number, opts, cb)
     return nil, nil
   end
 
+  ---Options of the second open, with the metadata of GitHub.
+  ---@return table
+  local function without_info()
+    return vim.tbl_extend("force", opts, { info = false })
+  end
+
   if not cb then
     local ok, err = chain(steps)
     if not ok then
+      if given then
+        return M.open(number, without_info())
+      end
       return nil, err
     end
     return build()
@@ -893,12 +953,201 @@ function M.open(number, opts, cb)
 
   chain(steps, function(ok, err)
     if not ok then
+      if given then
+        M.open(number, without_info(), cb)
+        return
+      end
       cb(nil, err)
       return
     end
     build(cb)
   end)
   return nil, nil
+end
+
+--- Check -----------------------------------------------------------------------
+
+---Fields of |codeview.pr.Info| that the review shows.
+---@type string[]
+local shown_fields = {
+  "title",
+  "state",
+  "draft",
+  "url",
+  "author",
+  "head_ref",
+  "base_ref",
+  "head_sha",
+  "base_sha",
+  "repo",
+  "head_repo",
+  "cross",
+  "body",
+}
+
+---Report whether the review must fetch new commits for the metadata of GitHub.
+---
+--- A new head commit needs new commits. A new base commit needs them only when
+--- the session knew a base commit: without one, the fetch read the tip of the
+--- base branch, and GitHub can report an older base commit.
+---@param held codeview.pr.Info Metadata of the session.
+---@param fresh codeview.pr.Info Metadata of GitHub.
+---@return boolean moved
+local function moved(held, fresh)
+  if held.head_sha:lower() ~= fresh.head_sha:lower() then
+    return true
+  end
+  return held.base_sha ~= "" and held.base_sha:lower() ~= fresh.base_sha:lower()
+end
+
+---Send the User event of the end of a check.
+---@param session codeview.Session
+---@param fields { ok: boolean, changed: boolean }
+local function announce_check(session, fields)
+  pcall(vim.api.nvim_exec_autocmds, "User", {
+    pattern = "CodeViewPrChecked",
+    data = { id = session.id, ok = fields.ok, changed = fields.changed },
+  })
+end
+
+---Give a session the metadata of GitHub, and read the review again.
+---
+--- The session stays open, so a handler of CodeViewSessionClosed does not
+--- run. For a new head or a new base, the call writes the refs and the range
+--- first. A new head commit gives a new key of the comment store, so the
+--- session loads the comment file of that key.
+---@param session codeview.Session
+---@param fresh codeview.pr.Info Metadata of GitHub.
+---@param cb fun(ok: boolean, err: codeview.Error?)
+local function reload(session, fresh, cb)
+  local pr_opts = session.pr_opts or {}
+
+  ---@param range codeview.vcs.Range? New range. Nil keeps the range.
+  local function apply(range)
+    if session.closed then
+      cb(false, errors.new(errors.codes.INVALID_ARG, "the session is closed"))
+      return
+    end
+    session.pr = fresh
+    session.spec = M.label(fresh)
+    local key = M.store_key(fresh)
+    if key ~= session.store_key then
+      local comments = require("codeview.comments")
+      comments.detach(session)
+      session.store_key = key
+      local _, store_err = comments.attach(session)
+      if store_err then
+        notify.warn(tostring(store_err))
+      end
+    end
+    if range then
+      session.input = range
+    end
+    local refresh = { snapshot = false, range = range or session.range }
+    if session_mod.current() == session then
+      require("codeview.view").refresh(refresh, function(ok)
+        cb(ok, nil)
+      end)
+      return
+    end
+    session:refresh(refresh, function(_, err)
+      cb(err == nil, err)
+    end)
+  end
+
+  if not moved(session.pr, fresh) then
+    apply(nil)
+    return
+  end
+  M.fetch(session.repo.root, fresh, { remote = pr_opts.remote, repo = pr_opts.repo }, function(refs, err)
+    if not refs then
+      cb(false, err)
+      return
+    end
+    if refs.warning then
+      notify.warn(refs.warning)
+    end
+    M.range(session.repo, fresh, function(range, range_err)
+      if not range then
+        cb(false, range_err)
+        return
+      end
+      apply(range)
+    end)
+  end)
+end
+
+---Check the metadata of a session against GitHub.
+---
+--- A review that opens with the metadata of the caller shows it at once,
+--- without a wait for GitHub. This call then reads the pull request with gh.
+--- When GitHub reports other values, the session takes them and reads the
+--- review again, with a short message. A new head commit or a new base commit
+--- also fetches the commits. The session stays open the whole time.
+---
+--- The call sends `User CodeViewPrChecked` at the end. The `data` field holds
+--- `id`, the number of the session, `ok`, false after a failure, and
+--- `changed`, true when the session took new values.
+---@param session codeview.Session Session of a pull request.
+---@param cb? fun(changed: boolean, err: codeview.Error?)
+function M.check(session, cb)
+  local held = M.current(session)
+  if not held then
+    if cb then
+      cb(false, errors.new(errors.codes.INVALID_ARG, "the session does not review a pull request"))
+    end
+    return
+  end
+  local pr_opts = session.pr_opts or {}
+
+  ---@param ok boolean
+  ---@param changed boolean
+  ---@param err codeview.Error?
+  local function finish(ok, changed, err)
+    if not ok and err then
+      notify.warn("the check of the pull request failed: " .. tostring(err))
+    end
+    announce_check(session, { ok = ok, changed = changed })
+    if cb then
+      cb(changed, err)
+    end
+  end
+
+  M.view(held.number, { dir = pr_opts.dir or session.repo.root, repo = pr_opts.repo }, function(fresh, err)
+    if session.closed then
+      if cb then
+        cb(false, nil)
+      end
+      return
+    end
+    if not fresh then
+      finish(false, false, err)
+      return
+    end
+    local same = true
+    for _, field in ipairs(shown_fields) do
+      if fresh[field] ~= held[field] then
+        same = false
+        break
+      end
+    end
+    if same then
+      finish(true, false, nil)
+      return
+    end
+    if moved(held, fresh) then
+      notify.info(
+        string.format(
+          "PR #%d changed on GitHub: the review reloads with head %s",
+          fresh.number,
+          fresh.head_sha:sub(1, 8)
+        )
+      )
+    end
+    reload(session, fresh, function(ok, reload_err)
+      finish(ok, ok, reload_err)
+    end)
+  end)
 end
 
 ---Metadata of the pull request that the session shows.
