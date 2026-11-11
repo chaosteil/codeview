@@ -2,13 +2,19 @@
 # Hand a review to codeview in a Rex pane beside the agent, and read it back.
 #
 # Usage:
-#   codeview-review open [-C DIR] REVISION   # prints a handle (a directory)
-#   codeview-review wait HANDLE [DURATION]   # prints the review markdown
+#   codeview-review open [-C DIR] REVISION         # prints a handle (a directory)
+#   codeview-review open [-C DIR] --file PATH...   # the same, for untracked files
+#   codeview-review wait HANDLE [DURATION]         # prints the review markdown
 #
 # "open" splits the Rex block of $REX_BLOCK and starts Neovim with codeview
 # on REVISION in the new pane. codeview keeps the export of the review in
 # HANDLE/review.md. Neovim quits when the review closes. "open" returns at
 # once.
+#
+# With --file, codeview reviews the files and directories PATH, with no diff.
+# Use --file ONLY for files that no repository tracks: files outside every
+# repository, or untracked files. The script refuses a path that git tracks,
+# or that jj holds in @. Review tracked changes with REVISION.
 #
 # "wait" blocks until the pane ends, or until DURATION (for example 9m) ends.
 # Exit status:
@@ -18,7 +24,7 @@
 set -euo pipefail
 
 usage() {
-  sed -n '2,17s/^# \{0,1\}//p' "$0" >&2
+  sed -n '2,23s/^# \{0,1\}//p' "$0" >&2
   exit 1
 }
 
@@ -38,6 +44,30 @@ if [ -n "${REX_BIN_DIR:-}" ] && [ -x "$REX_BIN_DIR/rex" ]; then
   rex_bin=$REX_BIN_DIR/rex
 fi
 
+# Refuse a path that a repository tracks. A tracked file has a commit, so
+# the review of a revision shows its diff and the commit of each line.
+refuse_tracked() {
+  local path=$1 dir name
+  if [ -d "$path" ]; then
+    dir=$path
+    name=.
+  else
+    dir=$(dirname -- "$path")
+    name=$(basename -- "$path")
+  fi
+  if command -v git >/dev/null 2>&1 &&
+    git -C "$dir" rev-parse --is-inside-work-tree >/dev/null 2>&1 &&
+    [ -n "$(git -C "$dir" ls-files -- "$name" 2>/dev/null)" ]; then
+    die "git tracks $path: review the revision instead, for example HEAD, and use --file only for untracked files"
+  fi
+  # The jj call reads the last snapshot only. It does not write the working
+  # copy of the repository.
+  if command -v jj >/dev/null 2>&1 &&
+    [ -n "$(cd "$dir" && jj --ignore-working-copy --no-pager file list -r @ -- "$name" 2>/dev/null)" ]; then
+    die "jj tracks $path in @: review the revision instead, for example @, and use --file only for untracked files"
+  fi
+}
+
 cmd_open() {
   local dir=$PWD
   if [ "${1:-}" = "-C" ]; then
@@ -45,21 +75,48 @@ cmd_open() {
     dir=$2
     shift 2
   fi
-  [ $# -eq 1 ] || usage
-  local rev=$1
-  # Neovim and git read a revision that starts with "-" as an option.
-  case $rev in
-  -*) die "REVISION must not start with -: $rev" ;;
-  esac
+  local files=()
+  if [ "${1:-}" = "--file" ]; then
+    shift
+    [ $# -ge 1 ] || usage
+    local path abs
+    for path in "$@"; do
+      case $path in
+      /*) abs=$path ;;
+      *) abs=$dir/$path ;;
+      esac
+      case $abs in
+      *$'\n'*) die "PATH must not hold a line break: $path" ;;
+      esac
+      [ -e "$abs" ] || die "no such file: $path"
+      refuse_tracked "$abs"
+      files+=("$abs")
+    done
+  else
+    [ $# -eq 1 ] || usage
+    local rev=$1
+    # Neovim and git read a revision that starts with "-" as an option.
+    case $rev in
+    -*) die "REVISION must not start with -: $rev" ;;
+    esac
+  fi
 
   [ -n "${REX_BLOCK:-}" ] || die "REX_BLOCK is not set, so this shell is not in a Rex pane"
   need "$rex_bin"
   need nvim
 
-  local handle label
+  local handle label lua
   handle=$(mktemp -d "${TMPDIR:-/tmp}/codeview-review.XXXXXX")
-  # Neovim reads the revision from this file, so the revision needs no quoting.
-  printf '%s\n' "$rev" >"$handle/rev"
+  if [ ${#files[@]} -gt 0 ]; then
+    # Neovim reads the paths from this file, one per line, so the paths need
+    # no quoting.
+    printf '%s\n' "${files[@]}" >"$handle/files"
+    lua="require('codeview').review_files(vim.fn.readfile(h .. '/files'), { export_file = h .. '/review.md', quit = true })"
+  else
+    # Neovim reads the revision from this file, so the revision needs no quoting.
+    printf '%s\n' "$rev" >"$handle/rev"
+    lua="require('codeview').review(vim.fn.readfile(h .. '/rev')[1], { export_file = h .. '/review.md', quit = true })"
+  fi
   # The random part of the handle makes the label unique.
   label="codeview-${handle##*.}"
   printf '%s\n' "$label" >"$handle/label"
@@ -71,7 +128,7 @@ cmd_open() {
   if ! "$rex_bin" split -b "$REX_BLOCK" ${REX_SESSION:+-s "$REX_SESSION"} --split=right \
     -c "$dir" --label "$label" -- \
     env CODEVIEW_REVIEW_HANDLE="$handle" \
-    nvim -c "lua local h = vim.env.CODEVIEW_REVIEW_HANDLE; require('codeview').review(vim.fn.readfile(h .. '/rev')[1], { export_file = h .. '/review.md', quit = true })" \
+    nvim -c "lua local h = vim.env.CODEVIEW_REVIEW_HANDLE; $lua" \
     >/dev/null; then
     rm -rf "$handle"
     die "rex split failed"

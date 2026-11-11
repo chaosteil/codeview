@@ -21,6 +21,10 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   header, and the lines of each comment, with no side and no commit. The
   `export.file_prompt` option holds the text under its title. A template
   reads `data.kind` and `data.paths`. See `:help codeview-export-files`.
+- The `rex-codeview` skill hands files to codeview with
+  `codeview-review open --file PATH...`. The skill uses it only for files
+  that no repository tracks. The script refuses a path that git tracks, or
+  that the last jj snapshot of `@` holds.
 - Another tool can send chosen comments of a pull request as one review. It
   runs `require('codeview.bridge').submit_file('<path>')` in a headless
   Neovim, with a JSON request and a JSON result. See `:help codeview-bridge`.

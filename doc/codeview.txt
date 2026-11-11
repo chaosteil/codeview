@@ -1356,6 +1356,12 @@ agent to codeview in a Rex pane, and reads the export back. See
 |codeview.review()|. The script of the skill rejects a revision that starts
 with `-`, because Neovim and git read such an argument as an option.
 
+With `--file`, the script hands files to |codeview.review_files()| instead
+of a revision. The skill uses `--file` only for files that no repository
+tracks: files outside every repository, or untracked files. The script
+refuses a path that git tracks, or that the last jj snapshot of `@` holds,
+and its message names the review of a revision. See |codeview-files|.
+
 The default template is plain markdown: >markdown
 
     # codeview review: main..@

@@ -152,6 +152,11 @@ review. The agent opens codeview in a Rex pane beside itself, and you review
 the change and quit Neovim. The agent then reads your comments as markdown and
 works on them, without a paste.
 
+The agent can also hand you files with `--file`, for example a plan that it
+wrote outside a repository. The skill uses `--file` only for files that no
+repository tracks. A tracked change always goes through the review of a
+revision, which shows the diff and the commit of each line.
+
 Install it for Claude Code:
 
 ```text
@@ -167,7 +172,8 @@ gh skill install chaosteil/codeview rex-codeview --scope user
 
 Or make a symlink of `skills/rex-codeview` in `~/.agents/skills/`.
 
-The skill uses `codeview.review()`. See `:help codeview.review()`.
+The skill uses `codeview.review()` and `codeview.review_files()`. See
+`:help codeview.review()` and `:help codeview.review_files()`.
 
 ## Documentation
 
