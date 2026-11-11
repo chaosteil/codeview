@@ -69,6 +69,9 @@ M.steps = {
 M.ref_prefix = "refs/codeview/pr"
 
 ---Fields of `gh pr view --json`.
+---
+--- The list holds no `commits`: the review reads the commits from the
+--- repository, and the field makes the answer of GitHub slower.
 ---@type string[]
 M.fields = {
   "number",
@@ -84,7 +87,6 @@ M.fields = {
   "headRepository",
   "headRepositoryOwner",
   "isCrossRepository",
-  "commits",
   "body",
 }
 
@@ -103,7 +105,6 @@ M.fields = {
 ---@field head_repo string Repository of the head branch, as `owner/name`.
 ---@field cross boolean True when the head branch lives in a fork.
 ---@field body string Description of the pull request.
----@field commits codeview.vcs.Commit[] Commits of the pull request, oldest first.
 
 ---@class codeview.pr.Refs
 ---@field head string Local ref that holds the head of the pull request.
@@ -187,30 +188,6 @@ local function repo_of_url(url)
   return owner .. "/" .. name
 end
 
----Read the commits of `gh pr view --json commits`.
----@param list table[]? Value of the `commits` field.
----@return codeview.vcs.Commit[] commits Oldest first, as GitHub reports them.
-local function parse_commits(list)
-  local out = {}
-  for _, entry in ipairs(list or {}) do
-    local id = tostring(entry.oid or "")
-    local author = (entry.authors or {})[1] or {}
-    local body = entry.messageBody or ""
-    out[#out + 1] = {
-      id = id,
-      short_id = id:sub(1, 8),
-      subject = entry.messageHeadline or "",
-      body = (body:gsub("%s+$", "")),
-      author = author.name or author.login or "",
-      author_email = author.email or "",
-      date = entry.committedDate or entry.authoredDate or "",
-      committer_date = entry.committedDate or entry.authoredDate or "",
-      parents = {},
-    }
-  end
-  return out
-end
-
 ---Read the answer of `gh pr view --json`.
 ---@param data table Decoded JSON answer.
 ---@return codeview.pr.Info? info
@@ -240,7 +217,6 @@ function M.parse(data)
     head_repo = (data.headRepository or {}).nameWithOwner or "",
     cross = data.isCrossRepository == true,
     body = data.body or "",
-    commits = parse_commits(data.commits),
   },
     nil
 end

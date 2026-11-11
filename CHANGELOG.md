@@ -53,6 +53,10 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   file. Expand the group, and the keys step through the commits again. A
   collapsed directory does not change the keys. See
   `:help codeview-sidebar-keymaps`.
+- `:Codeview pr` reads the pull request without its commits, so the answer
+  of GitHub comes about 0.1 seconds faster. The review reads the commits
+  from the repository, as before. The table of `codeview.pr()` has no
+  `commits` field any more. Read the `commits` field of the session.
 
 ### Fixed
 

@@ -2084,8 +2084,9 @@ codeview.open_pr({number}, {opts}, {cb})
                                                                 *codeview.pr()*
 codeview.pr()
     Return the pull request of the session that runs, or nil. The table holds
-    the number, the title, the state, the author, the branches, the commits,
-    and the head commit.
+    the number, the title, the state, the author, the branches, and the head
+    commit. The commits of the review are in the `commits` field of the
+    session. See |codeview.session()|.
 
                                                    *codeview.remote_comments()*
 codeview.remote_comments()

@@ -173,9 +173,6 @@ describe("codeview.pr", function()
       assert.is_true(info.cross)
       assert.are.equal("master", info.base_ref)
       assert.are.equal("a456d242e154ed8ab4fe5a88a2113a6f7ff3ca3d", info.head_sha)
-      assert.are.equal(1, #info.commits)
-      assert.are.equal("refactor(defaults): edit global cwd on `1-`", info.commits[1].subject)
-      assert.are.equal("Nathan Zeng", info.commits[1].author)
     end)
 
     it("reads the repository of a GitHub Enterprise address", function()
@@ -218,6 +215,8 @@ describe("codeview.pr", function()
       assert.are.equal("ada/demo", info.repo)
       assert.are.equal(fixture.ids.pr_two, info.head_sha)
       assert.are.same({ "gh", "pr", "view", "12", "--json", table.concat(pr.fields, ",") }, gh_calls[1])
+      -- The commits come from the repository. The field makes gh slower.
+      assert.is_false(vim.tbl_contains(pr.fields, "commits"))
     end)
 
     it("asks for the pull request of the branch without a number", function()
