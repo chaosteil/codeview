@@ -298,6 +298,142 @@ describe("codeview.panel", function()
       assert.are.equal("", built.text)
       assert.are.same({}, built.marks)
       assert.is_nil(built.data)
+      assert.is_nil(built.right)
+    end)
+
+    it("keeps the marks of the right edge apart from the text", function()
+      local line = panel.builder()
+      line.add("name")
+      line.add_right("M", "CodeViewModified")
+      line.add_right("")
+      line.add_right(" C", "CodeViewCommentMark")
+      local built = line.build()
+      assert.are.equal("name", built.text)
+      assert.are.same({ { "M", "CodeViewModified" }, { " C", "CodeViewCommentMark" } }, built.right)
+    end)
+
+    it("keeps a text that fits the width", function()
+      local line = panel.builder()
+      line.add("name", "Title")
+      line.add_right("M")
+      -- 4 columns of text, 1 blank column, 1 column of marks.
+      local built = line.build({ width = 6 })
+      assert.are.equal("name", built.text)
+      assert.are.same({ { hl = "Title", from = 0, to = 4 } }, built.marks)
+    end)
+
+    it("cuts a long text before the marks of the right edge", function()
+      local line = panel.builder()
+      line.add("  ")
+      line.add("a-long-name", "Title")
+      line.add(" old", "Comment")
+      line.add_right("M C")
+      local built = line.build({ width = 12 })
+      -- 12 columns: 8 for the text, 1 blank column, 3 for the marks.
+      assert.are.equal("  a-lon…", built.text)
+      assert.are.equal(8, vim.fn.strdisplaywidth(built.text))
+      -- The highlight of the name covers the marker. The old path is gone.
+      assert.are.same({ { hl = "Title", from = 2, to = #built.text } }, built.marks)
+    end)
+
+    it("cuts a text without marks at the width", function()
+      local line = panel.builder()
+      line.add("a commit title that is long")
+      assert.are.equal("a commit…", line.build({ width = 9 }).text)
+    end)
+  end)
+
+  describe("cut", function()
+    it("counts screen columns, not bytes", function()
+      assert.are.equal("▾ dir", panel.cut("▾ dir", 5))
+      assert.are.equal("日本…", panel.cut("日本語の名前", 5))
+      assert.are.equal(5, vim.fn.strdisplaywidth(panel.cut("│ ▸ é-name", 5)))
+    end)
+
+    it("gives an empty text without room for the marker", function()
+      assert.are.equal("", panel.cut("name", 0))
+      assert.are.equal("…", panel.cut("name", 1))
+    end)
+  end)
+
+  describe("the marks of the right edge", function()
+    ---A panel with one line that ends in marks.
+    ---@param opts? table
+    ---@return codeview.Panel
+    ---@return integer[] widths Text width of each render.
+    local function fitted(opts)
+      local widths = {}
+      local built
+      built = new(vim.tbl_extend("force", {
+        title = "demo",
+        width = 20,
+        fit = true,
+        render = function()
+          widths[#widths + 1] = built:text_width()
+          local line = panel.builder()
+          line.add("a-very-long-file-name.txt")
+          line.add_right("M", "CodeViewModified")
+          return { line.build({ width = built:text_width() }) }
+        end,
+      }, opts or {}))
+      return built, widths
+    end
+
+    it("writes the marks as virtual text at the right edge", function()
+      local built = fitted()
+      built:open()
+      local found = marks_of(assert(built:buffer()), panel.ns, 1)
+      local details = found[#found][4]
+      assert.are.equal("right_align", details.virt_text_pos)
+      assert.are.equal("combine", details.hl_mode)
+      assert.are.same({ { "M", "CodeViewModified" } }, details.virt_text)
+      -- 20 columns: 18 for the text, 1 blank column, 1 for the mark.
+      assert.are.equal("a-very-long-file-…", built:lines()[1])
+    end)
+
+    it("reads the width of the text area", function()
+      local built = fitted()
+      assert.are.equal(20, built:text_width())
+      built:open()
+      local win = assert(built:window())
+      assert.are.equal(20, built:text_width())
+      vim.wo[win].number = true
+      assert.are.equal(20 - vim.fn.getwininfo(win)[1].textoff, built:text_width())
+      vim.wo[win].number = false
+    end)
+
+    it("renders again after a resize", function()
+      local built, widths = fitted()
+      local win = built:open()
+      api.nvim_win_set_width(win, 30)
+      -- Neovim runs WinResized from the main loop, which a headless test
+      -- does not reach. The test runs the event itself.
+      api.nvim_exec_autocmds("WinResized", {})
+      assert.are.same({ 20, 30 }, widths)
+      assert.are.equal("a-very-long-file-name.txt", built:lines()[1])
+
+      -- The same width gives no render.
+      api.nvim_exec_autocmds("VimResized", {})
+      assert.are.equal(2, #widths)
+    end)
+
+    it("renders again when a column left of the text opens", function()
+      local built, widths = fitted()
+      local win = built:open()
+      vim.wo[win].signcolumn = "yes:2"
+      -- Neovim gives no OptionSet before VimEnter, and the test runs before
+      -- it. The test runs the event itself.
+      api.nvim_exec_autocmds("OptionSet", { pattern = "signcolumn" })
+      assert.are.equal(2, #widths)
+      assert.are.equal(16, widths[2])
+    end)
+
+    it("does not watch the width without fit", function()
+      local built, widths = fitted({ fit = false })
+      local win = built:open()
+      api.nvim_win_set_width(win, 30)
+      api.nvim_exec_autocmds("WinResized", {})
+      assert.are.equal(1, #widths)
     end)
   end)
 

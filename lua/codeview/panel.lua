@@ -13,6 +13,12 @@
 --- keeps the data, so a keymap can read the value of the line under the
 --- cursor with |codeview.Panel:cursor_data()|.
 ---
+--- A line can also hold marks for the right edge of the window. They are
+--- virtual text, not part of the buffer text, and Neovim draws them at the
+--- right edge also over a long text. |codeview.panel.builder()| cuts the text
+--- to the width of the window, so that the marks do not cover it. A panel
+--- with `fit = true` renders again when the width of its text area changes.
+---
 --- The changed-files sidebar and the comment overview both use this module.
 --- |codeview.panel.singleton()| gives both of them the same lifecycle: one
 --- panel at a time, the handlers of its events, and the close with the
@@ -71,23 +77,93 @@ local counter = 0
 ---@field text string Text of the line.
 ---@field hl string? Highlight group of the whole line.
 ---@field marks codeview.panel.Mark[]? Highlights of parts of the text.
+---@field right [string, string?][]? Parts of the marks at the right edge of the window, as `{ text, hl }`. They are not part of the text.
 ---@field data any? Value that belongs to the line.
+
+---@class codeview.panel.BuildOpts
+---@field hl string? Highlight group of the whole line.
+---@field data any? Value that belongs to the line.
+---@field width integer? Number of screen columns of the text area. A text that does not fit before the marks of the right edge gets cut. Without a width, the text stays as it is.
 
 ---@class codeview.panel.Builder
 ---@field add fun(chunk: string?, hl?: string) Append a part of the text.
+---@field add_right fun(chunk: string?, hl?: string) Append a part of the marks at the right edge.
 ---@field text fun(): string Text of the line up to here.
----@field build fun(opts?: { hl?: string, data?: any }): codeview.panel.Line Line of the parts.
+---@field build fun(opts?: codeview.panel.BuildOpts): codeview.panel.Line Line of the parts.
+
+---Marker at the end of a text that |codeview.panel.cut()| shortens.
+---@type string
+M.ELLIPSIS = "…"
+
+---Cut a text to a number of screen columns.
+---
+--- A text that is wider than the limit loses its end, and the marker
+--- |codeview.panel.ELLIPSIS| takes the last columns. The call counts screen
+--- columns, so a wide character or an icon counts with its real width.
+---@param text string
+---@param width integer Number of screen columns.
+---@return string
+function M.cut(text, width)
+  if vim.fn.strdisplaywidth(text) <= width then
+    return text
+  end
+  local room = width - vim.fn.strdisplaywidth(M.ELLIPSIS)
+  if room < 0 then
+    return ""
+  end
+  local out, used = {}, 0
+  for _, char in ipairs(vim.fn.split(text, [[\zs]])) do
+    local size = vim.fn.strdisplaywidth(char)
+    if used + size > room then
+      break
+    end
+    out[#out + 1] = char
+    used = used + size
+  end
+  return table.concat(out) .. M.ELLIPSIS
+end
+
+---Cut the text of a line and keep its highlights in the shorter text.
+---
+--- A highlight that covers the cut also covers the marker of the cut. A
+--- highlight after the cut goes away.
+---@param text string
+---@param marks codeview.panel.Mark[]
+---@param width integer Number of screen columns.
+---@return string text
+---@return codeview.panel.Mark[] marks
+local function cut_line(text, marks, width)
+  local short = M.cut(text, width)
+  if short == text then
+    return text, marks
+  end
+  local kept = #short - (short:sub(-#M.ELLIPSIS) == M.ELLIPSIS and #M.ELLIPSIS or 0)
+  local out = {}
+  for _, mark in ipairs(marks) do
+    if mark.from < kept then
+      local to = mark.to or #text
+      out[#out + 1] = { hl = mark.hl, from = mark.from, to = to > kept and #short or to }
+    end
+  end
+  return short, out
+end
 
 ---Collect the text and the highlights of one line.
 ---
 --- Every panel builds its lines from parts, so the builder counts the columns
 --- of each part. The changed-files sidebar and the comment overview both use
 --- it.
+---
+--- The parts of |codeview.panel.Builder.add_right()| go to the right edge of
+--- the window. With a width, the build cuts the text so that it ends one
+--- column before these parts.
 ---@return codeview.panel.Builder
 function M.builder()
   local text = ""
   ---@type codeview.panel.Mark[]
   local marks = {}
+  ---@type [string, string?][]
+  local right = {}
   return {
     add = function(chunk, hl)
       if not chunk or chunk == "" then
@@ -99,12 +175,31 @@ function M.builder()
         marks[#marks + 1] = { hl = hl, from = from, to = #text }
       end
     end,
+    add_right = function(chunk, hl)
+      if not chunk or chunk == "" then
+        return
+      end
+      right[#right + 1] = { chunk, hl }
+    end,
     text = function()
       return text
     end,
     build = function(opts)
       opts = opts or {}
-      return { text = text, marks = marks, hl = opts.hl, data = opts.data }
+      local out, out_marks = text, marks
+      if opts.width then
+        local room = opts.width
+        if #right > 0 then
+          local size = 0
+          for _, chunk in ipairs(right) do
+            size = size + vim.fn.strdisplaywidth(chunk[1])
+          end
+          -- One blank column keeps the text apart from the marks.
+          room = room - size - 1
+        end
+        out, out_marks = cut_line(text, marks, room)
+      end
+      return { text = out, marks = out_marks, right = #right > 0 and right or nil, hl = opts.hl, data = opts.data }
     end,
   }
 end
@@ -122,6 +217,7 @@ end
 ---@field filetype string? Filetype of the buffer. "codeview" by default.
 ---@field on_close fun(panel: codeview.Panel)? Handler that runs after the close.
 ---@field same fun(a: any, b: any): boolean? Report whether the data of two lines names the same item. A render keeps the cursor on that item.
+---@field fit boolean? Render again when the text area of the window gets wider or narrower. The render function reads the width with |codeview.Panel:text_width()|.
 
 ---@class codeview.Panel
 ---@field id integer Number of the panel. It counts from 1.
@@ -133,6 +229,8 @@ end
 ---@field private keymaps table<string, false|codeview.panel.Keymap>
 ---@field private on_close fun(panel: codeview.Panel)?
 ---@field private same fun(a: any, b: any): boolean?
+---@field private fit boolean
+---@field private rendered_width integer? Width of the text area at the last render.
 ---@field private buf integer? Buffer of the panel, while it is open.
 ---@field private win integer? Window of the panel, while it is open.
 ---@field private group integer? Autocmd group of the panel.
@@ -152,6 +250,7 @@ function M.new(opts)
   vim.validate("opts.width", opts.width, "number", true)
   vim.validate("opts.on_close", opts.on_close, "callable", true)
   vim.validate("opts.same", opts.same, "callable", true)
+  vim.validate("opts.fit", opts.fit, "boolean", true)
 
   counter = counter + 1
   return setmetatable({
@@ -164,6 +263,7 @@ function M.new(opts)
     keymaps = opts.keymaps or {},
     on_close = opts.on_close,
     same = opts.same,
+    fit = opts.fit == true,
     rendered = {},
     closing = false,
   }, Panel)
@@ -226,12 +326,46 @@ local function watch(self)
       self:close()
     end,
   })
+  if not self.fit then
+    return
+  end
+  -- A resize of any window can change the width of the panel. These options
+  -- change the width of the columns left of the text.
+  local function refit()
+    if self:is_open() and self:text_width() ~= self.rendered_width then
+      self:render()
+    end
+  end
+  api.nvim_create_autocmd({ "WinResized", "VimResized" }, {
+    group = self.group,
+    desc = "Render the codeview panel again for its new width",
+    callback = refit,
+  })
+  api.nvim_create_autocmd("OptionSet", {
+    group = self.group,
+    pattern = { "number", "relativenumber", "numberwidth", "signcolumn", "foldcolumn", "statuscolumn" },
+    desc = "Render the codeview panel again for its new text width",
+    callback = refit,
+  })
 end
 
 ---Report whether the panel window is open.
 ---@return boolean
 function Panel:is_open()
   return self.win ~= nil and api.nvim_win_is_valid(self.win)
+end
+
+---Number of screen columns of the text area of the panel window.
+---
+--- The number leaves out the columns left of the text, for example the line
+--- numbers and the sign column.
+---@return integer width The width of the configuration while the panel is closed.
+function Panel:text_width()
+  if not self:is_open() then
+    return self.width
+  end
+  local info = vim.fn.getwininfo(self.win)[1]
+  return math.max(info.width - info.textoff, 0)
 end
 
 ---Window of the panel.
@@ -328,6 +462,7 @@ function Panel:close()
   local win, buf = self.win, self.buf
   self.win, self.buf = nil, nil
   self.rendered = {}
+  self.rendered_width = nil
 
   if win and api.nvim_win_is_valid(win) then
     require("codeview.layout").keep(function()
@@ -386,6 +521,15 @@ local function set_marks(buf, row, line)
       api.nvim_buf_set_extmark(buf, M.ns, row, from, { end_col = to, hl_group = mark.hl })
     end
   end
+  if line.right then
+    -- "combine" keeps the background of the line under the marks, for
+    -- example the background of 'cursorline'.
+    api.nvim_buf_set_extmark(buf, M.ns, row, 0, {
+      virt_text = line.right,
+      virt_text_pos = "right_align",
+      hl_mode = "combine",
+    })
+  end
 end
 
 ---Render the panel again.
@@ -408,6 +552,7 @@ function Panel:render()
     before = self:data(row)
   end
 
+  self.rendered_width = self:text_width()
   local lines = self.render_fn(self) or {}
   self.rendered = lines
 
