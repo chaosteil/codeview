@@ -228,6 +228,7 @@ M.defaults = {
     comment_visual = { "I", "A", "c" },
     edit_comment = "<leader>ce",
     delete_comment = "<leader>cd",
+    clear_comments = "<leader>cD",
     resolve_comment = "<leader>cr",
     show_comment = "K",
     -- The diff buffer is read-only, so `r` is free, the same as `i` and `a`.
