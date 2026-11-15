@@ -37,6 +37,11 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   every other target opens like `gf`. A line that the working copy changed
   gets a note. With the option, the comment float moves from `K` to
   `<leader>ck` (`keymaps.show_comment_lsp`). See `:help codeview-lsp`.
+- With `lsp.enabled`, `grn` renames and `gra` runs a code action from the
+  diff. The edits go into the buffers of the working copy, and no file is
+  written. A note names the files that changed. A review of the jj commit
+  `@` reads itself again after you write them. See
+  `:help codeview-lsp-edit`.
 - `:Codeview file {path}...` reviews files that no repository tracks: files
   outside every repository, or untracked files. The review reads the files
   from the disk, and never runs git or jj to read them. A directory gives

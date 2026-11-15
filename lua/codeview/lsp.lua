@@ -72,6 +72,7 @@ local M = {}
 ---@field noted table<string, boolean> Files that got the note about a different working copy.
 ---@field origin codeview.view.Origin? Place of the review that a jump out of the review came from.
 ---@field watching boolean True after |M.attach()| made the autocmds of the session.
+---@field reloading boolean? True while a read of the review after a write waits.
 
 ---State of each session. The keys are weak, so a closed session goes away.
 ---@type table<codeview.Session, codeview.lsp.SessionState>
@@ -501,7 +502,8 @@ end
 ---@class codeview.lsp.Action
 ---@field method string Method of the request.
 ---@field label string Name for the user.
----@field kind "jump"|"list"|"hover" What the answer does.
+---@field kind "jump"|"list"|"hover"|"rename"|"code_action" What the answer does.
+---@field single boolean? True sends the request to the first client only. An edit of two servers changes the text twice.
 
 ---Actions of the LSP keys, by the name of their `keymaps` entry.
 ---@type table<string, codeview.lsp.Action>
@@ -512,6 +514,8 @@ M.actions = {
   lsp_implementation = { method = "textDocument/implementation", label = "implementation", kind = "jump" },
   lsp_references = { method = "textDocument/references", label = "references", kind = "list" },
   lsp_hover = { method = "textDocument/hover", label = "hover", kind = "hover" },
+  lsp_rename = { method = "textDocument/rename", label = "rename", kind = "rename", single = true },
+  lsp_code_action = { method = "textDocument/codeAction", label = "code action", kind = "code_action" },
 }
 
 ---Order of the actions for the keymaps.
@@ -523,6 +527,8 @@ M.order = {
   "lsp_implementation",
   "lsp_references",
   "lsp_hover",
+  "lsp_rename",
+  "lsp_code_action",
 }
 
 ---Number of requests of this Neovim. It names the newest request.
@@ -572,6 +578,9 @@ function M.request(view, action, extend, cb)
       notify.info(string.format("no language server of %s gives the %s", source.path, action.label))
     end
     return false
+  end
+  if action.single then
+    clients = { clients[1] }
   end
 
   state_of(view.session).origin = origin_of(view)
@@ -820,10 +829,323 @@ local function show_hover(answers)
   })
 end
 
+--- Edits -------------------------------------------------------------------------
+
+---Change ticks of the loaded buffers.
+---@return table<integer, integer> ticks Tick of each buffer.
+local function ticks()
+  local out = {}
+  for _, buf in ipairs(api.nvim_list_bufs()) do
+    if api.nvim_buf_is_loaded(buf) then
+      out[buf] = api.nvim_buf_get_changedtick(buf)
+    end
+  end
+  return out
+end
+
+---Buffers that an edit changed.
+---@param before table<integer, integer> Ticks before the edit.
+---@return integer[] bufs Buffers with a new tick and changes that are not written.
+local function changed_since(before)
+  local out = {}
+  for buf, tick in pairs(ticks()) do
+    if before[buf] ~= tick and vim.bo[buf].modified and vim.bo[buf].buftype == "" then
+      out[#out + 1] = buf
+    end
+  end
+  table.sort(out)
+  return out
+end
+
+---Name of a buffer for the user, relative to the root of the review.
+---@param session codeview.Session
+---@param buf integer
+---@return string name
+local function name_of(session, buf)
+  local name = vim.fs.normalize(api.nvim_buf_get_name(buf))
+  local root = vim.fs.normalize(session.repo.root) .. "/"
+  if vim.startswith(name, root) then
+    return name:sub(#root + 1)
+  end
+  return fn.fnamemodify(name, ":~")
+end
+
+---Report whether a write of the working copy changes the review.
+---
+--- That is true for a review of the jj commit `@`: the reload writes the
+--- working copy into that commit. A git review never holds the working copy,
+--- and a review of files takes a new key after a change of a file.
+---@param session codeview.Session
+---@param cb fun(holds: boolean)
+local function holds_working_copy(session, cb)
+  if session.repo.backend ~= "jj" or not config.get().auto_reload then
+    cb(false)
+    return
+  end
+  session.repo:working_rev(function(id)
+    cb(id ~= nil and id == session.range.to)
+  end)
+end
+
+---Read the review again after the user writes a buffer that an edit changed.
+---@param session codeview.Session
+---@param bufs integer[]
+local function reload_on_write(session, bufs)
+  local entry = state_of(session)
+  for _, buf in ipairs(bufs) do
+    api.nvim_create_autocmd("BufWritePost", {
+      group = session:augroup(),
+      buffer = buf,
+      once = true,
+      desc = "Read the codeview review again after the write of an LSP edit",
+      callback = function()
+        if entry.reloading then
+          return
+        end
+        entry.reloading = true
+        -- `:wall` writes the buffers one by one. One read takes them all.
+        vim.defer_fn(function()
+          entry.reloading = false
+          if session:is_active() then
+            require("codeview.view").refresh(nil, function() end)
+          end
+        end, 50)
+      end,
+    })
+  end
+end
+
+---Tell the user what an edit changed, and keep the review in step.
+---
+--- The edit changes the buffers of the working copy, and writes no file. The
+--- diff shows a revision, so it does not change. A review of the working copy
+--- reads itself again after the write.
+---@param session codeview.Session
+---@param label string Name of the edit, for example "rename".
+---@param before table<integer, integer> Ticks before the edit.
+local function after_edit(session, label, before)
+  local bufs = changed_since(before)
+  if #bufs == 0 or not session:is_active() then
+    return
+  end
+  local names = vim.tbl_map(function(buf)
+    return name_of(session, buf)
+  end, bufs)
+  local message = string.format(
+    "the %s changed %d %s of the working copy: %s. Write them to keep the change.",
+    label,
+    #bufs,
+    #bufs == 1 and "file" or "files",
+    table.concat(names, ", ")
+  )
+  holds_working_copy(session, function(holds)
+    if not session:is_active() then
+      return
+    end
+    if holds then
+      reload_on_write(session, bufs)
+      notify.info(message .. " The review reads the working copy again after the write.")
+    else
+      notify.info(message .. " The review shows " .. session:label() .. ", so its diff does not change.")
+    end
+  end)
+end
+
+---Word around a byte column of a line.
+---@param text string
+---@param col integer Byte column, from 0.
+---@return string word Empty when no word is there.
+function M.word_at(text, col)
+  local first, last = col + 1, col + 1
+  if not text:sub(first, first):match("[%w_]") then
+    return ""
+  end
+  while first > 1 and text:sub(first - 1, first - 1):match("[%w_]") do
+    first = first - 1
+  end
+  while last <= #text and text:sub(last, last):match("[%w_]") do
+    last = last + 1
+  end
+  return text:sub(first, last - 1)
+end
+
+---Apply the edit of one answer.
+---@param answer codeview.lsp.Answer
+---@return boolean applied
+local function apply_edit(answer)
+  if type(answer.result) ~= "table" then
+    return false
+  end
+  vim.lsp.util.apply_workspace_edit(answer.result, answer.client.offset_encoding)
+  return true
+end
+
+---Rename the symbol under the cursor in the working copy.
+---
+--- The server gives the edits, and the edits go to the buffers of the working
+--- copy. Neovim writes no file, the same as for |vim.lsp.buf.rename()|.
+---@param view codeview.view.State
+---@param action codeview.lsp.Action
+---@param new_name string? Name to take. Nil asks with |vim.ui.input()|.
+---@return boolean asked False with a note when no request can go out.
+local function rename(view, action, new_name)
+  local position, reason = M.locate(view)
+  if not position then
+    notify.info(reason or "no line of the working copy here")
+    return false
+  end
+  local text = api.nvim_buf_get_lines(position.source.buf, position.file_line - 1, position.file_line, false)[1] or ""
+  local word = M.word_at(text, position.col)
+
+  ---@param name string?
+  local function send(name)
+    if not name or vim.trim(name) == "" or name == word then
+      return
+    end
+    if require("codeview.view").current() ~= view then
+      return
+    end
+    M.request(view, action, function(params)
+      params.newName = name
+    end, function(answers)
+      local answer = answers[1]
+      if answer and answer.err then
+        notify.error("the rename failed: " .. tostring(answer.err.message or answer.err))
+        return
+      end
+      if not answer or type(answer.result) ~= "table" then
+        notify.info("the language server gave no rename")
+        return
+      end
+      local before = ticks()
+      apply_edit(answer)
+      after_edit(view.session, action.label, before)
+    end)
+  end
+
+  if new_name then
+    send(new_name)
+    return true
+  end
+  vim.ui.input({ prompt = "New name: ", default = word }, send)
+  return true
+end
+
+---Title of one code action for the menu.
+---@param item { client: vim.lsp.Client, action: table }
+---@param many boolean True when more than one client answered.
+---@return string
+local function action_title(item, many)
+  local title = tostring(item.action.title or "")
+  if many then
+    title = string.format("%s [%s]", title, item.client.name)
+  end
+  return title
+end
+
+---Run one code action: its edit first, then its command.
+---@param client vim.lsp.Client
+---@param action table CodeAction or Command of LSP.
+---@param buf integer Buffer of the working copy.
+---@param finish fun()
+local function run_action(client, action, buf, finish)
+  ---@param chosen table
+  local function run(chosen)
+    if type(chosen.edit) == "table" then
+      vim.lsp.util.apply_workspace_edit(chosen.edit, client.offset_encoding)
+    end
+    local command = nil
+    if type(chosen.command) == "table" then
+      command = chosen.command
+    elseif type(chosen.command) == "string" then
+      command = chosen
+    end
+    if command then
+      client:exec_cmd(command, { bufnr = buf }, function()
+        finish()
+      end)
+    else
+      finish()
+    end
+  end
+
+  local is_command = type(action.command) == "string"
+  if not is_command and not action.edit and client:supports_method("codeAction/resolve") then
+    client:request("codeAction/resolve", action, function(err, resolved)
+      run(not err and type(resolved) == "table" and resolved or action)
+    end, buf)
+    return
+  end
+  run(action)
+end
+
+---Ask for the code actions of the line under the cursor, and run the choice.
+---@param view codeview.view.State
+---@param action codeview.lsp.Action
+---@param choose (fun(items: table[], cb: fun(item: table?)))? Picks one item. |vim.ui.select()| by default.
+---@return boolean sent
+local function code_action(view, action, choose)
+  local buf
+  return M.request(view, action, function(params, client, position)
+    buf = position.source.buf
+    params.range = { start = params.position, ["end"] = params.position }
+    params.position = nil
+    local diagnostics = {}
+    local namespace = vim.lsp.diagnostic.get_namespace(client.id, false)
+    for _, diagnostic in ipairs(vim.diagnostic.get(buf, { namespace = namespace, lnum = position.file_line - 1 })) do
+      local data = diagnostic.user_data
+      if type(data) == "table" and data.lsp then
+        diagnostics[#diagnostics + 1] = data.lsp
+      end
+    end
+    params.context = { triggerKind = 1, diagnostics = diagnostics }
+  end, function(answers)
+    local items, clients = {}, {}
+    for _, answer in ipairs(answers) do
+      if type(answer.result) == "table" then
+        for _, entry in ipairs(answer.result) do
+          items[#items + 1] = { client = answer.client, action = entry }
+          clients[answer.client.id] = true
+        end
+      end
+    end
+    if #items == 0 then
+      notify.info("no code action for this line")
+      return
+    end
+    local many = vim.tbl_count(clients) > 1
+    local pick = choose
+      or function(list, cb)
+        vim.ui.select(list, {
+          prompt = "Code actions:",
+          kind = "codeaction",
+          format_item = function(item)
+            return action_title(item, many)
+          end,
+        }, cb)
+      end
+    pick(items, function(item)
+      if not item or not view.session:is_active() then
+        return
+      end
+      local before = ticks()
+      run_action(item.client, item.action, buf, function()
+        after_edit(view.session, action.label, before)
+      end)
+    end)
+  end)
+end
+
+---@class codeview.lsp.RunOpts
+---@field name string? New name of a rename. Nil asks with |vim.ui.input()|.
+---@field choose (fun(items: table[], cb: fun(item: table?)))? Picker of a code action. |vim.ui.select()| by default.
+
 ---Run the action of one LSP key in the view.
 ---@param name string Name of the `keymaps` entry, for example "lsp_definition".
+---@param opts codeview.lsp.RunOpts? Answers for the questions of a rename and of a code action.
 ---@return boolean sent False with a note when no request went out.
-function M.run(name)
+function M.run(name, opts)
+  opts = opts or {}
   local action = M.actions[name]
   local view = require("codeview.view").current()
   if not action then
@@ -837,6 +1159,12 @@ function M.run(name)
     return M.request(view, action, nil, function(answers)
       show_hover(answers)
     end)
+  end
+  if action.kind == "rename" then
+    return rename(view, action, opts.name)
+  end
+  if action.kind == "code_action" then
+    return code_action(view, action, opts.choose)
   end
   local extend = nil
   if action.kind == "list" then

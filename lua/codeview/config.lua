@@ -282,6 +282,10 @@ M.defaults = {
     lsp_implementation = "gri",
     lsp_references = "grr",
     lsp_hover = "K",
+    -- An edit of these keys changes the buffers of the working copy. It
+    -- writes no file.
+    lsp_rename = "grn",
+    lsp_code_action = "gra",
   },
   log_level = vim.log.levels.INFO,
 }

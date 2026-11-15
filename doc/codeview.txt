@@ -1027,6 +1027,8 @@ buffer: >
     gri         go to the implementation
     grr         put the references into the quickfix list
     K           show the hover text in a float
+    grn         rename the symbol in the working copy
+    gra         run a code action of the line
     <leader>ck  show the comment under the cursor in a float
 <
 With the option, `K` is the hover key, as in a file buffer of Neovim. The
@@ -1087,6 +1089,28 @@ file that the list opens in the window of the diff also takes the back key.
 
 The hidden buffers go away when the session closes. A buffer stays when a
 window shows it, when it holds changes, or when it is listed.
+
+                                                           *codeview-lsp-edit*
+`grn` and `gra` change the files of the working copy, not the review. `grn`
+asks for the new name, with the word under the cursor as the start. `gra`
+lists the code actions of the line in |vim.ui.select()|, and runs the one
+that you choose: its edit first, then its command.
+
+The edits go into the buffers of the working copy, the same way as
+|vim.lsp.buf.rename()| does it. codeview writes no file. A buffer with a
+change becomes listed, so `:ls` shows it and `:wall` writes it. A note names
+the files that changed.
+
+The diff shows a revision, so an edit does not change it. The lines that
+the edit changed now differ from the review, so they send no request until
+the review holds them. What happens after you write the files depends on
+the review:
+
+- A review of the jj commit `@` reads itself again after the write. The
+  reload writes the working copy into `@`, so the diff then holds the edit.
+  See |codeview-edit-reload|. Set `auto_reload` to false to stop this.
+- Every other review keeps its diff, and the note says so. A git review
+  never holds the working copy. `<leader>cR` reads the review again by hand.
 
 ==============================================================================
 8. COMMENTS                                                  *codeview-comments*
@@ -2970,6 +2994,8 @@ Defaults: >lua
         lsp_implementation = "gri",
         lsp_references = "grr",
         lsp_hover = "K",
+        lsp_rename = "grn",
+        lsp_code_action = "gra",
       },
       log_level = vim.log.levels.INFO, -- lowest level of a message
     }
@@ -3156,6 +3182,8 @@ The table names the surface of each action: >
                       gri                D  go to the implementation ***
     lsp_references    grr                D  list the references ***
     lsp_hover         K                  D  show the hover text ***
+    lsp_rename        grn                D  rename in the working copy ***
+    lsp_code_action   gra                D  run a code action ***
 <
 (*) The load key maps on a diff that a size limit stopped, and on
 no other diff. `<CR>` keeps its own action in every diff that the view shows.

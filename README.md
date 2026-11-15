@@ -30,7 +30,8 @@ the comments as markdown, and you send them to a GitHub pull request.
   in the same way. A directory gives every file below it.
 - Reaches your language servers from the diff, when you set
   `lsp = { enabled = true }`. `gd` goes to the definition, `grr` lists the
-  references, and `K` shows the hover text. codeview loads the file of the
+  references, `K` shows the hover text, and `grn` renames in the working
+  copy. codeview loads the file of the
   working copy into a hidden buffer for the servers, so each line that the
   working copy also holds answers. See `:help codeview-lsp`.
 - Writes no file in your project. The comments live in one markdown file per

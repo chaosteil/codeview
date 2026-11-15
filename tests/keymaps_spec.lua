@@ -104,6 +104,8 @@ describe("codeview keymaps", function()
     lsp_implementation = { { surface = "view", mode = "n", lsp = true } },
     lsp_references = { { surface = "view", mode = "n", lsp = true } },
     lsp_hover = { { surface = "view", mode = "n", lsp = true } },
+    lsp_rename = { { surface = "view", mode = "n", lsp = true } },
+    lsp_code_action = { { surface = "view", mode = "n", lsp = true } },
   }
 
   ---Configure the plugin for the audit.
