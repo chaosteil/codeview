@@ -19,10 +19,10 @@ export XDG_CACHE_HOME := $(TESTS_DIR)/xdg/cache
 all: fmt-check lint test
 
 ## test: run the plenary test suite headless
-# plenary stops a spec file after its timeout, 50 s by default. The LSP edge
-# spec runs 176 cases with jj repositories. It takes 17 s on a fast machine,
-# and more than 50 s on the macOS runner of CI. 180 s keeps a margin and
-# still stops a hung spec.
+# plenary stops a spec file after its timeout, 50 s by default. The macOS
+# runner of CI is slow, and a spec file with many cases can need more than
+# that there. Keep each spec file small, for example the four files of the
+# LSP edge cases. 180 s is a margin on top, and still stops a hung spec.
 test:
 	@mkdir -p $(XDG_CONFIG_HOME) $(XDG_DATA_HOME) $(XDG_STATE_HOME) $(XDG_CACHE_HOME)
 	$(NVIM) --headless -u tests/minimal_init.lua \
