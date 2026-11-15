@@ -192,6 +192,11 @@ local function target_window(session, buf)
   return win
 end
 
+---True while |M.edit()| opens a file. |M.release_window()| then does nothing,
+--- because the edit does the same work itself.
+---@type boolean
+local handing = false
+
 ---Set the back key of a file buffer. |set_back_key()| holds the definition.
 ---@type fun(session: codeview.Session, buf: integer)
 local set_back_key
@@ -299,6 +304,11 @@ local function set_keymaps(session, buf)
 
   -- The comment keys need the visual mode too. The module owns them.
   require("codeview.comments").set_keymaps(session, buf)
+  -- The LSP keys exist only with the option. Without it the module does not
+  -- load.
+  if config.get().lsp.enabled then
+    require("codeview.lsp").set_keymaps(session, buf)
+  end
 end
 
 ---Make the buffer of one side of a file.
@@ -582,6 +592,9 @@ local function rerender(view, anchor)
   -- the buffer, so the line map of the render stays correct. One call draws
   -- the local comments and the comments of a pull request.
   require("codeview.stack").decorate(view)
+  if config.get().lsp.enabled then
+    require("codeview.lsp").attach(view)
+  end
   place(view, anchor)
   return view
 end
@@ -1765,7 +1778,11 @@ end
 ---
 --- The window leaves the session, so a later close of the session keeps the
 --- file open.
----@param opts? { path?: string, line?: integer, win?: integer }
+---
+--- `opts.file` names a file by its absolute path, also a file outside the
+--- review. An LSP jump uses it. `opts.origin` then names the place of the
+--- review that the back key goes to.
+---@param opts? codeview.view.EditOpts
 ---@return boolean opened False with a message when there is no file to edit.
 function M.edit(opts)
   opts = opts or {}
@@ -1777,18 +1794,23 @@ function M.edit(opts)
 
   local view = M.current()
   local path = opts.path or (view and view.path)
-  if not path then
-    notify.info("no file of the review")
-    return false
+  local full
+  if opts.file then
+    full = opts.file
+    path = nil
+  else
+    if not path then
+      notify.info("no file of the review")
+      return false
+    end
+    if require("codeview.message").is(path) then
+      notify.info("a document of the review is not a file of the working copy")
+      return false
+    end
+    full = vim.fs.joinpath(session.repo.root, path)
   end
-  if require("codeview.message").is(path) then
-    notify.info("a document of the review is not a file of the working copy")
-    return false
-  end
-
-  local full = vim.fs.joinpath(session.repo.root, path)
   if vim.fn.filereadable(full) ~= 1 then
-    notify.info("the working copy holds no " .. path)
+    notify.info("the working copy holds no " .. (path or full))
     return false
   end
 
@@ -1814,17 +1836,87 @@ function M.edit(opts)
   end
 
   api.nvim_set_current_win(win)
-  vim.cmd.edit(vim.fn.fnameescape(full))
+  handing = true
+  local ok, err = pcall(vim.cmd.edit, vim.fn.fnameescape(full))
+  handing = false
+  if not ok then
+    notify.error(tostring(err))
+    return false
+  end
   local file_buf = api.nvim_win_get_buf(win)
-  vim.b[file_buf].codeview_file = path
+  if path then
+    vim.b[file_buf].codeview_file = path
+  end
+  if opts.origin then
+    vim.b[file_buf].codeview_origin = opts.origin
+  end
   set_back_key(session, file_buf)
   if line then
     local last = api.nvim_buf_line_count(file_buf)
-    pcall(api.nvim_win_set_cursor, win, { math.min(line, last), 0 })
+    pcall(api.nvim_win_set_cursor, win, { math.min(line, last), opts.col or 0 })
     pcall(vim.cmd, "normal! zz")
   end
   return true
 end
+
+---Give a window of the view to a file that a jump opened in it.
+---
+--- A jump of the quickfix list, for example after an LSP request, puts a file
+--- into the window of the diff. The call then does what |M.edit()| does: the
+--- window leaves the session, the window of the other side closes, and the
+--- file takes the back key. The back key goes to `origin`.
+---
+--- A window that a call gave away before keeps the back key for the next file
+--- that it shows.
+---@param win integer Window that shows the file.
+---@param buf integer Buffer of the file.
+---@param origin codeview.view.Origin Place of the review for the back key.
+---@return boolean released False when the window is no window of the view.
+function M.release_window(win, buf, origin)
+  if handing or not api.nvim_win_is_valid(win) or not api.nvim_buf_is_valid(buf) then
+    return false
+  end
+  local session = require("codeview.session").current()
+  if not session or not session:is_active() then
+    return false
+  end
+  local view = state
+  local released = vim.w[win].codeview_released == session.id
+  local mine = view ~= nil and view.session == session and (win == view.win or win == view.old_win)
+  if not mine and not released then
+    return false
+  end
+  if mine then
+    ---@cast view codeview.view.State
+    session:remove_window(win)
+    local other = win == view.win and view.old_win or view.win
+    if other and other ~= win and api.nvim_win_is_valid(other) then
+      local other_buf = api.nvim_win_get_buf(other)
+      if other_buf == view.buf or other_buf == view.old_buf then
+        session:remove_window(other)
+        pcall(api.nvim_win_close, other, true)
+      end
+    end
+    vim.w[win].codeview_released = session.id
+  end
+  if not vim.b[buf].codeview_file and not vim.b[buf].codeview_origin then
+    vim.b[buf].codeview_origin = origin
+    set_back_key(session, buf)
+  end
+  return true
+end
+
+---@class codeview.view.Origin
+---@field path string Path of the file of the review.
+---@field line integer Line of the new side.
+
+---@class codeview.view.EditOpts
+---@field path string? Path of a file of the review. The file of the view by default.
+---@field line integer? Line of the cursor. The line of the diff by default.
+---@field col integer? Byte column of the cursor, from 0.
+---@field win integer? Window that takes the file.
+---@field file string? Absolute path of a file. It wins over `path`.
+---@field origin codeview.view.Origin? Place of the review that the back key goes to.
 
 ---Buffer-local key that goes back to the review.
 ---
@@ -1846,6 +1938,7 @@ set_back_key = function(session, buf)
       end
       pcall(function()
         vim.b[buf].codeview_file = nil
+        vim.b[buf].codeview_origin = nil
       end)
     end
   end)
@@ -1890,14 +1983,24 @@ function M.back(opts, cb)
 
   local root = session.repo.root
   local path = vim.b[buf].codeview_file
+  local line = opts.line
   if not path then
     local full = vim.fs.normalize(name)
     local prefix = vim.fs.normalize(root) .. "/"
-    if not vim.startswith(full, prefix) then
+    local inside = vim.startswith(full, prefix)
+    local candidate = inside and full:sub(#prefix + 1) or nil
+    -- An LSP jump names the place that it came from. A file of the review
+    -- answers first, the same as for the edit key.
+    local origin = vim.b[buf].codeview_origin
+    if origin and not (candidate and session:index_of(candidate)) then
+      path = origin.path
+      line = line or origin.line
+    elseif not candidate then
       notify.info("the file is outside " .. root)
       return done(cb, false)
+    else
+      path = candidate
     end
-    path = full:sub(#prefix + 1)
   end
 
   -- A modified buffer stays loaded while the window shows the diff, but only
@@ -1907,7 +2010,7 @@ function M.back(opts, cb)
     return done(cb, false)
   end
 
-  local line = opts.line or api.nvim_win_get_cursor(win)[1]
+  line = line or api.nvim_win_get_cursor(win)[1]
 
   ---Open the diff of the path, after the reload.
   ---

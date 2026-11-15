@@ -26,6 +26,7 @@ local M = {}
 ---@field files codeview.Config.Files Options of a review of files with no repository.
 ---@field github codeview.Config.GitHub Pull request options.
 ---@field hints codeview.Config.Hints Key hint row options.
+---@field lsp codeview.Config.Lsp Options of the language server in the diff view.
 ---@field keymaps table<string, string|string[]|false> Buffer-local keymaps. A list holds more than one key for one action. Set an entry to false to disable it.
 ---@field log_level integer Minimum level for notifications. Use a `vim.log.levels` value.
 
@@ -81,6 +82,9 @@ local M = {}
 ---@class codeview.Config.Hints
 ---@field enabled boolean Show a row with the keys of the window at the bottom of the screen.
 ---@field actions table<string, { action: string, text: string }[]>|false Keys per surface. False takes the built-in lists.
+
+---@class codeview.Config.Lsp
+---@field enabled boolean Load the files of the working copy for the language servers, and map the LSP keys in the diff view.
 
 ---@class codeview.Config.Export
 ---@field register string Register that receives the exported markdown. An empty text writes no register.
@@ -164,6 +168,9 @@ M.defaults = {
     enabled = true,
     actions = false,
   },
+  lsp = {
+    enabled = false,
+  },
   export = {
     register = "+",
     -- The text under the title tells an agent what to do with the comments.
@@ -234,6 +241,9 @@ M.defaults = {
     delete_comment = "<leader>cd",
     resolve_comment = "<leader>cr",
     show_comment = "K",
+    -- With `lsp.enabled`, the hover key takes `K`. The show-comment action
+    -- then takes this key.
+    show_comment_lsp = "<leader>ck",
     -- The key opens the menu of the actions of the selected comment.
     comment_menu = "<leader>cm",
     -- The diff buffer is read-only, so `r` is free, the same as `i` and `a`.
@@ -264,6 +274,14 @@ M.defaults = {
     editor_send = "<leader>cs",
     editor_cancel = { "q", "<Esc><Esc>" },
     close = "q",
+    -- The LSP keys map in the diff view only with `lsp.enabled`. They take
+    -- the keys of the LSP defaults of Neovim.
+    lsp_definition = "gd",
+    lsp_declaration = "gD",
+    lsp_type_definition = "grt",
+    lsp_implementation = "gri",
+    lsp_references = "grr",
+    lsp_hover = "K",
   },
   log_level = vim.log.levels.INFO,
 }
@@ -393,6 +411,9 @@ function M.validate(opts)
       vim.validate("hints.actions", opts.hints.actions, "table")
     end
 
+    vim.validate("lsp", opts.lsp, "table")
+    vim.validate("lsp.enabled", opts.lsp.enabled, "boolean")
+
     vim.validate("export", opts.export, "table")
     vim.validate("export.register", opts.export.register, "string")
     vim.validate("export.prompt", opts.export.prompt, "string")
@@ -503,6 +524,16 @@ function M.keys(value)
     end
   end
   return out
+end
+
+---Keys of the show-comment action.
+---
+--- With `lsp.enabled`, the hover key takes `K`, the key of the action without
+--- the option. The action then takes `keymaps.show_comment_lsp`.
+---@return string[] keys
+function M.show_comment_keys()
+  local cfg = M.get()
+  return M.keys(cfg.lsp.enabled and cfg.keymaps.show_comment_lsp or cfg.keymaps.show_comment)
 end
 
 ---Remove a normal mode map of a buffer, but only a map that codeview set.

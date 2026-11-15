@@ -1454,7 +1454,8 @@ function M.set_keymaps(session, buf)
       M.set_state({ view = view_of(session) })
     end
   end, "resolve the comment")
-  add("n", keys.show_comment, function()
+  -- With `lsp.enabled`, `K` is the hover key, and the action takes another key.
+  add("n", config.show_comment_keys(), function()
     if not act_on_selection(session, "show") then
       M.show({ view = view_of(session) })
     end

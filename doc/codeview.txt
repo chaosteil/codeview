@@ -772,6 +772,8 @@ The diff buffer holds these maps. |codeview-config| names the keys: >
     <leader>cm  open the menu of the selected comment
     q           close the review session
 <
+With `lsp.enabled`, the diff buffer also holds the LSP keys, and `K` shows
+the hover text. See |codeview-lsp-keys|.
 |codeview-keymaps| holds the full list, with the option name of each key.
 
                                                   *codeview-diff-comment-keys*
@@ -995,6 +997,96 @@ Set `auto_refresh` to false to stop the watcher: >lua
     require("codeview").setup({ auto_refresh = false })
 <
 The refresh key and `:Codeview refresh` still work then.
+
+                                                                *codeview-lsp*
+The diff view can use your language servers, so that you go to a definition
+or read the hover text from the diff. The feature is off by default. Set
+`lsp.enabled` to true: >lua
+
+    require("codeview").setup({ lsp = { enabled = true } })
+<
+A diff buffer is no file. The inline style puts a marker in front of each
+line and mixes the lines of the two sides. Both styles add hunk headers,
+filler rows, and collapsed sections. A language server that reads such a
+buffer reads no valid program, so codeview attaches no language server to
+it.
+
+When a file opens in the view, codeview loads the file of the working copy
+into a hidden buffer instead. Your language servers attach to that buffer,
+the same way as they attach to a file that you open. The buffer is
+unlisted, and no window shows it. A buffer of the file that you hold open
+already is the same buffer, also with changes that you did not write.
+
+                                                           *codeview-lsp-keys*
+The LSP keys send a request from the line under the cursor to the hidden
+buffer: >
+
+    gd          go to the definition
+    gD          go to the declaration
+    grt         go to the type definition
+    gri         go to the implementation
+    grr         put the references into the quickfix list
+    K           show the hover text in a float
+    <leader>ck  show the comment under the cursor in a float
+<
+With the option, `K` is the hover key, as in a file buffer of Neovim. The
+comment float therefore moves to `keymaps.show_comment_lsp`. Without the
+option, `K` shows the comment, and the LSP keys do not exist.
+
+Every client of the file that supports a request gets it. A request with no
+client gives a note, for example "no language server is attached to
+lua/foo.lua". A server that still starts has no client yet, so try again
+after a moment.
+
+                                                          *codeview-lsp-lines*
+These rows answer:
+
+- A row of the new side, when the working copy holds its line.
+- A context row of the old side. It answers through its line of the new
+  side.
+- A row of the old side, when the working copy holds the old side. A pull
+  request review on the base branch is an example.
+
+These rows get a note and send no request:
+
+- A removed line that the working copy does not hold.
+- A hunk header, a filler row, and the row of a collapsed section.
+- Each row of a binary file, of a diff above a size limit, and of a commit
+  document.
+- Each row of a file that the working copy does not hold, for example a
+  deleted file.
+
+The working copy can hold another version of the file than the review. A
+review of `HEAD~1`, a pull request without a checkout, and a file with
+changes that you did not write are examples. codeview then compares the
+lines of the side with the lines of the hidden buffer. A line that did not
+change answers. A changed line gets a note. The first request in such a file
+gives one note, because the language server reads the working copy and not
+the revision of the review. Its answer can therefore name a place that the
+review does not show.
+
+A review of files reads the files from the disk, so each line answers until
+you change the file. See |codeview-files|.
+
+                                                           *codeview-lsp-jump*
+A jump goes to one of three places:
+
+- A target in the file of the view moves the cursor in the diff. A collapsed
+  section that hides the line opens. CTRL-O comes back.
+- A target in another file of the review opens the diff of that file, on
+  the line of the target.
+- Every other target opens the file in the window of the diff, the same way
+  as `gf`. `<leader>cb` goes back to the line of the request. See
+  |codeview-edit-back|.
+
+A target on a line that the working copy changed has no row in the diff. It
+opens the file of the working copy too.
+
+More than one target goes into the quickfix list, and the list opens. A
+file that the list opens in the window of the diff also takes the back key.
+
+The hidden buffers go away when the session closes. A buffer stays when a
+window shows it, when it holds changes, or when it is listed.
 
 ==============================================================================
 8. COMMENTS                                                  *codeview-comments*
@@ -2809,6 +2901,9 @@ Defaults: >lua
         enabled = true,             -- key row at the bottom of the screen
         actions = false,            -- false takes the built-in lists
       },
+      lsp = {                        -- see |codeview-lsp|
+        enabled = false,             -- language servers in the diff view
+      },
       export = {
         register = "+",
         prompt = "A code review ...",  -- see |codeview-export-prompt|
@@ -2854,6 +2949,7 @@ Defaults: >lua
         delete_comment = "<leader>cd",
         resolve_comment = "<leader>cr",
         show_comment = "K",
+        show_comment_lsp = "<leader>ck",
         comment_menu = "<leader>cm",
         reply = "r",
         toggle_thread = "<leader>cz",
@@ -2868,6 +2964,12 @@ Defaults: >lua
         editor_send = "<leader>cs",
         editor_cancel = { "q", "<Esc><Esc>" },
         close = "q",
+        lsp_definition = "gd",
+        lsp_declaration = "gD",
+        lsp_type_definition = "grt",
+        lsp_implementation = "gri",
+        lsp_references = "grr",
+        lsp_hover = "K",
       },
       log_level = vim.log.levels.INFO, -- lowest level of a message
     }
@@ -3029,7 +3131,8 @@ The table names the surface of each action: >
     edit_comment      <leader>ce       O D  edit the comment
     delete_comment    <leader>cd       O D  delete the comment
     resolve_comment   <leader>cr       O D  resolve the comment, or reopen it
-    show_comment      K                  D  show the comment in a float
+    show_comment      K                  D  show the comment in a float ***
+    show_comment_lsp  <leader>ck         D  the same, with `lsp.enabled` ***
     comment_menu      <leader>cm       O D  open the menu of the comment
     reply             r                O D  reply to the GitHub thread
     toggle_thread     <leader>cz         D  show or hide a resolved thread
@@ -3045,6 +3148,14 @@ The table names the surface of each action: >
     editor_cancel     q  <Esc><Esc>       E  discard the comment
     close             q              S O D  close the session or the panel
                                          X  close the export window
+    lsp_definition    gd                 D  go to the definition ***
+    lsp_declaration   gD                 D  go to the declaration ***
+    lsp_type_definition
+                      grt                D  go to the type definition ***
+    lsp_implementation
+                      gri                D  go to the implementation ***
+    lsp_references    grr                D  list the references ***
+    lsp_hover         K                  D  show the hover text ***
 <
 (*) The load key maps on a diff that a size limit stopped, and on
 no other diff. `<CR>` keeps its own action in every diff that the view shows.
@@ -3052,6 +3163,10 @@ See |codeview-diff-limit|.
 
 (**) The adopt key maps only while the review holds pr-agent items. See
 |codeview-agent-adopt|.
+
+(***) The LSP keys map only with `lsp.enabled`. The hover key then takes
+`K`, and the show-comment action takes the key of `show_comment_lsp`.
+Without the option, `K` shows the comment. See |codeview-lsp-keys|.
 
 The comment editor also saves with `:w`. That write runs from an autocmd, not
 from a map, so it works with any key of your own.

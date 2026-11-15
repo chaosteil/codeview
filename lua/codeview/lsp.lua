@@ -28,6 +28,14 @@
 ---
 --- A buffer that the module loads goes away again when the session closes.
 --- A buffer that the user opened, changed, or listed stays.
+---
+--- The LSP keys of the diff run |codeview.lsp.run()|. A jump to a line of the
+--- file of the view moves the cursor in the diff. A jump to another file of
+--- the review opens the diff of that file. Every other jump opens the file
+--- like the edit key, and the back key comes back. See |codeview-lsp|.
+
+local config = require("codeview.config")
+local notify = require("codeview.notify")
 
 local api = vim.api
 local fn = vim.fn
@@ -62,6 +70,8 @@ local M = {}
 ---@class codeview.lsp.SessionState
 ---@field owned table<integer, { created: boolean }> Buffers that the module loaded. `created` is true when the module made the buffer.
 ---@field noted table<string, boolean> Files that got the note about a different working copy.
+---@field origin codeview.view.Origin? Place of the review that a jump out of the review came from.
+---@field watching boolean True after |M.attach()| made the autocmds of the session.
 
 ---State of each session. The keys are weak, so a closed session goes away.
 ---@type table<codeview.Session, codeview.lsp.SessionState>
@@ -484,6 +494,436 @@ function M.same_file(a, b)
   end
   local real_a, real_b = vim.uv.fs_realpath(a), vim.uv.fs_realpath(b)
   return real_a ~= nil and real_a == real_b
+end
+
+--- Requests ----------------------------------------------------------------------
+
+---@class codeview.lsp.Action
+---@field method string Method of the request.
+---@field label string Name for the user.
+---@field kind "jump"|"list"|"hover" What the answer does.
+
+---Actions of the LSP keys, by the name of their `keymaps` entry.
+---@type table<string, codeview.lsp.Action>
+M.actions = {
+  lsp_definition = { method = "textDocument/definition", label = "definition", kind = "jump" },
+  lsp_declaration = { method = "textDocument/declaration", label = "declaration", kind = "jump" },
+  lsp_type_definition = { method = "textDocument/typeDefinition", label = "type definition", kind = "jump" },
+  lsp_implementation = { method = "textDocument/implementation", label = "implementation", kind = "jump" },
+  lsp_references = { method = "textDocument/references", label = "references", kind = "list" },
+  lsp_hover = { method = "textDocument/hover", label = "hover", kind = "hover" },
+}
+
+---Order of the actions for the keymaps.
+---@type string[]
+M.order = {
+  "lsp_definition",
+  "lsp_declaration",
+  "lsp_type_definition",
+  "lsp_implementation",
+  "lsp_references",
+  "lsp_hover",
+}
+
+---Number of requests of this Neovim. It names the newest request.
+---@type integer
+local requests = 0
+
+---Report whether the option is on.
+---@return boolean
+function M.enabled()
+  return config.get().lsp.enabled == true
+end
+
+---Place of the review under the cursor, for the back key.
+---@param view codeview.view.State
+---@return codeview.view.Origin
+local function origin_of(view)
+  return { path = view.path, line = require("codeview.view").cursor_line(view) }
+end
+
+---@class codeview.lsp.Answer
+---@field client vim.lsp.Client
+---@field result any Result of the request. Nil after an error.
+---@field err table? Error of the request.
+
+---Send one request from the cursor of the view to the language servers.
+---
+--- Every client of the buffer that supports the method gets the request. The
+--- callback runs once, after the last answer. It does not run when the view
+--- changed in the meantime, for example after a jump to another file.
+---@param view codeview.view.State
+---@param action codeview.lsp.Action
+---@param extend fun(params: table, client: vim.lsp.Client, position: codeview.lsp.Position)? Adds fields to the parameters.
+---@param cb fun(answers: codeview.lsp.Answer[], position: codeview.lsp.Position)
+---@return boolean sent False with a note when no request went out.
+function M.request(view, action, extend, cb)
+  local position, reason = M.locate(view, { note = notify.info })
+  if not position then
+    notify.info(reason or "no line of the working copy here")
+    return false
+  end
+  local source = position.source
+  local clients = vim.lsp.get_clients({ bufnr = source.buf, method = action.method })
+  if #clients == 0 then
+    if #vim.lsp.get_clients({ bufnr = source.buf }) == 0 then
+      notify.info("no language server is attached to " .. source.path)
+    else
+      notify.info(string.format("no language server of %s gives the %s", source.path, action.label))
+    end
+    return false
+  end
+
+  state_of(view.session).origin = origin_of(view)
+  requests = requests + 1
+  local ticket = requests
+  local text = api.nvim_buf_get_lines(source.buf, position.file_line - 1, position.file_line, false)[1] or ""
+  local answers = {}
+  local waiting = #clients
+
+  local function finish()
+    waiting = waiting - 1
+    if waiting > 0 then
+      return
+    end
+    if ticket ~= requests or require("codeview.view").current() ~= view then
+      return
+    end
+    cb(answers, position)
+  end
+
+  for _, client in ipairs(clients) do
+    local params = {
+      textDocument = { uri = vim.uri_from_bufnr(source.buf) },
+      position = {
+        line = position.file_line - 1,
+        character = vim.str_utfindex(text, client.offset_encoding, position.col, false),
+      },
+    }
+    if extend then
+      extend(params, client, position)
+    end
+    local ok = client:request(action.method, params, function(err, result)
+      answers[#answers + 1] = { client = client, result = not err and result or nil, err = err }
+      finish()
+    end, source.buf)
+    if not ok then
+      finish()
+    end
+  end
+  return true
+end
+
+---Text of one line of a file, from a loaded buffer or from the disk.
+---@param file string Absolute path.
+---@param line integer Line from 1.
+---@return string text
+local function line_text(file, line)
+  if fn.bufexists(file) == 1 then
+    local buf = fn.bufadd(file)
+    if api.nvim_buf_is_loaded(buf) then
+      return api.nvim_buf_get_lines(buf, line - 1, line, false)[1] or ""
+    end
+  end
+  local ok, lines = pcall(fn.readfile, file, "", line)
+  return ok and lines[line] or ""
+end
+
+---Position in the file of the target of a location.
+---@param location table Location or LocationLink of LSP.
+---@param encoding string Position encoding of the client.
+---@return string? file Absolute path.
+---@return integer? line Line from 1.
+---@return integer? col Byte column from 0.
+local function target_of(location, encoding)
+  local uri = location.targetUri or location.uri
+  local range = location.targetSelectionRange or location.range
+  if type(uri) ~= "string" or type(range) ~= "table" or type(range.start) ~= "table" then
+    return nil, nil, nil
+  end
+  local file = vim.uri_to_fname(uri)
+  local line = range.start.line + 1
+  local text = line_text(file, line)
+  local ok, col = pcall(vim.str_byteindex, text, encoding, range.start.character, false)
+  return file, line, ok and col or 0
+end
+
+---Position of a file of the review in the file list.
+---
+--- A deleted file and a document hold no file of the working copy, so they
+--- give no answer.
+---@param session codeview.Session
+---@param file string Absolute path.
+---@return integer? index
+function M.review_index(session, file)
+  local target = vim.fs.normalize(file)
+  local candidates = {}
+  for index, entry in ipairs(session.files) do
+    if not entry.virtual and entry.status ~= "deleted" then
+      local full = M.file_of(session, entry.path)
+      if full == target then
+        return index
+      end
+      candidates[#candidates + 1] = { index = index, full = full }
+    end
+  end
+  local real = vim.uv.fs_realpath(target)
+  if not real then
+    return nil
+  end
+  for _, candidate in ipairs(candidates) do
+    if vim.uv.fs_realpath(candidate.full) == real then
+      return candidate.index
+    end
+  end
+  return nil
+end
+
+---Move the cursor of a view to a line of the review.
+---@param view codeview.view.State
+---@param line integer Line of the side.
+---@param side codeview.linemap.Side
+---@param col integer Byte column of the line, from 0.
+---@return boolean moved
+local function move(view, line, side, col)
+  local view_mod = require("codeview.view")
+  local row = view_mod.go_to_line(line, side, { focus = true })
+  if not row then
+    return false
+  end
+  local win = api.nvim_get_current_win()
+  local buf = api.nvim_win_get_buf(win)
+  local row_text = api.nvim_buf_get_lines(buf, row - 1, row, false)[1] or ""
+  local source = M.sources(view)[side]
+  local prefix = M.prefix(row_text, source and source.lines[line] or "")
+  pcall(api.nvim_win_set_cursor, win, { row, math.min(prefix + col, math.max(#row_text - 1, 0)) })
+  return true
+end
+
+---Open a file outside the review, the same way as the edit key.
+---@param view codeview.view.State
+---@param file string
+---@param line integer
+---@param col integer
+---@param origin codeview.view.Origin
+local function open_file(view, file, line, col, origin)
+  require("codeview.view").edit({ file = file, line = line, col = col, origin = origin, win = view.win })
+end
+
+---Go to the target of one location.
+---
+--- A line of the file of the view moves the cursor in the diff. A file of the
+--- review opens its diff. Every other target opens like the edit key, and the
+--- back key comes back.
+---@param view codeview.view.State
+---@param location table Location or LocationLink of LSP.
+---@param encoding string Position encoding of the client.
+function M.land(view, location, encoding)
+  local file, line, col = target_of(location, encoding)
+  if not file or not line or not col then
+    notify.info("the language server gave no valid location")
+    return
+  end
+  local origin = state_of(view.session).origin or origin_of(view)
+
+  local review_line, side = M.review_line(view, file, line)
+  if review_line and side then
+    -- The jump list keeps the place, so CTRL-O comes back inside the diff.
+    vim.cmd("normal! m'")
+    move(view, review_line, side, col)
+    return
+  end
+
+  local index = M.review_index(view.session, file)
+  if index and index ~= view.index then
+    require("codeview.view").open(view.session, index, { win = view.win }, function(next_view, err)
+      if not next_view then
+        notify.error(tostring(err))
+        return
+      end
+      local next_line, next_side = M.review_line(next_view, file, line)
+      if next_line and next_side then
+        move(next_view, next_line, next_side, col)
+      else
+        open_file(next_view, file, line, col, origin)
+      end
+    end)
+    return
+  end
+
+  open_file(view, file, line, col, origin)
+end
+
+---Locations of the answers, without a location that two answers hold.
+---@param answers codeview.lsp.Answer[]
+---@return { location: table, encoding: string }[]
+local function locations_of(answers)
+  local out, seen = {}, {}
+  for _, answer in ipairs(answers) do
+    local result = answer.result
+    if type(result) == "table" then
+      if result.uri or result.targetUri then
+        result = { result }
+      end
+      for _, location in ipairs(result) do
+        local uri = location.targetUri or location.uri
+        local range = location.targetSelectionRange or location.range
+        local key = vim.inspect({ uri, range and range.start })
+        if uri and range and not seen[key] then
+          seen[key] = true
+          out[#out + 1] = { location = location, encoding = answer.client.offset_encoding }
+        end
+      end
+    end
+  end
+  return out
+end
+
+---Put locations into the quickfix list and open it.
+---@param title string
+---@param found { location: table, encoding: string }[]
+local function show_list(title, found)
+  local items = {}
+  for _, entry in ipairs(found) do
+    vim.list_extend(items, vim.lsp.util.locations_to_items({ entry.location }, entry.encoding))
+  end
+  fn.setqflist({}, " ", { title = "codeview: " .. title, items = items })
+  vim.cmd("botright copen")
+end
+
+---Show the hover answers in a float.
+---@param answers codeview.lsp.Answer[]
+local function show_hover(answers)
+  local lines = {}
+  for _, answer in ipairs(answers) do
+    local result = answer.result
+    if type(result) == "table" and result.contents then
+      local part = vim.lsp.util.convert_input_to_markdown_lines(result.contents)
+      while #part > 0 and vim.trim(part[#part]) == "" do
+        part[#part] = nil
+      end
+      if #part > 0 then
+        if #lines > 0 then
+          lines[#lines + 1] = "---"
+        end
+        vim.list_extend(lines, part)
+      end
+    end
+  end
+  if #lines == 0 then
+    notify.info("the language server gave no hover text")
+    return
+  end
+  vim.lsp.util.open_floating_preview(lines, "markdown", {
+    focus_id = "codeview.lsp.hover",
+    border = config.get().comments.border,
+  })
+end
+
+---Run the action of one LSP key in the view.
+---@param name string Name of the `keymaps` entry, for example "lsp_definition".
+---@return boolean sent False with a note when no request went out.
+function M.run(name)
+  local action = M.actions[name]
+  local view = require("codeview.view").current()
+  if not action then
+    return false
+  end
+  if not view then
+    notify.info("no file of the review")
+    return false
+  end
+  if action.kind == "hover" then
+    return M.request(view, action, nil, function(answers)
+      show_hover(answers)
+    end)
+  end
+  local extend = nil
+  if action.kind == "list" then
+    extend = function(params)
+      params.context = { includeDeclaration = true }
+    end
+  end
+  return M.request(view, action, extend, function(answers)
+    local found = locations_of(answers)
+    if #found == 0 then
+      notify.info("no " .. action.label .. " found")
+      return
+    end
+    if action.kind == "jump" and #found == 1 then
+      M.land(view, found[1].location, found[1].encoding)
+      return
+    end
+    show_list(action.label, found)
+  end)
+end
+
+--- Attach -----------------------------------------------------------------------
+
+---Map the LSP keys in a diff buffer.
+---@param session codeview.Session
+---@param buf integer
+function M.set_keymaps(session, buf)
+  local keys = config.get().keymaps
+  for _, name in ipairs(M.order) do
+    for _, lhs in ipairs(config.keys(keys[name])) do
+      vim.keymap.set("n", lhs, function()
+        M.run(name)
+      end, { buffer = buf, nowait = true, silent = true, desc = "codeview: LSP " .. M.actions[name].label })
+    end
+  end
+  -- A jump of the quickfix list leaves the diff. The place under the cursor
+  -- is the way back.
+  api.nvim_create_autocmd("BufLeave", {
+    group = session:augroup(),
+    buffer = buf,
+    desc = "Keep the place of the codeview diff for the back key",
+    callback = function()
+      local view = require("codeview.view").current()
+      if view and view.session == session and (view.buf == buf or view.old_buf == buf) then
+        state_of(session).origin = origin_of(view)
+      end
+    end,
+  })
+end
+
+---Watch the windows of the view for a file that a jump opens there.
+---@param session codeview.Session
+local function watch(session)
+  local entry = state_of(session)
+  if entry.watching then
+    return
+  end
+  entry.watching = true
+  api.nvim_create_autocmd("BufWinEnter", {
+    group = session:augroup(),
+    desc = "Give the codeview window to a file that a jump opened",
+    callback = function(args)
+      local buf = args.buf
+      local name = api.nvim_buf_get_name(buf)
+      if vim.bo[buf].buftype ~= "" or name == "" or vim.startswith(name, "codeview://") then
+        return
+      end
+      local win = api.nvim_get_current_win()
+      if api.nvim_win_get_buf(win) ~= buf or not entry.origin then
+        return
+      end
+      require("codeview.view").release_window(win, buf, entry.origin)
+    end,
+  })
+end
+
+---Load the files of the working copy for a view.
+---
+--- The view calls this after each render. The first call for a view loads the
+--- files, so the language servers start while the reader reads the diff.
+---@param view codeview.view.State
+function M.attach(view)
+  if not view.session:is_active() then
+    return
+  end
+  M.sources(view)
+  watch(view.session)
 end
 
 return M

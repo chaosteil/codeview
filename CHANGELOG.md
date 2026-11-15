@@ -27,7 +27,16 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   comment overview. The `keymaps.comment_menu` option sets the key, and
   `codeview.comment_menu()` opens the menu from Lua. See
   `:help codeview-comment-menu`.
-
+- The diff view reaches your language servers, when you set
+  `lsp.enabled`. codeview loads the file of the working copy into a hidden
+  buffer, and the servers attach to it. `gd`, `gD`, `grt`, and `gri` go to
+  the definition, the declaration, the type definition, and the
+  implementation. `grr` puts the references into the quickfix list, and `K`
+  shows the hover text. A target in the file of the view moves the cursor in
+  the diff, a target in another file of the review opens its diff, and
+  every other target opens like `gf`. A line that the working copy changed
+  gets a note. With the option, the comment float moves from `K` to
+  `<leader>ck` (`keymaps.show_comment_lsp`). See `:help codeview-lsp`.
 - `:Codeview file {path}...` reviews files that no repository tracks: files
   outside every repository, or untracked files. The review reads the files
   from the disk, and never runs git or jj to read them. A directory gives

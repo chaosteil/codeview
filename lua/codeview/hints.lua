@@ -16,6 +16,9 @@
 ---
 --- The adopt key reads only while the session holds pr-agent items, because
 --- the key exists only then. See |codeview.agent|.
+---
+--- The LSP keys read only with `lsp.enabled`, for the same reason. The
+--- show-comment key then reads as the key of `keymaps.show_comment_lsp`.
 
 local config = require("codeview.config")
 local events = require("codeview.events")
@@ -59,6 +62,8 @@ M.actions = {
     { action = "edit_file", text = "edit the file" },
     { action = "show_comment", text = "read comment" },
     { action = "comment_menu", text = "comment menu" },
+    { action = "lsp_definition", text = "definition" },
+    { action = "lsp_hover", text = "hover" },
     { action = "edit_comment", text = "edit comment" },
     { action = "delete_comment", text = "delete comment" },
     { action = "adopt", text = "adopt" },
@@ -89,6 +94,13 @@ M.no_diff = {
   prev_hunk = true,
   expand_context = true,
   toggle_style = true,
+}
+
+---Actions that read only with `lsp.enabled`, because their keys map only then.
+---@type table<string, boolean>
+M.lsp_only = {
+  lsp_definition = true,
+  lsp_hover = true,
 }
 
 ---Hint row of the session that runs.
@@ -122,7 +134,8 @@ local function surface_of(win)
     return "view"
   end
   -- The file that the edit key opened. It holds the way back.
-  if vim.b[api.nvim_win_get_buf(win)].codeview_file then
+  local buf = api.nvim_win_get_buf(win)
+  if vim.b[buf].codeview_file or vim.b[buf].codeview_origin then
     return "file"
   end
   return nil
@@ -153,6 +166,12 @@ function M.chunks(name, session)
   local out = {}
   for _, entry in ipairs(actions) do
     local lhs = config.keys(keys[entry.action])[1]
+    if entry.action == "show_comment" then
+      lhs = config.show_comment_keys()[1]
+    end
+    if M.lsp_only[entry.action] and not cfg.lsp.enabled then
+      lhs = nil
+    end
     if entry.action == "adopt" and not agent then
       lhs = nil
     end

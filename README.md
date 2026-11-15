@@ -28,6 +28,11 @@ the comments as markdown, and you send them to a GitHub pull request.
 - Reviews files that no repository tracks, for example a plan that an agent
   wrote. `:Codeview file plan.md` shows the plain file, and you comment on it
   in the same way. A directory gives every file below it.
+- Reaches your language servers from the diff, when you set
+  `lsp = { enabled = true }`. `gd` goes to the definition, `grr` lists the
+  references, and `K` shows the hover text. codeview loads the file of the
+  working copy into a hidden buffer for the servers, so each line that the
+  working copy also holds answers. See `:help codeview-lsp`.
 - Writes no file in your project. The comments live in one markdown file per
   review, in the data directory of Neovim.
 - No runtime dependency. The plugin uses the standard library of Neovim.

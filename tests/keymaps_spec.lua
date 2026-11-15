@@ -23,7 +23,11 @@ describe("codeview keymaps", function()
   --- "n" and "x" name the mode of the map. The audit fails when the defaults
   --- hold an action that this table does not name, so a new keymap needs a
   --- line here and a line in the documentation.
-  ---@type table<string, { surface: string, mode: string }[]>
+  ---
+  --- `lsp = true` names a map that exists only with `lsp.enabled`, and
+  --- `lsp = false` a map that exists only without it. The audit reads every
+  --- surface in both states.
+  ---@type table<string, { surface: string, mode: string, lsp: boolean? }[]>
   local ACTIONS = {
     open_file = { { surface = "sidebar", mode = "n" }, { surface = "overview", mode = "n" } },
     toggle_node = { { surface = "sidebar", mode = "n" }, { surface = "overview", mode = "n" } },
@@ -59,7 +63,10 @@ describe("codeview keymaps", function()
     edit_comment = { { surface = "view", mode = "n" }, { surface = "overview", mode = "n" } },
     delete_comment = { { surface = "view", mode = "n" }, { surface = "overview", mode = "n" } },
     resolve_comment = { { surface = "view", mode = "n" }, { surface = "overview", mode = "n" } },
-    show_comment = { { surface = "view", mode = "n" } },
+    -- With `lsp.enabled`, the hover key takes `K`, and the action takes
+    -- `show_comment_lsp`.
+    show_comment = { { surface = "view", mode = "n", lsp = false } },
+    show_comment_lsp = { { surface = "view", mode = "n", lsp = true } },
     comment_menu = { { surface = "view", mode = "n" }, { surface = "overview", mode = "n" } },
     reply = { { surface = "view", mode = "n" }, { surface = "overview", mode = "n" } },
     toggle_thread = { { surface = "view", mode = "n" } },
@@ -91,7 +98,26 @@ describe("codeview keymaps", function()
       { surface = "overview", mode = "n" },
       { surface = "export", mode = "n" },
     },
+    lsp_definition = { { surface = "view", mode = "n", lsp = true } },
+    lsp_declaration = { { surface = "view", mode = "n", lsp = true } },
+    lsp_type_definition = { { surface = "view", mode = "n", lsp = true } },
+    lsp_implementation = { { surface = "view", mode = "n", lsp = true } },
+    lsp_references = { { surface = "view", mode = "n", lsp = true } },
+    lsp_hover = { { surface = "view", mode = "n", lsp = true } },
   }
+
+  ---Configure the plugin for the audit.
+  ---@param lsp boolean Value of `lsp.enabled`.
+  ---@param keymaps table? Keys of the user.
+  local function setup(lsp, keymaps)
+    config.setup({
+      commit_message = false,
+      comments = { dir = store_dir },
+      diff = { max_lines = 1 },
+      keymaps = keymaps,
+      lsp = { enabled = lsp },
+    })
+  end
 
   ---Open a session for the range of the fixture.
   ---@return codeview.Session
@@ -185,7 +211,7 @@ describe("codeview keymaps", function()
     store_dir = fixtures.tempdir("codeview-keymaps")
     -- The load key maps on a diff above the line limit only. A limit of one
     -- line makes every diff of the fixture such a diff.
-    config.setup({ commit_message = false, comments = { dir = store_dir }, diff = { max_lines = 1 } })
+    setup(false)
   end)
 
   after_each(function()
@@ -217,25 +243,78 @@ describe("codeview keymaps", function()
     assert.are.same({}, missing)
   end)
 
-  it("maps every default key in its surface", function()
-    local keys = surface_keys(open_session())
+  ---Keys of every surface, without and with `lsp.enabled`.
+  ---@param keymaps table? Keys of the user.
+  ---@return table<boolean, table> keys Keys of each state of the option.
+  local function both_states(keymaps)
+    local out = {}
+    for _, lsp in ipairs({ false, true }) do
+      setup(lsp, keymaps)
+      out[lsp] = surface_keys(open_session())
+      view.close()
+      if opened then
+        opened:close()
+      end
+      opened = nil
+    end
+    return out
+  end
 
+  ---Report whether an audit entry holds in one state of the option.
+  ---@param surface { lsp: boolean? }
+  ---@param lsp boolean
+  ---@return boolean
+  local function holds(surface, lsp)
+    return surface.lsp == nil or surface.lsp == lsp
+  end
+
+  it("maps every default key in its surface", function()
+    local states = both_states(nil)
+
+    for lsp, keys in pairs(states) do
+      for action, surfaces in pairs(ACTIONS) do
+        for _, surface in ipairs(surfaces) do
+          for _, lhs in ipairs(config.keys(config.defaults.keymaps[action])) do
+            if holds(surface, lsp) then
+              assert.is_true(
+                keys[surface.surface][surface.mode][normal(lhs)] == true,
+                string.format(
+                  "%s maps %s for %s in the mode %s, lsp %s",
+                  surface.surface,
+                  lhs,
+                  action,
+                  surface.mode,
+                  tostring(lsp)
+                )
+              )
+            end
+          end
+        end
+      end
+    end
+  end)
+
+  it("maps the LSP keys only with the option", function()
+    local states = both_states(nil)
     for action, surfaces in pairs(ACTIONS) do
       for _, surface in ipairs(surfaces) do
-        for _, lhs in ipairs(config.keys(config.defaults.keymaps[action])) do
-          assert.is_true(
-            keys[surface.surface][surface.mode][normal(lhs)] == true,
-            string.format("%s maps %s for %s in the mode %s", surface.surface, lhs, action, surface.mode)
-          )
+        if surface.lsp ~= nil then
+          local other = states[not surface.lsp][surface.surface][surface.mode]
+          for _, lhs in ipairs(config.keys(config.defaults.keymaps[action])) do
+            -- `K` is a key of both states, for two actions.
+            if lhs ~= "K" then
+              assert.is_nil(other[normal(lhs)], string.format("%s maps %s only in one state", surface.surface, lhs))
+            end
+          end
         end
       end
     end
   end)
 
   it("takes a key of the user for every action", function()
-    -- One key of the user per action. The lower case letters and the upper
-    -- case letters together hold 52 actions.
-    local letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    -- One key of the user per action. The letters and the digits together
+    -- hold 62 actions.
+    local letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
     ---@type table<string, string>
     local custom = {}
     local index = 0
@@ -244,15 +323,17 @@ describe("codeview keymaps", function()
       custom[action] = "," .. letters:sub(index, index)
     end
     assert.is_true(index <= #letters, "the audit needs one letter per action")
-    config.setup({ commit_message = false, comments = { dir = store_dir }, diff = { max_lines = 1 }, keymaps = custom })
 
-    local keys = surface_keys(open_session())
-    for action, surfaces in pairs(ACTIONS) do
-      for _, surface in ipairs(surfaces) do
-        assert.is_true(
-          keys[surface.surface][surface.mode][custom[action]] == true,
-          string.format("%s maps %s for %s", surface.surface, custom[action], action)
-        )
+    for lsp, keys in pairs(both_states(custom)) do
+      for action, surfaces in pairs(ACTIONS) do
+        for _, surface in ipairs(surfaces) do
+          if holds(surface, lsp) then
+            assert.is_true(
+              keys[surface.surface][surface.mode][custom[action]] == true,
+              string.format("%s maps %s for %s, lsp %s", surface.surface, custom[action], action, tostring(lsp))
+            )
+          end
+        end
       end
     end
   end)
@@ -263,12 +344,15 @@ describe("codeview keymaps", function()
     for action in pairs(config.defaults.keymaps) do
       off[action] = false
     end
-    config.setup({ commit_message = false, comments = { dir = store_dir }, diff = { max_lines = 1 }, keymaps = off })
-
-    local keys = surface_keys(open_session())
-    for name, modes in pairs(keys) do
-      for mode, out in pairs(modes) do
-        assert.are.same({}, out, name .. " holds no map of codeview in the mode " .. mode)
+    for lsp, keys in pairs(both_states(off)) do
+      for name, modes in pairs(keys) do
+        for mode, out in pairs(modes) do
+          assert.are.same(
+            {},
+            out,
+            string.format("%s holds no map of codeview in the mode %s, lsp %s", name, mode, tostring(lsp))
+          )
+        end
       end
     end
   end)
