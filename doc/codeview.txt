@@ -1767,10 +1767,12 @@ On a line without a local comment, these keys act on the thread: >
     gx          open the first comment of the thread in the browser
 <
 On a line with a local comment, `<leader>cr`, `<leader>ce`, and `<leader>cd`
-act on the local comment, as before. `<leader>c+` and `gx` always act on the
-thread, because they do not apply to a local comment. Without a thread under
-the cursor, `gx` opens the file name or the address under the cursor, the
-same as the default `gx` of Neovim.
+act on the local comment, as before. The edit and the delete of a local
+comment that a submit sent also go to GitHub at once, see
+|codeview-submit-sent|. `<leader>c+` and `gx` always act on the thread,
+because they do not apply to a local comment. Without a thread under the
+cursor, `gx` opens the file name or the address under the cursor, the same as
+the default `gx` of Neovim.
 
 The edit key opens the editor with the text of your comment. If the thread
 holds more than one comment of yours, a picker asks which one. A save sends
@@ -2033,10 +2035,27 @@ A comment gets these fields only after GitHub confirms the post. The next
 submit then leaves this comment out, so no comment goes out twice. The diff
 and the comment overview show the word "synced" on it.
 
-An edit of the text clears the sync time. The pull request holds the text of
-the last submit, so the next submit sends the new text. It changes the text of
-the comment on GitHub with a PATCH call, through `remote_id`, and posts no new
-comment.
+                                                        *codeview-submit-sent*
+A sent comment with a `remote_id` is a comment on GitHub too. An edit and a
+delete of it go to GitHub at once, the same as the thread actions of
+|codeview-github-actions|:
+
+- A save of the editor sends the new text with a PATCH call. After GitHub
+  confirms it, the session file takes the new text, and the comment stays
+  synced. A save of the same text sends nothing.
+- The delete key asks "The comment on GitHub goes away too", and sends a
+  DELETE call. After GitHub confirms it, the session file drops the comment.
+  A save of an empty text deletes the comment in the same way. The review
+  then reads the threads of GitHub again, so the replies of other reviewers
+  to the comment still show.
+
+When the call fails, the session file keeps the comment as it was, and a
+message gives the error of GitHub.
+
+A sent comment without a `remote_id` went into the text of a review, so
+GitHub holds no comment of its own for it. An edit of it clears the sync
+time, and the next submit sends the new text. A delete removes it from the
+session file only.
 
 A move of the anchor (the file, the side, or the lines) also clears the sync
 time. GitHub cannot move a comment, so the move clears `remote_id` too, and the

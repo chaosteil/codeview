@@ -693,8 +693,16 @@ end
 ---@return string path Path of the endpoint.
 ---@return table payload Request body.
 function M.edit_payload(info, comment)
+  return M.sent_path(info, comment), { body = comment.body }
+end
+
+---Endpoint of a sent comment of the session on GitHub.
+---@param info codeview.pr.Info Pull request that holds the comment.
+---@param comment codeview.store.Comment Comment of the session, with a `remote_id`.
+---@return string path Path of the endpoint.
+function M.sent_path(info, comment)
   local kind = require("codeview.message").is_pr(comment.file) and "issues" or "pulls"
-  return string.format("repos/%s/%s/comments/%s", info.repo, kind, comment.remote_id), { body = comment.body }
+  return string.format("repos/%s/%s/comments/%s", info.repo, kind, comment.remote_id)
 end
 
 ---Endpoint and request body of a reply to a thread of GitHub.
@@ -1436,6 +1444,62 @@ end
 ---@field session codeview.Session? Session that holds the comment. The session that runs by default.
 ---@field dir string? Directory that gh runs in. The repository root by default.
 ---@field notify boolean? False silences the reports of the call.
+
+---Report whether a comment of the session is a comment on GitHub.
+---
+--- A sent comment with a `remote_id` is the copy of one comment of GitHub.
+--- An edit and a delete of it go to GitHub at once, see
+--- |codeview.submit.edit_sent()|. A sent comment without a `remote_id`
+--- went into the text of a review, and GitHub holds no comment of its own
+--- for it.
+---@param session codeview.Session
+---@param comment codeview.store.Comment
+---@return boolean
+function M.is_remote_copy(session, comment)
+  return store_mod.is_synced(comment)
+    and (comment.remote_id or "") ~= ""
+    and require("codeview.pr").current(session) ~= nil
+end
+
+---Change the text of a sent comment on GitHub.
+---
+--- The call changes the comment on GitHub only. The caller changes the
+--- session file after a success, so a failure keeps the comment as it was.
+---@param opts { session: codeview.Session, comment: codeview.store.Comment, body: string }
+---@param cb fun(ok: boolean, err: codeview.Error?) Handler of the answer, on the main loop.
+function M.edit_sent(opts, cb)
+  local session, info, _, err = target({ session = opts.session })
+  if not session then
+    done(cb, false, err)
+    return
+  end
+  gh.api(
+    M.sent_path(info, opts.comment),
+    api_opts(info, session.repo.root, "PATCH", { body = opts.body }),
+    function(answer, api_err)
+      done(cb, answer ~= nil, api_err)
+    end
+  )
+end
+
+---Delete a sent comment on GitHub.
+---
+--- The call deletes the comment on GitHub only. The caller removes it from
+--- the session file after a success, so a failure keeps the comment.
+---@param opts { session: codeview.Session, comment: codeview.store.Comment }
+---@param cb fun(ok: boolean, err: codeview.Error?) Handler of the answer, on the main loop.
+function M.delete_sent(opts, cb)
+  local session, info, _, err = target({ session = opts.session })
+  if not session then
+    done(cb, false, err)
+    return
+  end
+  local call = api_opts(info, session.repo.root, "DELETE")
+  call.allow_empty = true
+  gh.api(M.sent_path(info, opts.comment), call, function(answer, api_err)
+    done(cb, answer ~= nil, api_err)
+  end)
+end
 
 ---Send one comment to the pull request.
 ---

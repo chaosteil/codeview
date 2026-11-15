@@ -662,11 +662,50 @@ local function label(comment)
 end
 
 ---Open the editor for one comment of the store.
+---
+--- A save of a sent comment with a `remote_id` sends the new text to GitHub
+--- first, and writes the store after GitHub confirms it. A failure keeps
+--- the comment as it was. See |codeview.submit.edit_sent()|.
 ---@param ctx codeview.comments.Context
 ---@param comment codeview.store.Comment
 ---@return boolean opened False when the reviewer keeps the open editor.
 local function edit_comment(ctx, comment)
   local session = ctx.session
+
+  ---Write the new body of a sent comment to GitHub, then into the store.
+  ---
+  --- The store changes only after GitHub confirms the change. A failure
+  --- keeps the comment as it was.
+  ---@param body string
+  ---@return codeview.store.Comment? comment The comment as it is until GitHub answers.
+  local function save_sent(body)
+    local held = (M.store(session) or ctx.store):get(comment.id) or comment
+    if vim.trim(body) == held.body then
+      M.decorate()
+      return held
+    end
+    local submit = require("codeview.submit")
+    submit.edit_sent({ session = session, comment = held, body = body }, function(ok, err)
+      local live = M.store(session)
+      if not ok or not live then
+        notify.error(err and submit.error_text(err) or "the comment did not change on GitHub")
+        M.decorate()
+        return
+      end
+      local changed = live:update(comment.id, { body = body })
+      if not changed then
+        M.decorate()
+        return
+      end
+      -- GitHub holds the new text, so the comment stays sent.
+      live:mark_synced(comment.id, { time = os.time() })
+      persist(live)
+      announce("comment_changed", session, changed)
+      notify.info("the new text went to GitHub")
+    end)
+    M.decorate()
+    return held
+  end
 
   ---Write the new body of the comment into the store.
   ---@param body string
@@ -678,6 +717,9 @@ local function edit_comment(ctx, comment)
     if not live then
       notify.error(tostring(live_err))
       return nil
+    end
+    if require("codeview.submit").is_remote_copy(session, live:get(comment.id) or comment) then
+      return save_sent(body)
     end
     local changed, err = live:update(comment.id, { body = body })
     if not changed then
@@ -703,8 +745,13 @@ local function edit_comment(ctx, comment)
     -- A save of an empty body deletes the comment. The reviewer removed every
     -- word and saved, so the call asks no question.
     on_empty = function()
+      local live = M.store(session)
+      local sent = live ~= nil and require("codeview.submit").is_remote_copy(session, live:get(comment.id) or comment)
       if M.remove({ id = comment.id, session = session, confirm = false }) then
-        notify.info("deleted the comment")
+        -- The delete of a sent comment reports the answer of GitHub itself.
+        if not sent then
+          notify.info("deleted the comment")
+        end
       else
         -- No event follows, so the box of the comment comes back here.
         M.decorate()
@@ -913,8 +960,13 @@ end
 --- On a line without a local comment and with a GitHub thread, the call
 --- deletes a comment of your own in that thread, see
 --- |codeview.thread.delete()|.
+---
+--- A sent comment with a `remote_id` is a comment on GitHub too. The call
+--- deletes it on GitHub first, and drops it from the store after GitHub
+--- confirms it. A failure keeps the comment and shows the error. See
+--- |codeview.submit.delete_sent()|.
 ---@param opts? { id?: string, confirm?: boolean, view?: codeview.view.State, session?: codeview.Session } `confirm = false` skips the question.
----@return boolean removed False when no comment went away.
+---@return boolean removed False when no comment went away. True when the delete on GitHub started.
 function M.remove(opts)
   opts = opts or {}
   local ctx, ctx_err = context(opts)
@@ -933,10 +985,12 @@ function M.remove(opts)
     return false
   end
 
+  local submit = require("codeview.submit")
+  local sent = submit.is_remote_copy(ctx.session, comment)
   if opts.confirm ~= false then
     local answer = vim.fn.confirm(
       string.format(
-        "Delete the comment on %s:%s?",
+        sent and "Delete the comment on %s:%s? The comment on GitHub goes away too." or "Delete the comment on %s:%s?",
         comment.file,
         marks.lines_text(comment.start_line, comment.end_line)
       ),
@@ -949,18 +1003,44 @@ function M.remove(opts)
     end
   end
 
-  -- An editor of the comment can save nothing after the delete. It closes
-  -- without a question, because the reviewer asked for the delete.
-  local editor = require("codeview.editor")
-  local open = editor.current()
-  local closed = open ~= nil and open.id == comment.id and editor.cancel()
+  ---Remove the comment from the store.
+  ---@param live codeview.store.Store
+  local function drop(live)
+    -- An editor of the comment can save nothing after the delete. It closes
+    -- without a question, because the reviewer asked for the delete.
+    local editor = require("codeview.editor")
+    local open = editor.current()
+    local closed = open ~= nil and open.id == comment.id and editor.cancel()
 
-  store:remove(comment.id)
-  persist(store)
-  announce("comment_deleted", ctx.session, comment)
-  if closed then
-    notify.warn("the open editor of this comment closed")
+    live:remove(comment.id)
+    persist(live)
+    announce("comment_deleted", ctx.session, comment)
+    if closed then
+      notify.warn("the open editor of this comment closed")
+    end
   end
+
+  if sent then
+    -- The comment lives on GitHub too. The store drops it only after GitHub
+    -- confirms the delete, so a failure keeps the comment.
+    submit.delete_sent({ session = ctx.session, comment = comment }, function(ok, err)
+      local live = M.store(ctx.session)
+      if not ok or not live then
+        notify.error(err and submit.error_text(err) or "the comment stays on GitHub")
+        M.decorate()
+        return
+      end
+      if live:get(comment.id) then
+        drop(live)
+      end
+      notify.info("deleted the comment on GitHub")
+      -- The replies of other reviewers to the comment show in their thread.
+      require("codeview.remote").load(ctx.session, { silent = true })
+    end)
+    return true
+  end
+
+  drop(store)
   return true
 end
 

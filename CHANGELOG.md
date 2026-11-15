@@ -75,6 +75,11 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- An edit and a delete of a sent comment with a `remote_id` go to GitHub at
+  once. The session file changes only after GitHub confirms the change, so a
+  failure keeps the comment as it was. Before, an edit waited for the next
+  submit, and a delete removed the local copy only. See
+  `:help codeview-submit-sent`.
 - The status marks and the comment mark of the sidebar stand in fixed
   columns at the right edge of the window. A long name or a long commit
   title gets cut and ends with "…", so the marks stay visible at every width
