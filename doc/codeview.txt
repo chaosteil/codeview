@@ -1090,6 +1090,29 @@ file that the list opens in the window of the diff also takes the back key.
 The hidden buffers go away when the session closes. A buffer stays when a
 window shows it, when it holds changes, or when it is listed.
 
+                                                    *codeview-lsp-diagnostics*
+Set `lsp.diagnostics` to true to see the diagnostics of the working copy in
+the diff. The option needs `lsp.enabled`: >lua
+
+    require("codeview").setup({ lsp = { enabled = true, diagnostics = true } })
+<
+Each diagnostic of the hidden buffer moves to the row of its line, with the
+same map as the LSP keys. The diff then shows it with your configuration of
+|vim.diagnostic|, and `]d` and `[d` reach it. A diagnostic goes away when
+the diff holds no row for its line:
+
+- A line that the working copy changed.
+- A line inside a collapsed section. The diagnostic shows again when the
+  section opens.
+
+The diagnostics come from the working copy, so they say nothing about the
+lines that the working copy does not hold, for example a removed line. A
+new answer of the server draws them again.
+
+A document of the review shows no diagnostics, see |codeview-commit-message|.
+A file of a review of files is the file itself, so it shows them with the
+option.
+
                                                            *codeview-lsp-edit*
 `grn` and `gra` change the files of the working copy, not the review. `grn`
 asks for the new name, with the word under the cursor as the start. `gra`
@@ -2927,6 +2950,7 @@ Defaults: >lua
       },
       lsp = {                        -- see |codeview-lsp|
         enabled = false,             -- language servers in the diff view
+        diagnostics = false,         -- their diagnostics on the diff rows
       },
       export = {
         register = "+",

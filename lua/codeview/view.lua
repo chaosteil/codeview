@@ -549,7 +549,12 @@ local function set_filetype(view)
   if not filetype or not config.get().diff.syntax or vim.bo[view.buf].filetype == filetype then
     return
   end
-  vim.diagnostic.enable(false, { bufnr = view.buf })
+  -- A file of a review of files is the file itself. With the diagnostics of
+  -- the LSP option, the buffer shows the diagnostics of the file.
+  local lsp = config.get().lsp
+  if not (view.diff.plain and lsp.enabled and lsp.diagnostics) then
+    vim.diagnostic.enable(false, { bufnr = view.buf })
+  end
   local ok, err = pcall(function()
     vim.bo[view.buf].filetype = filetype
   end)

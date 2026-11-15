@@ -42,6 +42,9 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   written. A note names the files that changed. A review of the jj commit
   `@` reads itself again after you write them. See
   `:help codeview-lsp-edit`.
+- `lsp.diagnostics` shows the diagnostics of the working copy on the rows of
+  the diff, with the same map as the LSP keys. A diagnostic on a line that
+  the diff does not show goes away. See `:help codeview-lsp-diagnostics`.
 - `:Codeview file {path}...` reviews files that no repository tracks: files
   outside every repository, or untracked files. The review reads the files
   from the disk, and never runs git or jj to read them. A directory gives

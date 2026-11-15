@@ -1186,6 +1186,142 @@ function M.run(name, opts)
   end)
 end
 
+--- Diagnostics -------------------------------------------------------------------
+
+---Namespace of the diagnostics on the rows of a diff.
+---@type integer
+M.ns = api.nvim_create_namespace("codeview.lsp.diagnostics")
+
+---Diff buffer and line map of one side of a view.
+---@param view codeview.view.State
+---@param side codeview.linemap.Side
+---@return integer buf
+---@return codeview.LineMap map
+local function target_of_side(view, side)
+  if side == "old" and view.old_buf and view.old_map then
+    return view.old_buf, view.old_map
+  end
+  return view.buf, view.map
+end
+
+---Row of a line of the working copy in the view.
+---@param view codeview.view.State
+---@param sources codeview.lsp.Sources
+---@param buf integer Buffer of the working copy.
+---@param file_line integer Line from 1.
+---@return codeview.lsp.Source? source
+---@return integer? row
+local function row_of_file_line(view, sources, buf, file_line)
+  for _, side in ipairs({ "new", "old" }) do
+    local source = sources[side]
+    if source and source.buf == buf then
+      local line = M.from_file(source, file_line)
+      if line then
+        local _, map = target_of_side(view, side)
+        local row = map:buf_row(line, side)
+        if row then
+          return source, row
+        end
+      end
+    end
+  end
+  return nil, nil
+end
+
+---Show the diagnostics of the working copy on the rows of the view.
+---
+--- A diagnostic moves to the row of its line. A diagnostic on a line that the
+--- view does not show goes away: a changed line of the working copy, and a
+--- line inside a collapsed section. A section that opens shows it again.
+---@param view codeview.view.State
+function M.draw_diagnostics(view)
+  local cfg = config.get().lsp
+  if not cfg.enabled or not cfg.diagnostics then
+    return
+  end
+  local sources = M.sources(view)
+  ---@type table<integer, vim.Diagnostic.Set[]>
+  local out = {}
+  for _, buf in ipairs({ view.buf, view.old_buf }) do
+    if buf and api.nvim_buf_is_valid(buf) then
+      out[buf] = {}
+    end
+  end
+
+  local seen = {}
+  for _, side in ipairs({ "new", "old" }) do
+    local source = sources[side]
+    if source and not seen[source.buf] and M.sync(view.session, source) then
+      seen[source.buf] = true
+      for _, diagnostic in ipairs(vim.diagnostic.get(source.buf)) do
+        local found, row = row_of_file_line(view, sources, source.buf, diagnostic.lnum + 1)
+        if found and row then
+          local target = target_of_side(view, found.side)
+          local line = M.from_file(found, diagnostic.lnum + 1) --[[@as integer]]
+          local row_text = api.nvim_buf_get_lines(target, row - 1, row, false)[1] or ""
+          local prefix = M.prefix(row_text, found.lines[line] or "")
+          local end_row, end_col = row, #row_text
+          local end_lnum = diagnostic.end_lnum or diagnostic.lnum
+          if end_lnum == diagnostic.lnum then
+            end_col = prefix + (diagnostic.end_col or diagnostic.col)
+          else
+            local _, last = row_of_file_line(view, sources, source.buf, end_lnum + 1)
+            if last and last >= row then
+              end_row, end_col = last, prefix + (diagnostic.end_col or 0)
+            end
+          end
+          if out[target] then
+            table.insert(out[target], {
+              lnum = row - 1,
+              col = prefix + diagnostic.col,
+              end_lnum = end_row - 1,
+              end_col = end_col,
+              severity = diagnostic.severity,
+              message = diagnostic.message,
+              source = diagnostic.source,
+              code = diagnostic.code,
+            })
+          end
+        end
+      end
+    end
+  end
+
+  for buf, list in pairs(out) do
+    vim.diagnostic.set(M.ns, buf, list)
+  end
+end
+
+---Draw the diagnostics again after a server sends new ones.
+---@param session codeview.Session
+local function watch_diagnostics(session)
+  local pending = false
+  api.nvim_create_autocmd("DiagnosticChanged", {
+    group = session:augroup(),
+    desc = "Show the diagnostics of the working copy in the codeview diff",
+    callback = function(args)
+      local view = require("codeview.view").current()
+      if pending or not view or view.session ~= session then
+        return
+      end
+      local sources = M.sources(view)
+      local hit = (sources.new and sources.new.buf == args.buf) or (sources.old and sources.old.buf == args.buf)
+      if not hit then
+        return
+      end
+      -- A server sends its diagnostics in bursts. One draw takes them all.
+      pending = true
+      vim.schedule(function()
+        pending = false
+        local current = require("codeview.view").current()
+        if current and current.session == session then
+          M.draw_diagnostics(current)
+        end
+      end)
+    end,
+  })
+end
+
 --- Attach -----------------------------------------------------------------------
 
 ---Map the LSP keys in a diff buffer.
@@ -1223,6 +1359,7 @@ local function watch(session)
     return
   end
   entry.watching = true
+  watch_diagnostics(session)
   api.nvim_create_autocmd("BufWinEnter", {
     group = session:augroup(),
     desc = "Give the codeview window to a file that a jump opened",
@@ -1252,6 +1389,7 @@ function M.attach(view)
   end
   M.sources(view)
   watch(view.session)
+  M.draw_diagnostics(view)
 end
 
 return M

@@ -85,6 +85,7 @@ local M = {}
 
 ---@class codeview.Config.Lsp
 ---@field enabled boolean Load the files of the working copy for the language servers, and map the LSP keys in the diff view.
+---@field diagnostics boolean Show the diagnostics of the working copy on the rows of the diff. Needs `enabled`.
 
 ---@class codeview.Config.Export
 ---@field register string Register that receives the exported markdown. An empty text writes no register.
@@ -170,6 +171,7 @@ M.defaults = {
   },
   lsp = {
     enabled = false,
+    diagnostics = false,
   },
   export = {
     register = "+",
@@ -417,6 +419,7 @@ function M.validate(opts)
 
     vim.validate("lsp", opts.lsp, "table")
     vim.validate("lsp.enabled", opts.lsp.enabled, "boolean")
+    vim.validate("lsp.diagnostics", opts.lsp.diagnostics, "boolean")
 
     vim.validate("export", opts.export, "table")
     vim.validate("export.register", opts.export.register, "string")
