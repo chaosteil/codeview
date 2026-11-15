@@ -451,6 +451,113 @@ function M.git_comments()
   }
 end
 
+---Build a git repository for the language server tests.
+---
+--- The range `base..change` holds every kind of change:
+---
+---     lib.lua         modified. A new function and a changed line.
+---     main.lua        modified. It calls the functions of lib.lua.
+---     old.lua         renamed to renamed.lua, with one changed line.
+---     gone.lua        deleted.
+---     added.lua       added.
+---     bin.dat         binary, changed.
+---     crlf.txt        modified, with CRLF line ends.
+---
+--- The working copy holds `change` and no other change.
+---@return tests.Fixture
+function M.git_lsp()
+  local dir = M.tempdir("codeview-lsp")
+  local env = git_env(dir)
+  git_init(dir, "main", env)
+
+  ---@param files table<string, string> Content of every file.
+  ---@param day integer
+  ---@param message string
+  ---@return string id
+  local function commit(files, day, message)
+    for path, content in pairs(files) do
+      write_file(vim.fs.joinpath(dir, path), content)
+      run({ "git", "add", "--", path }, dir, env)
+    end
+    run(
+      { "git", "commit", "--quiet", "-m", message },
+      dir,
+      at_date(env, string.format("2024-05-0%dT10:00:00+00:00", day))
+    )
+    return vim.trim(run({ "git", "rev-parse", "HEAD" }, dir, env))
+  end
+
+  local ids = {}
+  ids.base = commit({
+    ["lib.lua"] = table.concat({
+      "local M = {}",
+      "",
+      "function M.helper()",
+      "  return 1",
+      "end",
+      "",
+      "return M",
+      "",
+    }, "\n"),
+    ["main.lua"] = table.concat({
+      'local lib = require("lib")',
+      "",
+      "local value = lib.helper()",
+      "print(value)",
+      "",
+    }, "\n"),
+    ["old.lua"] = "local name = 'old'\nlocal one = 1\nlocal two = 2\nlocal three = 3\nreturn name\n",
+    ["gone.lua"] = "return 'gone'\n",
+    ["bin.dat"] = "\0\1\2 binary \3\0",
+    ["crlf.txt"] = "one\r\ntwo\r\nthree\r\n",
+  }, 1, "base: add the files")
+
+  run({ "git", "rm", "--quiet", "gone.lua" }, dir, env)
+  run({ "git", "mv", "old.lua", "renamed.lua" }, dir, env)
+  ids.change = commit({
+    ["lib.lua"] = table.concat({
+      "local M = {}",
+      "",
+      "function M.helper()",
+      "  return 2",
+      "end",
+      "",
+      "function M.extra()",
+      "  return M.helper() + 1",
+      "end",
+      "",
+      "return M",
+      "",
+    }, "\n"),
+    ["main.lua"] = table.concat({
+      'local lib = require("lib")',
+      "",
+      "local value = lib.helper()",
+      "print(value + 1)",
+      "print(lib.extra())",
+      "",
+    }, "\n"),
+    ["renamed.lua"] = "local name = 'renamed'\nlocal one = 1\nlocal two = 2\nlocal three = 3\nreturn name\n",
+    ["added.lua"] = "return 'added'\n",
+    ["bin.dat"] = "\0\4\5 binary again \6\0",
+    ["crlf.txt"] = "one\r\ntwo changed\r\nthree\r\n",
+  }, 2, "change: edit, add, delete, and rename")
+
+  local root = vim.trim(run({ "git", "rev-parse", "--show-toplevel" }, dir, env))
+
+  return {
+    root = vim.fs.normalize(root),
+    dir = dir,
+    ids = ids,
+    names = { "base", "change" },
+    branch = "main",
+    env = env,
+    cleanup = function()
+      vim.fn.delete(dir, "rf")
+    end,
+  }
+end
+
 ---Build a git repository that holds a pull request.
 ---
 --- The fixture makes three directories:
