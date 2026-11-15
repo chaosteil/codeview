@@ -325,6 +325,7 @@ local function make_buf(session, path, side)
   vim.bo[buf].filetype = inline.filetype
 
   set_keymaps(session, buf)
+  require("codeview.select").attach(session, buf)
   session:add_buffer(buf)
   return buf
 end
@@ -1297,31 +1298,16 @@ function M.go_to_comment(session, comment, cb)
   return true
 end
 
----Comments where the comment keys stop, by file.
+---Boxes where the comment keys stop, by file.
 ---
---- The local comments and the threads of GitHub are stops. A thread is one
---- stop, at its first comment. An outdated thread that the diff holds no line
---- for is no stop. The suggestions of pr-agent are not comments, so they are
---- no stops.
+--- Each box is one stop: a local comment, a thread of GitHub, and an item of
+--- pr-agent. A thread is one stop, at its first comment. Two boxes on one
+--- row are two stops. An outdated thread that the diff holds no line for is
+--- no stop. See |codeview.select.stops()|.
 ---@param session codeview.Session
----@return table<string, (codeview.store.Comment|codeview.remote.Comment)[]> stops Comments by file path.
+---@return table<string, codeview.select.Stop[]> stops Boxes by file path.
 local function comment_stops(session)
-  local out = {}
-  ---@param comment codeview.store.Comment|codeview.remote.Comment
-  local function add(comment)
-    local list = out[comment.file] or {}
-    out[comment.file] = list
-    list[#list + 1] = comment
-  end
-  for _, comment in ipairs(require("codeview.comments").list(session)) do
-    add(comment)
-  end
-  for _, thread in ipairs(require("codeview.remote").threads(session)) do
-    if thread.anchored ~= false then
-      add(thread.root)
-    end
-  end
-  return out
+  return require("codeview.select").stops(session)
 end
 
 ---Place of one comment in the rows of a view, for the order of the stops.
@@ -1330,7 +1316,7 @@ end
 --- plus a part of one row. The comments of the section then come after the
 --- filler row, in the order of their lines.
 ---@param view codeview.view.State
----@param comment codeview.store.Comment|codeview.remote.Comment
+---@param comment codeview.select.Stop|codeview.store.Comment|codeview.remote.Comment
 ---@return number? place Nil when the render holds no row of the side.
 local function comment_place(view, comment)
   local line, side = comment.start_line, comment.side == "old" and "old" or "new"
@@ -1350,23 +1336,98 @@ local function comment_place(view, comment)
   return map:nearest_row(line, side) or map:next_row(line, side)
 end
 
----Comment of a view that comes first in one direction from a place.
+---@class codeview.view.StopPlace
+---@field at number Place of the box in the rows of the view.
+---@field time number Time of the first comment of the box.
+---@field order string Id of the box.
+
+---Report whether one place comes before another place.
+---
+--- Two boxes on one row come in the order of the time of their first
+--- comment, then of their id, the same as on the screen.
+---@param a codeview.view.StopPlace
+---@param b codeview.view.StopPlace
+---@return boolean
+local function stop_before(a, b)
+  if a.at ~= b.at then
+    return a.at < b.at
+  end
+  if a.time ~= b.time then
+    return a.time < b.time
+  end
+  return a.order < b.order
+end
+
+---Box of a view that comes first in one direction from a place.
 ---@param view codeview.view.State
----@param list (codeview.store.Comment|codeview.remote.Comment)[] Comments of the file of the view.
----@param delta integer 1 for the next comment, -1 for the previous comment.
----@param from number? Place to start from. Nil takes every comment of the file.
----@return (codeview.store.Comment|codeview.remote.Comment)? comment
+---@param list codeview.select.Stop[] Boxes of the file of the view.
+---@param delta integer 1 for the next box, -1 for the previous box.
+---@param from codeview.view.StopPlace? Place to start from. Nil takes every box of the file.
+---@return codeview.select.Stop? stop
 local function closest(view, list, delta, from)
-  local best, best_at = nil, nil
-  for _, comment in ipairs(list) do
-    local at = comment_place(view, comment)
-    if at and (from == nil or (at - from) * delta > 0) then
-      if best_at == nil or (at - best_at) * delta < 0 then
-        best, best_at = comment, at
+  local best, best_place = nil, nil
+  for _, stop in ipairs(list) do
+    local at = comment_place(view, stop)
+    if at then
+      local spot = { at = at, time = stop.time, order = stop.order }
+      local ahead = from == nil or (delta > 0 and stop_before(from, spot)) or (delta < 0 and stop_before(spot, from))
+      if ahead then
+        local better = best_place == nil
+          or (delta > 0 and stop_before(spot, best_place))
+          or (delta < 0 and stop_before(best_place, spot))
+        if better then
+          best, best_place = stop, spot
+        end
       end
     end
   end
   return best
+end
+
+---Place that a step of the comment keys starts from.
+---
+--- The selected box is the start while the cursor is on it, so that a step
+--- reaches the next box of the same row. Else the step starts at the row of
+--- the cursor and passes over the boxes of that row.
+---@param view codeview.view.State
+---@param list codeview.select.Stop[] Boxes of the file of the view.
+---@param delta integer 1 for the next box, -1 for the previous box.
+---@return codeview.view.StopPlace from
+local function step_start(view, list, delta)
+  local select_mod = require("codeview.select")
+  local selection = select_mod.get(view.session)
+  local under = false
+  if selection and selection.file == view.path then
+    for _, stop in ipairs(select_mod.at_cursor(view)) do
+      under = under or select_mod.key(stop) == select_mod.key(selection)
+    end
+  end
+  if selection and under then
+    local key = select_mod.key(selection)
+    for _, stop in ipairs(list) do
+      if select_mod.key(stop) == key then
+        local at = comment_place(view, stop)
+        if at then
+          return { at = at, time = stop.time, order = stop.order }
+        end
+      end
+    end
+  end
+  local row = cursor_row(view)
+  if delta > 0 then
+    return { at = row, time = math.huge, order = "" }
+  end
+  return { at = row, time = -math.huge, order = "" }
+end
+
+---Select a box and move the cursor to its first line.
+---@param session codeview.Session
+---@param stop codeview.select.Stop
+---@param cb fun(view: codeview.view.State?, err: codeview.Error?)
+local function land_on(session, stop, cb)
+  local select_mod = require("codeview.select")
+  select_mod.set(session, select_mod.of_stop(session, stop))
+  M.go_to_comment(session, stop, cb)
 end
 
 ---Move the cursor to the next or the previous comment of the review.
@@ -1400,9 +1461,10 @@ local function comment_step(session, delta, cb)
   end
   local cursor = view ~= nil and not pending_index(session) and not view.diff.limited
   if view and cursor then
-    local comment = closest(view, stops[view.path] or {}, delta, cursor_row(view))
-    if comment then
-      M.go_to_comment(session, comment, answer)
+    local list = stops[view.path] or {}
+    local stop = closest(view, list, delta, step_start(view, list, delta))
+    if stop then
+      land_on(session, stop, answer)
       return
     end
   end
@@ -1432,9 +1494,9 @@ local function comment_step(session, delta, cb)
         end
         -- The render looks for the lines of an outdated thread, so the stops
         -- come from the store again.
-        local comment = closest(opened, comment_stops(session)[opened.path] or {}, delta, nil)
-        if comment then
-          M.go_to_comment(session, comment, answer)
+        local stop = closest(opened, comment_stops(session)[opened.path] or {}, delta, nil)
+        if stop then
+          land_on(session, stop, answer)
         else
           answer(opened, nil)
         end

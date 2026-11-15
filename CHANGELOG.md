@@ -8,6 +8,13 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `]c` and `[c` select the comment box that they stop at. The frame and the
+  header of the selected box show in the new highlight group
+  `CodeViewCommentSelected`. The selection also follows the cursor: a cursor
+  on the rows of a comment selects its box. Each box is one stop now, so two
+  comments on one row are two stops. The items of pr-agent are stops too.
+  See `:help codeview-comment-select`.
+
 - `:Codeview file {path}...` reviews files that no repository tracks: files
   outside every repository, or untracked files. The review reads the files
   from the disk, and never runs git or jj to read them. A directory gives

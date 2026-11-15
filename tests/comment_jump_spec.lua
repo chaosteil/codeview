@@ -153,14 +153,27 @@ describe("codeview comment jumps", function()
       assert.are.equal("tail.txt:40:new", where())
     end)
 
-    it("stops once on a line with two comments", function()
-      add_comment("call.lua", 2)
-      add_comment("call.lua", 2)
+    it("stops at each box of a line with two comments", function()
+      local first = add_comment("call.lua", 2)
+      local second = add_comment("call.lua", 2)
       add_comment("tail.txt", 40)
-      assert.is_nil(jump(view.next_comment))
-      assert.are.equal("call.lua:2:new", where())
-      assert.is_nil(jump(view.next_comment))
-      assert.are.equal("tail.txt:40:new", where())
+      local select = require("codeview.select")
+      local selected = {}
+      for _ = 1, 3 do
+        assert.is_nil(jump(view.next_comment))
+        selected[#selected + 1] = where() .. " " .. assert(select.get(open_session())).id
+      end
+      local last = assert(select.get(open_session())).id
+      assert.are.same({
+        "call.lua:2:new " .. first.id,
+        "call.lua:2:new " .. second.id,
+        "tail.txt:40:new " .. last,
+      }, selected)
+      -- The step back goes through the two boxes of the row again.
+      assert.is_nil(jump(view.prev_comment))
+      assert.are.equal(second.id, assert(select.get(open_session())).id)
+      assert.is_nil(jump(view.prev_comment))
+      assert.are.equal(first.id, assert(select.get(open_session())).id)
     end)
 
     it("stops at a thread of GitHub, and not at an outdated one", function()
@@ -190,8 +203,11 @@ describe("codeview comment jumps", function()
       local state = assert(view.current())
       assert.are.equal(state.old_win, api.nvim_get_current_win())
       assert.are.equal("call.lua:2:old", where())
-      -- Both sides hold the change on one row, so the next stop is the next
-      -- row with a comment.
+      -- Both sides hold the change on one row. Each side holds a box, so the
+      -- next stop is the box of the new side.
+      assert.is_nil(jump(view.next_comment))
+      assert.are.equal(state.win, api.nvim_get_current_win())
+      assert.are.equal("call.lua:2:new", where())
       local err = jump(view.next_comment)
       assert.are.equal("no comment after this one", err and err.message)
     end)

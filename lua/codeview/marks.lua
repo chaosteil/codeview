@@ -94,21 +94,27 @@ end
 ---
 --- The comment shows as a box: the header in the top border, and the body
 --- between the side borders. |codeview.box| builds it.
+---
+--- The box of the selected comment takes the group of the selection for
+--- its frame and its header, see |codeview.select|.
 ---@param comment codeview.store.Comment
 ---@param width integer Width of the box, in screen cells.
+---@param selected boolean True when the selection holds the comment.
 ---@return table[][] lines Chunks of every virtual line.
-local function virt_lines(comment, width)
+local function virt_lines(comment, width, selected)
   local header = M.header_text(comment)
   if (comment.reply_to or "") ~= "" then
     header = header .. " · reply"
   end
+  local header_hl = comment.state == "resolved" and "CodeViewCommentResolved" or "CodeViewCommentHeader"
+  local selected_hl = require("codeview.select").hl
   return box.lines({
     header = header,
-    header_hl = comment.state == "resolved" and "CodeViewCommentResolved" or "CodeViewCommentHeader",
+    header_hl = selected and selected_hl or header_hl,
     body = comment.body,
     body_hl = "CodeViewComment",
     box_hl = "CodeViewCommentBox",
-    border_hl = "CodeViewCommentBorder",
+    border_hl = selected and selected_hl or "CodeViewCommentBorder",
     border = config.get().comments.border,
     width = width,
   })
@@ -162,8 +168,9 @@ function M.collect(view, store, display)
         priority = 200,
         sign = M.sign(comment),
         sign_hl = M.sign_group(comment),
-        box = boxed and function(width)
-          return virt_lines(comment, width)
+        key = "local:" .. comment.id,
+        box = boxed and function(width, selection)
+          return virt_lines(comment, width, selection ~= nil)
         end or nil,
         time = comment.created_at or 0,
         id = comment.id,

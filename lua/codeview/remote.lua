@@ -1132,29 +1132,16 @@ function M.collapsed(session, thread)
   return thread.resolved and not M.is_expanded(session, thread)
 end
 
----Sections of the box of one thread.
+---Entries of the box of one thread, in the order of the box.
 ---
---- The first comment of the thread takes the first section. Each reply takes
---- one more section. A body ends with the reactions of the comment. A
---- resolved thread shows one header line only, for example
---- `✓ resolved · @alice L12 (new) · 3 comments`.
----
---- A local reply to the thread is a section too, in the order of time, with
---- the header of a local comment and ` · draft` while no send took it. The
---- reply that the editor has open shows no section.
+--- Each entry holds the section of one comment and the key of that comment
+--- for |codeview.select|: "remote:<id>" for a comment of GitHub, and
+--- "local:<id>" for a local reply.
 ---@param session codeview.Session
 ---@param thread codeview.remote.Thread
----@return codeview.box.Section[] sections
-function M.thread_sections(session, thread)
+---@return { sub: string, section: codeview.box.Section }[] entries
+local function thread_entries(session, thread)
   local replies = M.local_replies(session, thread)
-  if M.collapsed(session, thread) then
-    return {
-      {
-        header = "✓ resolved · " .. M.header(thread.root) .. " · " .. comment_count(#thread.comments + #replies),
-        header_hl = "CodeViewRemoteResolved",
-      },
-    }
-  end
   local marks = require("codeview.marks")
   local store_mod = require("codeview.store")
   local editing = marks.editing()
@@ -1163,6 +1150,7 @@ function M.thread_sections(session, thread)
     entries[#entries + 1] = {
       time = comment.created_at or 0,
       order = index,
+      sub = "remote:" .. tostring(comment.id),
       section = {
         header = index == 1 and M.thread_header(thread)
           or ((comment.author or "") ~= "" and ("@" .. comment.author) or "remote"),
@@ -1179,6 +1167,7 @@ function M.thread_sections(session, thread)
       entries[#entries + 1] = {
         time = reply.created_at or 0,
         order = #thread.comments + index,
+        sub = "local:" .. reply.id,
         section = {
           header = marks.header_text(reply) .. (store_mod.is_synced(reply) and "" or " · draft"),
           header_hl = reply.state == "resolved" and "CodeViewCommentResolved" or "CodeViewCommentHeader",
@@ -1198,9 +1187,60 @@ function M.thread_sections(session, thread)
     end
     return a.order < b.order
   end)
+  return entries
+end
+
+---Sections of the box of one thread.
+---
+--- The first comment of the thread takes the first section. Each reply takes
+--- one more section. A body ends with the reactions of the comment. A
+--- resolved thread shows one header line only, for example
+--- `✓ resolved · @alice L12 (new) · 3 comments`.
+---
+--- A local reply to the thread is a section too, in the order of time, with
+--- the header of a local comment and ` · draft` while no send took it. The
+--- reply that the editor has open shows no section.
+---
+--- The header of the comment that `sub` names takes the group of the
+--- selection, see |codeview.select|.
+---@param session codeview.Session
+---@param thread codeview.remote.Thread
+---@param sub string? Key of the selected comment of the thread.
+---@return codeview.box.Section[] sections
+function M.thread_sections(session, thread, sub)
+  if M.collapsed(session, thread) then
+    local replies = M.local_replies(session, thread)
+    return {
+      {
+        header = "✓ resolved · " .. M.header(thread.root) .. " · " .. comment_count(#thread.comments + #replies),
+        header_hl = "CodeViewRemoteResolved",
+      },
+    }
+  end
   local out = {}
-  for _, entry in ipairs(entries) do
+  for _, entry in ipairs(thread_entries(session, thread)) do
+    if sub and entry.sub == sub then
+      entry.section.header_hl = require("codeview.select").hl
+    end
     out[#out + 1] = entry.section
+  end
+  return out
+end
+
+---Keys of the comments of a thread, in the order of its box.
+---
+--- |codeview.select| moves the selection through these keys. A collapsed
+--- thread shows no comment, so it gives no key.
+---@param session codeview.Session
+---@param thread codeview.remote.Thread
+---@return string[] subs "remote:<id>" for a comment of GitHub, "local:<id>" for a local reply.
+function M.thread_subs(session, thread)
+  if M.collapsed(session, thread) then
+    return {}
+  end
+  local out = {}
+  for _, entry in ipairs(thread_entries(session, thread)) do
+    out[#out + 1] = entry.sub
   end
   return out
 end
@@ -1218,8 +1258,9 @@ function M.thread_blocks(session, file)
         items = thread.comments,
         time = thread.root.created_at or 0,
         id = tostring(thread.root.id),
-        sections = function()
-          return M.thread_sections(session, thread)
+        key = "thread:" .. M.thread_key(thread),
+        sections = function(sub)
+          return M.thread_sections(session, thread, sub)
         end,
       }
     end
@@ -1244,7 +1285,8 @@ end
 ---@field items table[] Items that the box holds.
 ---@field time number Time of the first item, in seconds since the epoch.
 ---@field id string Id for the order of two boxes of the same time.
----@field sections fun(): codeview.box.Section[] Sections of the box.
+---@field key string? Key of the box for |codeview.select|. "<source>:<id>" of the first item by default.
+---@field sections fun(sub: string?): codeview.box.Section[] Sections of the box. `sub` names the selected comment of a thread.
 
 ---Sources of read-only items, in the order of the overview.
 ---
@@ -1383,6 +1425,7 @@ function M.collect(view, source, display)
   local cfg = config.get().comments
   for _, block in ipairs(blocks_of(view.session, source, items, view.path)) do
     local size = #block.items
+    local key = block.key or (source.name .. ":" .. block.id)
     local rows, buf = {}, view.buf
     if block.anchor.anchored ~= false then
       rows, buf = comments_mod.rows(view, block.anchor)
@@ -1399,11 +1442,12 @@ function M.collect(view, source, display)
         priority = 190,
         sign = source.sign(),
         sign_hl = block.anchor.outdated and source.hl.outdated or source.hl.sign,
-        box = display == "virtual" and function(width)
+        key = key,
+        box = display == "virtual" and function(width, selection)
           return box.lines({
-            sections = block.sections(),
+            sections = block.sections(selection and selection.sub or nil),
             box_hl = source.hl.box,
-            border_hl = source.hl.border,
+            border_hl = selection and require("codeview.select").hl or source.hl.border,
             border = cfg.border,
             width = width,
           })

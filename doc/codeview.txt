@@ -776,20 +776,22 @@ The diff buffer holds these maps. |codeview-config| names the keys: >
 The keys work in the diff view and in the sidebar. The cursor goes into the
 window of the diff, on the first line of the comment.
 
-These comments are stops of the keys:
+Each box of a comment is one stop of the keys:
 
-- The local comments of the review, also the resolved comments.
-- The threads of GitHub in a pull request review. A thread is one stop, at
-  its first comment. An outdated thread that the diff holds no line for is
-  no stop.
+- A local comment of the review, also a resolved comment.
+- A thread of GitHub in a pull request review. A thread is one stop, at
+  its first comment. A draft reply to the thread is a part of its box, so it
+  is no stop of its own. An outdated thread that the diff holds no line for
+  is no stop.
+- An item of pr-agent, see |codeview-agent|.
 
-The suggestions of pr-agent are no stops, because they are not comments. The
-same comments give the comment mark of the sidebar, see
+The local comments and the threads give the comment mark of the sidebar, see
 |codeview-sidebar-comment-mark|.
 
-The keys go through the comments of the file in the order of the diff. A
+The keys go through the boxes of the file in the order of the diff. A
 comment in a collapsed section is a stop too, and the section opens. Two
-comments on one row are one stop. After the last comment of the file, `]c`
+boxes on one row are two stops, in the order of the screen. After the last
+comment of the file, `]c`
 opens the next file with comments and goes to its first comment. Before the
 first comment of the file, `[c` opens the previous file with comments and
 goes to its last comment. The files come in the order of the next-file key,
@@ -799,6 +801,21 @@ so the commits of a collapsed group are no stops, see
 After the last comment of the review, `]c` stays and shows "no comment after
 this one". Before the first comment, `[c` shows "no comment before this one".
 The keys do not go around to the other end, the same as the hunk keys.
+
+                                                  *codeview-comment-select*
+The box that `]c` or `[c` stops at is the selected box. Its frame and its
+header show in |hl-CodeViewCommentSelected|. One box of the review holds the
+selection at a time.
+
+The selection also follows the cursor. When the cursor moves onto the rows
+of a comment, its box takes the selection. A row with more than one box
+keeps the box that holds the selection, or the first box on the screen
+takes it. When the cursor moves to a row without a comment, no box holds
+the selection.
+
+In a selected thread, the selection holds one comment of the thread too.
+The keys start at the first comment of the thread. Its header shows in the
+group of the selection.
 
 Neovim gives `]c` and `[c` to the changes of a window with the 'diff'
 option. The diff view of codeview does not set that option, also in the
@@ -2177,7 +2194,8 @@ example a session or a view state. Read only the fields that this file names.
 The modules under `codeview.*`, for example `codeview.view` or
 `codeview.anchor`, are internal. Call them at your own risk: they can change
 in any release. The comment code lives in `codeview.comments`, with the
-anchors in `codeview.anchor` and the extmarks in `codeview.marks`. The map of
+anchors in `codeview.anchor`, the extmarks in `codeview.marks`, and the
+selected comment box in `codeview.select`. The map of
 an anchor to a position of the GitHub diff lives in `codeview.position`. Every
 message of the plugin goes through `codeview.notify`, which reads the
 `log_level` option. See |codeview-background-messages|.
@@ -2975,6 +2993,7 @@ again after a colorscheme change.
                                                         *hl-CodeViewDiffFiller*
                                                         *hl-CodeViewComment*
                                                     *hl-CodeViewCommentMark*
+                                                *hl-CodeViewCommentSelected*
                                                         *hl-CodeViewCommentBox*
                                                         *hl-CodeViewCommentBorder*
                                                         *hl-CodeViewRemote*
@@ -3016,6 +3035,8 @@ again after a colorscheme change.
     CodeViewCommentSign    Special      sign of a commented line
     CodeViewCommentResolved DiagnosticOk sign of a resolved comment
     CodeViewCommentMark    DiagnosticInfo comment mark of a file in the sidebar
+    CodeViewCommentSelected DiagnosticWarn frame and header of the selected
+                           comment box, see |codeview-comment-select|
     CodeViewCommentBox     computed     background of a comment box
     CodeViewCommentBorder  computed     frame of a comment box
     CodeViewRemote         Comment      body of a comment from GitHub

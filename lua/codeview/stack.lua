@@ -53,7 +53,8 @@ M.sign_raise = 4096
 ---@field priority integer Priority of the signs among the signs of codeview. |codeview.stack.sign_raise| comes on top.
 ---@field sign string Sign text. Empty for no sign.
 ---@field sign_hl string Group of the sign.
----@field box (fun(width: integer): table[][])? Virtual lines of the box. Nil when the entry draws no box.
+---@field box (fun(width: integer, selection: codeview.select.Selection?): table[][])? Virtual lines of the box. Nil when the entry draws no box. `selection` is the selection of the session when it holds this box.
+---@field key string? Key of the box for |codeview.select|, for example "local:<id>".
 ---@field time number Time of the first comment of the box, in seconds since the epoch.
 ---@field id string Id for the order of two boxes of the same time.
 
@@ -235,6 +236,9 @@ function M.decorate(view)
     add_box(slot)
   end
 
+  local selection = require("codeview.select").get(view.session)
+  local selected = selection and selection.file == view.path and require("codeview.select").key(selection) or nil
+
   ---@type table<integer, integer>
   local widths = {}
   for _, key in ipairs(keys) do
@@ -248,7 +252,7 @@ function M.decorate(view)
       if entry == slot and space and space.place then
         space.place(#lines)
       end
-      vim.list_extend(lines, entry.box(widths[buf]))
+      vim.list_extend(lines, entry.box(widths[buf], entry.key ~= nil and entry.key == selected and selection or nil))
     end
     pcall(api.nvim_buf_set_extmark, buf, M.ns, row - 1, 0, {
       virt_lines = lines,
