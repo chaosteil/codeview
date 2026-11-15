@@ -374,6 +374,8 @@ end
 --- With a callback, every backend call runs in the async form. Without one,
 --- the reload blocks and an error goes to the user as a message.
 --- After the file opens, `sidebar.focus_on_open` moves focus to the diff.
+--- The move occurs only while the cursor is still in the sidebar. A reader
+--- who goes to another window while the file loads keeps that window.
 ---@param index integer Position in the file list.
 ---@param cb? fun(view: codeview.view.State?, err: codeview.Error?)
 function Sidebar:open_file(index, cb)
@@ -386,7 +388,14 @@ function Sidebar:open_file(index, cb)
   ---@param state codeview.view.State?
   ---@param err codeview.Error?
   local function answer(state, err)
-    if state and config.get().sidebar.focus_on_open and api.nvim_win_is_valid(state.win) then
+    local here = self.panel:window()
+    if
+      state
+      and config.get().sidebar.focus_on_open
+      and here ~= nil
+      and api.nvim_get_current_win() == here
+      and api.nvim_win_is_valid(state.win)
+    then
       api.nvim_set_current_win(state.win)
     end
     reply(state, err)

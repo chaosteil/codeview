@@ -877,6 +877,31 @@ describe("codeview.sidebar", function()
       assert.are.equal(bar.panel:window(), api.nvim_get_current_win())
     end)
 
+    it("keeps the window that the cursor goes to while the file loads", function()
+      local bar = open_sidebar({ focus = true })
+      bar.panel:set_cursor(line_of(bar, "added.txt"))
+      press("<CR>")
+      wait_for(function()
+        return view.current() ~= nil
+      end, "the first file did not open")
+      local diff_win = assert(view.current()).win
+
+      bar:focus()
+      bar.panel:set_cursor(line_of(bar, "a.txt"))
+      press("<CR>")
+      -- The diff loads in the background. The cursor goes to a window of its
+      -- own before the load ends.
+      vim.cmd("botright new")
+      local other = api.nvim_get_current_win()
+      wait_for(function()
+        return assert(view.current()).path == "a.txt"
+      end, "the next file did not open")
+
+      assert.are.equal(diff_win, assert(view.current()).win)
+      assert.are.equal(other, api.nvim_get_current_win())
+      api.nvim_win_close(other, true)
+    end)
+
     it("does nothing on a header line", function()
       local bar = open_sidebar({ focus = true })
       bar.panel:set_cursor(1)
