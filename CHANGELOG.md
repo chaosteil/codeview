@@ -83,6 +83,11 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- The comment keys act on the selected comment box while the cursor is on
+  it: `i`, `a`, `<leader>ce`, `<leader>cd`, `<leader>cr`, `K`, `r`,
+  `<leader>cz`, `<leader>c+`, and `gx`. A line with two comments asks no
+  question any more. In a thread, the edit, delete, reaction, and open keys
+  take the selected comment of the thread.
 - An edit and a delete of a sent comment with a `remote_id` go to GitHub at
   once. The session file changes only after GitHub confirms the change, so a
   failure keeps the comment as it was. Before, an edit waited for the next

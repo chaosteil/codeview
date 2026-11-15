@@ -31,37 +31,6 @@ local M = {}
 ---@field selection codeview.select.Selection? Box of the menu. The selection of the session by default.
 ---@field select (fun(items: any[], opts: table, on_choice: fun(item: any?, index: integer?)))? Selector. |vim.ui.select()| by default.
 
----Comment of a thread that a key of |codeview.remote.thread_subs()| names.
----@param thread codeview.remote.Thread
----@param sub string?
----@return codeview.remote.Comment? comment
-local function remote_of(thread, sub)
-  local id = sub and sub:match("^remote:(.+)$")
-  if not id then
-    return nil
-  end
-  for _, comment in ipairs(thread.comments) do
-    if tostring(comment.id) == id then
-      return comment
-    end
-  end
-  return nil
-end
-
----pr-agent item of a session with one id.
----@param session codeview.Session
----@param id string
----@return codeview.agent.Item? item
-local function agent_item(session, id)
-  local source = require("codeview.remote").source("agent")
-  for _, item in ipairs(source and source.list(session) or {}) do
-    if tostring(item.id) == id then
-      return item
-    end
-  end
-  return nil
-end
-
 ---Entries of one local comment: a comment of its own box, or a draft reply.
 ---@param ctx { session: codeview.Session, view: codeview.view.State? }
 ---@param comment codeview.store.Comment
@@ -116,9 +85,9 @@ end
 ---Entries of a thread of GitHub and of its selected comment.
 ---@param ctx { session: codeview.Session, view: codeview.view.State? }
 ---@param thread codeview.remote.Thread
----@param sub string? Selected comment of the thread.
+---@param target codeview.select.Target Objects of the selection.
 ---@param out codeview.menu.Entry[]
-local function thread_entries(ctx, thread, sub, out)
+local function thread_entries(ctx, thread, target, out)
   local comments = require("codeview.comments")
   local thread_mod = require("codeview.thread")
   local session, view = ctx.session, ctx.view
@@ -163,17 +132,13 @@ local function thread_entries(ctx, thread, sub, out)
     }
   end
 
-  local reply_id = sub and sub:match("^local:(.+)$")
-  if reply_id then
-    local store = comments.store(session)
-    local reply = store and store:get(reply_id)
-    if reply then
-      local_entries(ctx, reply, out)
-    end
+  if target.comment then
+    -- The selection holds a draft reply of the thread.
+    local_entries(ctx, target.comment, out)
     return
   end
 
-  local comment = remote_of(thread, sub)
+  local comment = target.remote
   if comment then
     local with = vim.tbl_extend("force", opts, { comment = comment })
     if comment.can_update then
@@ -222,36 +187,26 @@ end
 ---@return string title
 ---@return codeview.menu.Entry[] entries
 function M.entries(session, view, selection)
-  local marks = require("codeview.marks")
-  local remote = require("codeview.remote")
   local ctx = { session = session, view = view }
   ---@type codeview.menu.Entry[]
   local out = {}
   local title = ""
-  if selection.kind == "local" then
-    local store = require("codeview.comments").store(session)
-    local comment = store and store:get(selection.id)
-    if comment then
-      title = marks.header_text(comment)
-      local_entries(ctx, comment, out)
-    end
-  elseif selection.kind == "thread" then
-    local thread = remote.thread_by_key(session, selection.id)
-    if thread then
-      title = remote.thread_header(thread)
-      thread_entries(ctx, thread, selection.sub, out)
-    end
-  elseif selection.kind == "agent" then
-    local item = agent_item(session, selection.id)
-    if item then
-      title = require("codeview.agent").header(item)
-      out[#out + 1] = {
-        label = "Adopt as a comment",
-        run = function()
-          require("codeview.agent").adopt({ item = item, session = session, view = view })
-        end,
-      }
-    end
+  local target = require("codeview.select").resolve(session, selection) or {}
+  if target.thread then
+    title = require("codeview.remote").thread_header(target.thread)
+    thread_entries(ctx, target.thread, target, out)
+  elseif target.comment then
+    title = require("codeview.marks").header_text(target.comment)
+    local_entries(ctx, target.comment, out)
+  elseif target.item then
+    local item = target.item --[[@as codeview.agent.Item]]
+    title = require("codeview.agent").header(item)
+    out[#out + 1] = {
+      label = "Adopt as a comment",
+      run = function()
+        require("codeview.agent").adopt({ item = item, session = session, view = view })
+      end,
+    }
   end
   if #out > 0 and view and view.path == selection.file then
     out[#out + 1] = {

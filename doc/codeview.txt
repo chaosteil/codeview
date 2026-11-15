@@ -1039,6 +1039,14 @@ A pull request review has more keys for the threads of GitHub, see
     <leader>c+  add a reaction to a comment of the thread, or remove it
     gx          open the thread in the browser
 <
+The keys act on the selected box first, see |codeview-comment-select|.
+While the cursor is on the selected box, `i`, `a`, the edit key, the delete
+key, the resolve key, `K`, and the keys of a GitHub thread take that box, and
+no picker asks which comment. In a thread, the edit, delete, reaction, and
+open keys take the selected comment of the thread. A key that does not apply
+to the selected box, for example the reply key on a local comment, works on
+the line as described below.
+
 `i` and `a` read the line first. A line that already holds a comment opens
 that comment in the editor, the way `i` changes the text that a normal buffer
 holds. A line without a comment starts a new one. `o` and `O` always start a
@@ -1804,16 +1812,21 @@ On a line without a local comment, these keys act on the thread: >
     <leader>c+  add a reaction to a comment, or remove your own reaction
     gx          open the first comment of the thread in the browser
 <
-On a line with a local comment, `<leader>cr`, `<leader>ce`, and `<leader>cd`
-act on the local comment, as before. The edit and the delete of a local
-comment that a submit sent also go to GitHub at once, see
-|codeview-submit-sent|. `<leader>c+` and `gx` always act on the thread,
-because they do not apply to a local comment. Without a thread under the
-cursor, `gx` opens the file name or the address under the cursor, the same as
-the default `gx` of Neovim.
+The keys act on the selected box first, see |codeview-comment-select|. When
+the selected box is a thread, the keys act on the thread, also on a line
+with a local comment. When it is a local comment, `<leader>cr`, `<leader>ce`,
+and `<leader>cd` act on the local comment. Without a selected box, a line
+with a local comment gives the local comment to these three keys.
 
-The edit key opens the editor with the text of your comment. If the thread
-holds more than one comment of yours, a picker asks which one. A save sends
+The edit and the delete of a local comment that a submit sent also go to
+GitHub at once, see |codeview-submit-sent|. `<leader>c+` and `gx` always act
+on the thread, because they do not apply to a local comment. Without a
+thread under the cursor, `gx` opens the file name or the address under the
+cursor, the same as the default `gx` of Neovim.
+
+The edit key opens the editor with the text of your comment. When the
+selected comment of the thread is your own, the key takes it. Else, if the
+thread holds more than one comment of yours, a picker asks which one. A save sends
 the new text to GitHub at once. A save of an empty text changes nothing.
 
 The reaction key asks for the comment when the thread holds more than one,

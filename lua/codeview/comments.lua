@@ -1274,6 +1274,89 @@ local function view_of(session)
   return view and view.session == session and view or nil
 end
 
+---Run one comment key on the selected box under the cursor.
+---
+--- The keys act on the box that the selection holds, while the cursor is on
+--- it, see |codeview.select|. The box is then clear, so no picker asks for
+--- the comment. Without such a box the call gives false, and the key works
+--- on the line under the cursor as before.
+---@param session codeview.Session
+---@param action "edit"|"delete"|"resolve"|"reply"|"toggle"|"react"|"open"|"show"|"insert"
+---@return boolean acted
+local function act_on_selection(session, action)
+  local view = view_of(session)
+  local select_mod = require("codeview.select")
+  local selection, target = select_mod.under_cursor(view)
+  if not selection or not target then
+    return false
+  end
+  local thread_mod = require("codeview.thread")
+  local thread, own, item = target.thread, target.comment, target.item
+  local opts = { view = view, session = session }
+
+  if action == "show" then
+    M.show({ view = view, only = selection })
+    return true
+  end
+  if item then
+    if action == "edit" or action == "delete" or action == "resolve" then
+      local source = require("codeview.remote").source(selection.kind)
+      notify.warn(source and source.read_only or "the item is read-only")
+      return true
+    end
+    return false
+  end
+  if action == "insert" or action == "edit" then
+    if own then
+      M.edit({ id = own.id, view = view, session = session })
+      return true
+    end
+    if action == "insert" or not thread then
+      return false
+    end
+    local comment = target.remote and target.remote.can_update and target.remote or nil
+    thread_mod.edit(vim.tbl_extend("force", opts, { thread = thread, comment = comment }))
+    return true
+  end
+  if action == "delete" then
+    if own then
+      M.remove({ id = own.id, view = view, session = session })
+      return true
+    end
+    if not thread then
+      return false
+    end
+    local comment = target.remote and target.remote.can_delete and target.remote or nil
+    thread_mod.delete(vim.tbl_extend("force", opts, { thread = thread, comment = comment }))
+    return true
+  end
+  if action == "resolve" then
+    if thread then
+      thread_mod.resolve(vim.tbl_extend("force", opts, { thread = thread }))
+      return true
+    end
+    if own then
+      M.set_state({ id = own.id, view = view, session = session })
+      return true
+    end
+    return false
+  end
+  if not thread then
+    return false
+  end
+  local with = vim.tbl_extend("force", opts, { thread = thread })
+  if action == "reply" then
+    M.reply(with)
+  elseif action == "toggle" then
+    thread_mod.toggle(with)
+  elseif action == "react" then
+    thread_mod.react(vim.tbl_extend("force", with, { comment = target.remote }))
+  elseif action == "open" then
+    thread_mod.open_url((target.remote or thread.root).url)
+  end
+  return true
+end
+
 ---Map the adopt key in a diff buffer, or remove the map.
 ---
 --- The key exists only while the session holds pr-agent items. A review
@@ -1346,7 +1429,9 @@ function M.set_keymaps(session, buf)
 
   ---Edit the comment of the line, or write the first one.
   local function edit_or_add()
-    M.edit_or_add({ view = view_of(session) })
+    if not act_on_selection(session, "insert") then
+      M.edit_or_add({ view = view_of(session) })
+    end
   end
 
   add("n", keys.comment, edit_or_add, "edit or write the comment of the line")
@@ -1355,31 +1440,47 @@ function M.set_keymaps(session, buf)
   add("x", keys.comment, visual, "comment on the selected lines")
   add("x", keys.comment_visual, visual, "comment on the selected lines")
   add("n", keys.edit_comment, function()
-    M.edit({ view = view_of(session) })
+    if not act_on_selection(session, "edit") then
+      M.edit({ view = view_of(session) })
+    end
   end, "edit the comment")
   add("n", keys.delete_comment, function()
-    M.remove({ view = view_of(session) })
+    if not act_on_selection(session, "delete") then
+      M.remove({ view = view_of(session) })
+    end
   end, "delete the comment")
   add("n", keys.resolve_comment, function()
-    M.set_state({ view = view_of(session) })
+    if not act_on_selection(session, "resolve") then
+      M.set_state({ view = view_of(session) })
+    end
   end, "resolve the comment")
   add("n", keys.show_comment, function()
-    M.show({ view = view_of(session) })
+    if not act_on_selection(session, "show") then
+      M.show({ view = view_of(session) })
+    end
   end, "show the comment")
   add("n", keys.comment_menu, function()
     require("codeview.menu").open({ view = view_of(session), session = session })
   end, "open the menu of the selected comment")
   add("n", keys.reply, function()
-    M.reply({ view = view_of(session), session = session })
+    if not act_on_selection(session, "reply") then
+      M.reply({ view = view_of(session), session = session })
+    end
   end, "reply to the GitHub thread of the line")
   add("n", keys.toggle_thread, function()
-    require("codeview.thread").toggle({ view = view_of(session), session = session })
+    if not act_on_selection(session, "toggle") then
+      require("codeview.thread").toggle({ view = view_of(session), session = session })
+    end
   end, "show or hide the comments of the resolved thread")
   add("n", keys.react, function()
-    require("codeview.thread").react({ view = view_of(session), session = session })
+    if not act_on_selection(session, "react") then
+      require("codeview.thread").react({ view = view_of(session), session = session })
+    end
   end, "add or remove a reaction on a comment of the thread")
   add("n", keys.open_remote, function()
-    require("codeview.thread").open({ view = view_of(session), session = session })
+    if not act_on_selection(session, "open") then
+      require("codeview.thread").open({ view = view_of(session), session = session })
+    end
   end, "open the thread in the browser")
   M.set_adopt_keymap(session, buf)
   add("n", keys.toggle_overview, function()

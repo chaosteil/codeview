@@ -322,6 +322,80 @@ function M.follow(view)
   return held[session.id]
 end
 
+---@class codeview.select.Target
+---@field comment codeview.store.Comment? Local comment of a box of its own, or the selected draft reply of a thread.
+---@field thread codeview.remote.Thread? Thread of GitHub of the box.
+---@field remote codeview.remote.Comment? Selected comment of GitHub in the thread.
+---@field item codeview.agent.Item? Item of pr-agent of the box.
+
+---Objects that a selection names.
+---@param session codeview.Session
+---@param selection codeview.select.Selection
+---@return codeview.select.Target? target Nil when the session does not hold the box any more.
+function M.resolve(session, selection)
+  local remote = require("codeview.remote")
+  if selection.kind == "local" then
+    local store = require("codeview.comments").store(session)
+    local comment = store and store:get(selection.id)
+    return comment and { comment = comment } or nil
+  end
+  if selection.kind == "thread" then
+    local thread = remote.thread_by_key(session, selection.id)
+    if not thread then
+      return nil
+    end
+    ---@type codeview.select.Target
+    local out = { thread = thread }
+    local sub = selection.sub or ""
+    local remote_id = sub:match("^remote:(.+)$")
+    local local_id = sub:match("^local:(.+)$")
+    if remote_id then
+      for _, comment in ipairs(thread.comments) do
+        if tostring(comment.id) == remote_id then
+          out.remote = comment
+        end
+      end
+    elseif local_id then
+      local store = require("codeview.comments").store(session)
+      out.comment = store and store:get(local_id) or nil
+    end
+    return out
+  end
+  local source = remote.source(selection.kind)
+  for _, item in ipairs(source and source.list(session) or {}) do
+    if tostring(item.id) == selection.id then
+      return { item = item }
+    end
+  end
+  return nil
+end
+
+---Selection of a session while the cursor of a view is on its box.
+---
+--- The comment keys act on this box. A selection that the cursor left, or
+--- a box that the session does not hold any more, gives nil.
+---@param view codeview.view.State?
+---@return codeview.select.Selection? selection
+---@return codeview.select.Target? target
+function M.under_cursor(view)
+  if not view then
+    return nil, nil
+  end
+  local current = held[view.session.id]
+  if not current or current.file ~= view.path then
+    return nil, nil
+  end
+  for _, stop in ipairs(M.at_cursor(view)) do
+    if M.key(stop) == M.key(current) then
+      local target = M.resolve(view.session, current)
+      if target then
+        return current, target
+      end
+    end
+  end
+  return nil, nil
+end
+
 ---Move the selection to the next or the previous comment of a thread.
 ---
 --- The step needs a selected thread. Without one, the thread under the
