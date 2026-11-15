@@ -267,6 +267,12 @@ local function set_keymaps(session, buf)
   add(keys.prev_comment, function()
     M.prev_comment(session)
   end, "jump to the previous comment")
+  add(keys.next_in_thread, function()
+    M.step_in_thread(session, 1)
+  end, "select the next comment of the thread")
+  add(keys.prev_in_thread, function()
+    M.step_in_thread(session, -1)
+  end, "select the previous comment of the thread")
   add(keys.expand_context, function()
     if not M.toggle_context() then
       notify.info("no collapsed section on this line")
@@ -1530,6 +1536,27 @@ end
 ---@param cb? fun(view: codeview.view.State?, err: codeview.Error?)
 function M.prev_comment(session, cb)
   comment_step(session, -1, cb)
+end
+
+---Select the next or the previous comment of the selected thread.
+---
+--- See |codeview-comment-select|. A step that does not move shows a
+--- message.
+---@param session codeview.Session
+---@param delta integer 1 for the next comment, -1 for the previous comment.
+---@return boolean moved
+function M.step_in_thread(session, delta)
+  local view = M.current()
+  if not view or view.session ~= session then
+    notify.info("no diff view")
+    return false
+  end
+  local sub, message = require("codeview.select").step_in_thread(view, delta)
+  if not sub then
+    notify.info(message or "no thread of GitHub is selected")
+    return false
+  end
+  return true
 end
 
 ---Show the hidden lines of every collapsed section.

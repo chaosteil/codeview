@@ -255,6 +255,93 @@ describe("codeview.select", function()
     assert.is_truthy(selected_lines(state.buf)[1]:find("pr-agent", 1, true))
   end)
 
+  describe("in a thread", function()
+    ---Thread of three comments of GitHub and one draft reply on line 2.
+    ---@param fields? table Fields of the first comment.
+    ---@return codeview.store.Comment draft
+    local function thread_of_three(fields)
+      remote.attach(open_session(), {
+        remote_comment(fields),
+        remote_comment({ id = 502, reply_to = 501, created_at = 1, author = "ada", body = "a reply" }),
+        remote_comment({ id = 503, reply_to = 501, created_at = 2, author = "grace", body = "an answer" }),
+      })
+      return add_comment(2, { reply_to = "501", body = "a draft reply" })
+    end
+
+    it("moves the selection from comment to comment", function()
+      local draft = thread_of_three()
+      local state = open_diff(2)
+      select.follow(state)
+      local subs = { assert(select.get(open_session())).sub }
+      for _ = 1, 3 do
+        assert.is_truthy((select.step_in_thread(state, 1)))
+        subs[#subs + 1] = assert(select.get(open_session())).sub
+      end
+      -- The draft reply is the newest comment, so it comes last.
+      assert.are.same({ "remote:501", "remote:502", "remote:503", "local:" .. draft.id }, subs)
+
+      local sub, message = select.step_in_thread(state, 1)
+      assert.is_nil(sub)
+      assert.are.equal("no comment after this one in the thread", message)
+      assert.are.equal("remote:503", select.step_in_thread(state, -1))
+    end)
+
+    it("draws the header of the selected comment in the group of the selection", function()
+      thread_of_three()
+      local state = open_diff(2)
+      select.follow(state)
+      select.step_in_thread(state, 1)
+      local headers = {}
+      for _, line in ipairs(box_lines(state.buf)) do
+        if line.groups[2] == select.hl then
+          headers[#headers + 1] = line.text
+        end
+      end
+      assert.are.equal(1, #headers)
+      assert.is_truthy(headers[1]:find("@ada", 1, true))
+    end)
+
+    it("shows the comments of a resolved thread", function()
+      thread_of_three({
+        thread = {
+          id = "PRRT_1",
+          resolved = true,
+          resolved_by = "ada",
+          can_resolve = false,
+          can_unresolve = true,
+          can_reply = true,
+        },
+      })
+      local state = open_diff(2)
+      select.follow(state)
+      -- A resolved thread shows its header line only, so no comment is
+      -- selected yet.
+      assert.is_nil(assert(select.get(open_session())).sub)
+      assert.are.equal("remote:501", select.step_in_thread(state, 1))
+      local thread = assert(remote.thread_by_key(open_session(), "501"))
+      assert.is_true(remote.is_expanded(open_session(), thread))
+    end)
+
+    it("reports a selection without a thread", function()
+      add_comment(1)
+      local state = open_diff(1)
+      select.follow(state)
+      local sub, message = select.step_in_thread(state, 1)
+      assert.is_nil(sub)
+      assert.are.equal("no thread of GitHub is selected", message)
+    end)
+
+    it("moves with the keys of the diff view", function()
+      thread_of_three()
+      local state = open_diff(2)
+      select.follow(state)
+      api.nvim_feedkeys("]t", "x", false)
+      assert.are.equal("remote:502", assert(select.get(open_session())).sub)
+      api.nvim_feedkeys("[t", "x", false)
+      assert.are.equal("remote:501", assert(select.get(open_session())).sub)
+    end)
+  end)
+
   it("drops the selection when the session closes", function()
     local comment = add_comment(1)
     local review = open_session()

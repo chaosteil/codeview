@@ -322,6 +322,62 @@ function M.follow(view)
   return held[session.id]
 end
 
+---Move the selection to the next or the previous comment of a thread.
+---
+--- The step needs a selected thread. Without one, the thread under the
+--- cursor takes the selection first. A resolved thread that shows only its
+--- header line shows its comments, and the step selects its first comment.
+--- The step does not go past the first or the last comment of the thread.
+---@param view codeview.view.State
+---@param delta integer 1 for the next comment, -1 for the previous comment.
+---@return string? sub Key of the selected comment after the step. Nil when the step did not move.
+---@return string? message Report for the user when the step did not move.
+function M.step_in_thread(view, delta)
+  local remote = require("codeview.remote")
+  local session = view.session
+  local current = held[session.id]
+  if not current or current.kind ~= "thread" then
+    for _, stop in ipairs(M.at_cursor(view)) do
+      if stop.kind == "thread" then
+        M.set(session, M.of_stop(session, stop))
+        current = held[session.id]
+        break
+      end
+    end
+  end
+  if not current or current.kind ~= "thread" then
+    return nil, "no thread of GitHub is selected"
+  end
+  local thread = remote.thread_by_key(session, current.id)
+  if not thread then
+    return nil, "no thread of GitHub is selected"
+  end
+  if remote.collapsed(session, thread) then
+    remote.set_expanded(session, thread, true)
+    local first = remote.thread_subs(session, thread)[1]
+    M.set(session, { kind = "thread", id = current.id, file = current.file, sub = first })
+    -- A change of the expanded state alone draws nothing, so the call draws.
+    redraw(session)
+    return first, nil
+  end
+  local subs = remote.thread_subs(session, thread)
+  local at = 0
+  for index, sub in ipairs(subs) do
+    if sub == current.sub then
+      at = index
+    end
+  end
+  local target = subs[at + delta]
+  if at == 0 then
+    target = delta > 0 and subs[1] or subs[#subs]
+  end
+  if not target then
+    return nil, delta > 0 and "no comment after this one in the thread" or "no comment before this one in the thread"
+  end
+  M.set(session, { kind = "thread", id = current.id, file = current.file, sub = target })
+  return target, nil
+end
+
 ---Make the selection follow the cursor in a diff buffer.
 ---
 --- The autocmd lives in the group of the session, so it ends with the

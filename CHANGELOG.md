@@ -14,6 +14,11 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   on the rows of a comment selects its box. Each box is one stop now, so two
   comments on one row are two stops. The items of pr-agent are stops too.
   See `:help codeview-comment-select`.
+- `]t` and `[t` move the selection from comment to comment inside a selected
+  thread of GitHub. The header of the selected comment shows in
+  `CodeViewCommentSelected`. A draft reply is a comment of the thread too.
+  The `keymaps.next_in_thread` and `keymaps.prev_in_thread` options set the
+  keys.
 
 - `:Codeview file {path}...` reviews files that no repository tracks: files
   outside every repository, or untracked files. The review reads the files

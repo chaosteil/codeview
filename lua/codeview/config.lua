@@ -210,6 +210,10 @@ M.defaults = {
     -- Neovim find no change there. The keys go to the comments instead.
     next_comment = "]c",
     prev_comment = "[c",
+    -- In a selected thread of GitHub, the keys move the selection from
+    -- comment to comment. `]t` and `[t` have no action in Neovim.
+    next_in_thread = "]t",
+    prev_in_thread = "[t",
     expand_context = "za",
     load_diff = "<CR>",
     toggle_style = "<leader>ct",

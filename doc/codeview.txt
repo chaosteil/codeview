@@ -756,6 +756,8 @@ The diff buffer holds these maps. |codeview-config| names the keys: >
     [f          open the previous file
     ]c          jump to the next comment
     [c          jump to the previous comment
+    ]t          select the next comment of the thread
+    [t          select the previous comment of the thread
     <CR>        render a diff above a size limit, on such a diff
     <leader>ct  switch the diff style
     i a o O     comment on the line under the cursor
@@ -814,8 +816,19 @@ takes it. When the cursor moves to a row without a comment, no box holds
 the selection.
 
 In a selected thread, the selection holds one comment of the thread too.
-The keys start at the first comment of the thread. Its header shows in the
-group of the selection.
+The selection starts at the first comment of the thread. The header of the
+selected comment shows in the group of the selection. These keys move the
+selection inside the thread: >
+
+    ]t          select the next comment of the thread
+    [t          select the previous comment of the thread
+<
+A draft reply of yours is a comment of the thread too, in the order of
+time. A resolved thread shows its header line only, so no comment of it is
+selected. `]t` then shows the comments of the thread and selects the first
+one. The keys stop at the first and at the last comment of the thread. When
+no thread is selected, the keys take the thread under the cursor. Set
+`keymaps.next_in_thread` and `keymaps.prev_in_thread` to take other keys.
 
 Neovim gives `]c` and `[c` to the changes of a window with the 'diff'
 option. The diff view of codeview does not set that option, also in the
@@ -2750,6 +2763,8 @@ Defaults: >lua
         prev_hunk = "[h",
         next_comment = "]c",
         prev_comment = "[c",
+        next_in_thread = "]t",
+        prev_in_thread = "[t",
         expand_context = "za",
         load_diff = "<CR>",
         toggle_style = "<leader>ct",
@@ -2923,6 +2938,8 @@ The table names the surface of each action: >
     prev_hunk         [h                 D  jump to the previous hunk
     next_comment      ]c             S   D  jump to the next comment
     prev_comment      [c             S   D  jump to the previous comment
+    next_in_thread    ]t                 D  select the next comment of the thread
+    prev_in_thread    [t                 D  select the previous comment
     expand_context    za                 D  show or hide the section
     load_diff         <CR>               D  render a diff above the limit *
     toggle_style      <leader>ct     S   D  switch inline and side by side
