@@ -19,10 +19,14 @@ export XDG_CACHE_HOME := $(TESTS_DIR)/xdg/cache
 all: fmt-check lint test
 
 ## test: run the plenary test suite headless
+# plenary stops a spec file after its timeout, 50 s by default. The LSP edge
+# spec runs 176 cases with jj repositories. It takes 17 s on a fast machine,
+# and more than 50 s on the macOS runner of CI. 180 s keeps a margin and
+# still stops a hung spec.
 test:
 	@mkdir -p $(XDG_CONFIG_HOME) $(XDG_DATA_HOME) $(XDG_STATE_HOME) $(XDG_CACHE_HOME)
 	$(NVIM) --headless -u tests/minimal_init.lua \
-		-c "PlenaryBustedDirectory tests { init = 'tests/minimal_init.lua', sequential = true }"
+		-c "PlenaryBustedDirectory tests { init = 'tests/minimal_init.lua', sequential = true, timeout = 180000 }"
 
 ## lint: run luacheck and shellcheck, when they are installed
 lint:
