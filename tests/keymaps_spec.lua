@@ -60,6 +60,7 @@ describe("codeview keymaps", function()
     delete_comment = { { surface = "view", mode = "n" }, { surface = "overview", mode = "n" } },
     resolve_comment = { { surface = "view", mode = "n" }, { surface = "overview", mode = "n" } },
     show_comment = { { surface = "view", mode = "n" } },
+    comment_menu = { { surface = "view", mode = "n" }, { surface = "overview", mode = "n" } },
     reply = { { surface = "view", mode = "n" }, { surface = "overview", mode = "n" } },
     toggle_thread = { { surface = "view", mode = "n" } },
     react = { { surface = "view", mode = "n" }, { surface = "overview", mode = "n" } },

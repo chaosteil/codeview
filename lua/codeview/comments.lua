@@ -445,6 +445,7 @@ end
 ---@field id string? Id of the comment of an edit. Nil for a new comment or a reply.
 ---@field save fun(body: string): codeview.store.Comment? Writes the comment and gives it back.
 ---@field on_empty fun()? Handler of a save with an empty body. Without it the save is a discard.
+---@field send_now boolean? True when a save also sends the comment to the pull request, the same as the send key.
 
 ---Open the editor of one local comment: a new comment, a reply, or an edit.
 ---
@@ -473,13 +474,14 @@ local function open_editor(session, spec)
     return comment
   end
 
+  local on_send = send_handler(session, save)
   local buf = require("codeview.editor").open({
     title = spec.title,
     text = spec.text,
     anchor = spec.anchor,
     id = spec.id,
-    on_save = save,
-    on_send = send_handler(session, save),
+    on_save = spec.send_now and on_send or save,
+    on_send = on_send,
     on_cancel = function()
       M.decorate()
     end,
@@ -516,7 +518,7 @@ end
 --- In normal mode the comment covers the line under the cursor. In visual mode
 --- it covers the selected lines. The diff buffer stays read-only: the editor
 --- holds the only modifiable buffer.
----@param opts? { visual?: boolean, first?: integer, last?: integer, view?: codeview.view.State }
+---@param opts? { visual?: boolean, first?: integer, last?: integer, view?: codeview.view.State, target?: codeview.comments.Target } `target` gives the lines, in place of the cursor.
 ---@return boolean opened False when the cursor is not on a line of the file, or when the reviewer keeps the open editor.
 function M.add(opts)
   opts = opts or {}
@@ -530,7 +532,7 @@ function M.add(opts)
     notify.error(tostring(err))
     return false
   end
-  local target = M.target(view, opts)
+  local target = opts.target or M.target(view, opts)
   if not target then
     notify.warn("this row holds no line of the file")
     return false
@@ -568,6 +570,41 @@ function M.add(opts)
     title = title_of(target, "Comment on"),
     anchor = anchor_of(target),
     save = save,
+  })
+end
+
+---Open the editor for a new comment on the lines of another comment.
+---
+--- The new comment takes the file, the side, the lines, and the commit of
+--- the comment. The inline editor opens under the last row of the lines.
+---@param view codeview.view.State View that shows the file of the comment.
+---@param comment codeview.store.Comment
+---@return boolean opened False when the view does not show the lines.
+function M.add_on(view, comment)
+  if view.path ~= comment.file then
+    notify.warn("the diff does not show the file of the comment")
+    return false
+  end
+  local rows, buf, map = M.rows(view, comment)
+  local win = buf == view.buf and view.win or view.old_win
+  if #rows == 0 or not win then
+    notify.warn("the diff does not show the lines of the comment")
+    return false
+  end
+  return M.add({
+    view = view,
+    target = {
+      view = view,
+      buf = buf,
+      map = map,
+      file = comment.file,
+      side = comment.side,
+      start_line = comment.start_line,
+      end_line = comment.end_line,
+      commit = comment.commit,
+      win = win,
+      row = rows[#rows],
+    },
   })
 end
 
@@ -854,7 +891,11 @@ end
 ---
 --- Without `thread`, the call takes the thread under the cursor. When more
 --- than one thread covers the line, |vim.ui.select()| asks which one.
----@param opts? { thread?: codeview.remote.Thread, view?: codeview.view.State, session?: codeview.Session }
+---
+--- With `send = true`, a save of the editor also sends the reply at once,
+--- the same as the send key. The menu of |codeview.menu| uses it for
+--- "Reply and send now".
+---@param opts? { thread?: codeview.remote.Thread, view?: codeview.view.State, session?: codeview.Session, send?: boolean }
 ---@return boolean started False when no thread can take the reply.
 function M.reply(opts)
   opts = opts or {}
@@ -910,9 +951,10 @@ function M.reply(opts)
 
     local who = (root.author or "") ~= "" and ("@" .. root.author) or "the thread"
     return open_editor(ctx.session, {
-      title = "Reply to " .. who,
+      title = "Reply to " .. who .. (opts.send and " (send at once)" or ""),
       anchor = comment_anchor(ctx.view, thread --[[@as codeview.store.Comment]]),
       save = save,
+      send_now = opts.send == true,
     })
   end
 
@@ -1095,7 +1137,9 @@ end
 --- items of a pull request after them: the suggestions of pr-agent, and the
 --- threads of GitHub. A thread shows in full, oldest comment first, with
 --- the reactions, also when it is resolved.
----@param opts? { view?: codeview.view.State }
+---
+--- With `only`, the float holds that one box and nothing else of the line.
+---@param opts? { view?: codeview.view.State, only?: codeview.select.Selection }
 ---@return integer? buf Buffer of the float.
 ---@return integer? win Window of the float.
 function M.show(opts)
@@ -1107,7 +1151,27 @@ function M.show(opts)
   local remote_mod = require("codeview.remote")
   local found, target = M.at_cursor(view)
   local remote = target and remote_mod.items_at(view.session, target.file, target.side, target.start_line) or {}
-  if #found == 0 and #remote == 0 then
+  local threads = target and remote_mod.threads_at(view.session, target.file, target.side, target.start_line) or {}
+  local only = opts.only
+  if only then
+    -- The box can lie outside the line of the cursor, so the lists come from
+    -- the session.
+    found, remote, threads = {}, {}, {}
+    if only.kind == "local" then
+      local store = M.store(view.session)
+      found = { store and store:get(only.id) or nil }
+    elseif only.kind == "thread" then
+      threads = { remote_mod.thread_by_key(view.session, only.id) }
+    else
+      local source = remote_mod.source(only.kind)
+      for _, item in ipairs(source and source.list(view.session) or {}) do
+        if tostring(item.id) == only.id then
+          remote = { { source = source, item = item } }
+        end
+      end
+    end
+  end
+  if #found == 0 and #remote == 0 and #threads == 0 then
     notify.info("no comment on this line")
     return nil, nil
   end
@@ -1131,7 +1195,6 @@ function M.show(opts)
       vim.list_extend(lines, vim.split(entry.item.body, "\n", { plain = true }))
     end
   end
-  local threads = target and remote_mod.threads_at(view.session, target.file, target.side, target.start_line) or {}
   for _, thread in ipairs(threads) do
     for index, comment in ipairs(thread.comments) do
       if #lines > 0 then
@@ -1303,6 +1366,9 @@ function M.set_keymaps(session, buf)
   add("n", keys.show_comment, function()
     M.show({ view = view_of(session) })
   end, "show the comment")
+  add("n", keys.comment_menu, function()
+    require("codeview.menu").open({ view = view_of(session), session = session })
+  end, "open the menu of the selected comment")
   add("n", keys.reply, function()
     M.reply({ view = view_of(session), session = session })
   end, "reply to the GitHub thread of the line")

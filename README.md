@@ -83,6 +83,10 @@ submit or an export.
 6. Go to the sidebar. A `C` right of the status mark shows a file with
    comments. The marks stand at the right edge of the sidebar.
    Press `]c` and `[c` to jump from comment to comment, also across files.
+   The comment under the cursor is the selected comment, with a frame in
+   its own color. Press `<leader>cm` to open the menu of its actions, for
+   example reply, edit, delete, and resolve. In a thread of GitHub, `]t`
+   and `[t` select one comment of the thread.
    Press `<leader>co` to see all comments of the review.
 7. Press `<leader>cx` there to read the review as markdown.
 8. Press `<leader>cy` to put the review into the `+` register.

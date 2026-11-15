@@ -19,6 +19,14 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `CodeViewCommentSelected`. A draft reply is a comment of the thread too.
   The `keymaps.next_in_thread` and `keymaps.prev_in_thread` options set the
   keys.
+- `<leader>cm` opens a menu of the actions of the selected comment, with
+  `vim.ui.select()`. The menu holds only the actions that apply: edit,
+  delete, resolve, and send for a local comment, "Reply (draft)", "Reply and
+  send now", resolve, and the actions of the selected comment for a thread
+  of GitHub, and adopt for an item of pr-agent. The key also works in the
+  comment overview. The `keymaps.comment_menu` option sets the key, and
+  `codeview.comment_menu()` opens the menu from Lua. See
+  `:help codeview-comment-menu`.
 
 - `:Codeview file {path}...` reviews files that no repository tracks: files
   outside every repository, or untracked files. The review reads the files

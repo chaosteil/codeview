@@ -341,6 +341,19 @@ function M.prev_comment(opts, cb)
   end
 end
 
+---Open the menu of the selected comment.
+---
+--- The menu lists the actions of the selected comment box, or of the box
+--- under the cursor. See |codeview-comment-menu|.
+---
+--- Unstable: the call can change before version 1.0.
+---@param opts? { session?: codeview.Session }
+---@return boolean shown False without a comment.
+function M.comment_menu(opts)
+  opts = opts or {}
+  return require("codeview.menu").open({ session = opts.session })
+end
+
 ---Open the file of the review in the working copy.
 ---
 --- The call leaves the review: the window of the diff takes the real file,

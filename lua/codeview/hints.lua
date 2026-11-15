@@ -58,6 +58,7 @@ M.actions = {
     { action = "toggle_style", text = "style" },
     { action = "edit_file", text = "edit the file" },
     { action = "show_comment", text = "read comment" },
+    { action = "comment_menu", text = "comment menu" },
     { action = "edit_comment", text = "edit comment" },
     { action = "delete_comment", text = "delete comment" },
     { action = "adopt", text = "adopt" },
@@ -68,6 +69,7 @@ M.actions = {
     { action = "back", text = "back to the review" },
   },
   overview = {
+    { action = "comment_menu", text = "menu" },
     { action = "edit_comment", text = "edit" },
     { action = "delete_comment", text = "delete" },
     { action = "resolve_comment", text = "resolve" },

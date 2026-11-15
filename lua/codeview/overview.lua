@@ -917,6 +917,60 @@ function Overview:open_remote()
   return require("codeview.thread").open({ thread = thread, session = self.session })
 end
 
+---Box of the line under the cursor, as a selection of |codeview.select|.
+---@return codeview.select.Selection? selection Nil without a comment on the line.
+function Overview:cursor_selection()
+  local item = self:cursor_item()
+  if not item then
+    return nil
+  end
+  local thread = self:cursor_thread()
+  if thread then
+    local remote = require("codeview.remote")
+    local key = remote.thread_key(thread)
+    return {
+      kind = "thread",
+      id = key,
+      file = thread.file,
+      sub = require("codeview.select").first_sub(self.session, key),
+    }
+  end
+  if item.source == "agent" then
+    local agent_item = self:cursor_remote()
+    return agent_item and { kind = "agent", id = tostring(agent_item.id), file = agent_item.file } or nil
+  end
+  if item.kind == "remote" or item.kind == "remote-file" then
+    return nil
+  end
+  local comment = self:cursor_comment()
+  if not comment then
+    return nil
+  end
+  if (comment.reply_to or "") ~= "" then
+    local thread_of = require("codeview.remote").thread_by_key(self.session, comment.reply_to)
+    if thread_of then
+      return { kind = "thread", id = comment.reply_to, file = comment.file, sub = "local:" .. comment.id }
+    end
+  end
+  return { kind = "local", id = comment.id, file = comment.file }
+end
+
+---Open the menu of the comment under the cursor, see |codeview.menu|.
+---@param opts? { select?: fun(items: any[], opts: table, on_choice: fun(item: any?, index: integer?)) }
+---@return boolean shown False without a comment on the line.
+function Overview:menu(opts)
+  local selection = self:cursor_selection()
+  if not selection then
+    report("no comment on this line")
+    return false
+  end
+  return require("codeview.menu").open({
+    session = self.session,
+    selection = selection,
+    select = (opts or {}).select,
+  })
+end
+
 ---Show the markdown of the comments in a scratch buffer.
 ---
 --- The buffer holds the whole export. A reader copies one part of the text, or
@@ -999,6 +1053,9 @@ local function keymaps(overview)
   add(keys.reply, function()
     overview:reply()
   end, "reply to the GitHub thread under the cursor")
+  add(keys.comment_menu, function()
+    overview:menu()
+  end, "open the menu of the comment under the cursor")
   add(keys.react, function()
     overview:react()
   end, "add or remove a reaction on the GitHub thread under the cursor")

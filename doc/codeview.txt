@@ -769,6 +769,7 @@ The diff buffer holds these maps. |codeview-config| names the keys: >
     <leader>co  open or close the comment overview
     <leader>cR  read the review again from the repository
     K           show the comment under the cursor in a float
+    <leader>cm  open the menu of the selected comment
     q           close the review session
 <
 |codeview-keymaps| holds the full list, with the option name of each key.
@@ -829,6 +830,38 @@ selected. `]t` then shows the comments of the thread and selects the first
 one. The keys stop at the first and at the last comment of the thread. When
 no thread is selected, the keys take the thread under the cursor. Set
 `keymaps.next_in_thread` and `keymaps.prev_in_thread` to take other keys.
+
+                                                    *codeview-comment-menu*
+`<leader>cm` opens a menu of the actions of the selected comment. The
+|vim.ui.select()| picker shows it, so a picker plugin of yours styles it.
+Without a selected box under the cursor, the menu takes the comment of the
+line. For more than one comment, a first picker asks which one.
+
+The menu shows only the actions that apply:
+
+- A local comment: edit, delete, resolve or reopen, send it to the pull
+  request now, add another comment on the same lines, and show it in a
+  float.
+- A draft reply: edit, delete, send it now, and show it.
+- A thread of GitHub: "Reply (draft)", "Reply and send now", resolve or
+  reopen, show or hide the comments of a resolved thread, and show it in a
+  float.
+- The selected comment of a thread: edit or delete a comment of your own on
+  GitHub, add or remove a reaction, and open it in the browser. A selected
+  draft reply in the thread gives the actions of a draft reply.
+- An item of pr-agent: adopt it as a comment, and show it in a float.
+
+"Send it now" shows only in a pull request review, and only for a comment
+that no submit sent. "Reply (draft)" writes a draft reply that waits for a
+send, see |codeview-github-reply|. "Reply and send now" opens the same
+editor, and a save also sends the reply at once. GitHub decides who can
+reply, resolve, or change a comment. The menu leaves out an action that
+GitHub does not permit. The edit and the delete of a sent comment of yours
+go to GitHub at once, see |codeview-submit-sent|.
+
+In the comment overview, `<leader>cm` opens the menu of the comment under
+the cursor. The overview has no diff, so its menu has no float and no new
+comment on the same lines.
 
 Neovim gives `]c` and `[c` to the changes of a window with the 'diff'
 option. The diff view of codeview does not set that option, also in the
@@ -993,6 +1026,8 @@ diff buffer maps them to the comment editor: >
     <leader>cr  resolve the comment under the cursor, or open it again
     <leader>co  open or close the comment overview
     K           show the comment under the cursor in a float
+    <leader>cm  open the menu of the selected comment, see
+                |codeview-comment-menu|
     <leader>ca  adopt the pr-agent item of the line, see |codeview-agent-adopt|.
                 Only while the review holds pr-agent items.
 <
@@ -1750,6 +1785,9 @@ session file, see |codeview-comments-store|. It shows in the box of the
 thread, with the word "draft". `i`, `a`, `<leader>ce`, and `<leader>cd` edit
 and delete a draft reply, the same as any local comment.
 
+The menu of the thread also writes a reply, see |codeview-comment-menu|.
+Its entry "Reply and send now" sends the reply with the save.
+
 A draft reply goes to GitHub with the send key of the editor, with
 |:Codeview-submit|, or through the bridge of another tool, see
 |codeview-bridge|. After the send, the reply shows in the thread on GitHub and
@@ -2481,6 +2519,12 @@ codeview.prev_comment({opts}, {cb})
     previous file with comments. The arguments are the same as for
     |codeview.next_comment()|.
 
+                                                     *codeview.comment_menu()*
+codeview.comment_menu({opts})
+    Open the menu of the selected comment, or of the comment under the
+    cursor. See |codeview-comment-menu|. {opts} accepts a `session` field.
+    Returns false when the cursor holds no comment.
+
                                                             *codeview.style()*
 codeview.style()
     Return the style of the diff view, or the style of the next file.
@@ -2797,6 +2841,7 @@ Defaults: >lua
         delete_comment = "<leader>cd",
         resolve_comment = "<leader>cr",
         show_comment = "K",
+        comment_menu = "<leader>cm",
         reply = "r",
         toggle_thread = "<leader>cz",
         react = "<leader>c+",
@@ -2972,6 +3017,7 @@ The table names the surface of each action: >
     delete_comment    <leader>cd       O D  delete the comment
     resolve_comment   <leader>cr       O D  resolve the comment, or reopen it
     show_comment      K                  D  show the comment in a float
+    comment_menu      <leader>cm       O D  open the menu of the comment
     reply             r                O D  reply to the GitHub thread
     toggle_thread     <leader>cz         D  show or hide a resolved thread
     react             <leader>c+       O D  add or remove a reaction

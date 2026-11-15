@@ -234,6 +234,8 @@ M.defaults = {
     delete_comment = "<leader>cd",
     resolve_comment = "<leader>cr",
     show_comment = "K",
+    -- The key opens the menu of the actions of the selected comment.
+    comment_menu = "<leader>cm",
     -- The diff buffer is read-only, so `r` is free, the same as `i` and `a`.
     -- It writes a draft reply to the GitHub thread of the line.
     reply = "r",
