@@ -558,6 +558,58 @@ function M.git_lsp()
   }
 end
 
+---Build a git repository from a list of commits.
+---
+--- Each commit writes its files. A value of false deletes the file. The
+--- working copy holds the last commit, or the commit that `opts.checkout`
+--- names.
+---@param commits { name: string, files: table<string, string|false> }[] Oldest commit first.
+---@param opts? { checkout?: string } `checkout` names the commit of the working copy.
+---@return tests.Fixture
+function M.git_history(commits, opts)
+  opts = opts or {}
+  local dir = M.tempdir("codeview-history")
+  local env = git_env(dir)
+  git_init(dir, "main", env)
+  -- The files keep their line ends, so a CRLF file stays a CRLF file.
+  run({ "git", "config", "core.autocrlf", "false" }, dir, env)
+
+  local ids, names = {}, {}
+  for index, commit in ipairs(commits) do
+    for path, content in pairs(commit.files) do
+      if content == false then
+        run({ "git", "rm", "--quiet", "--", path }, dir, env)
+      else
+        write_file(vim.fs.joinpath(dir, path), content)
+        run({ "git", "add", "--", path }, dir, env)
+      end
+    end
+    run(
+      { "git", "commit", "--quiet", "--allow-empty", "-m", commit.name },
+      dir,
+      at_date(env, string.format("2024-06-%02dT10:00:00+00:00", index))
+    )
+    ids[commit.name] = vim.trim(run({ "git", "rev-parse", "HEAD" }, dir, env))
+    names[#names + 1] = commit.name
+  end
+  if opts.checkout then
+    run({ "git", "checkout", "--quiet", "--detach", ids[opts.checkout] }, dir, env)
+  end
+
+  local root = vim.trim(run({ "git", "rev-parse", "--show-toplevel" }, dir, env))
+  return {
+    root = vim.fs.normalize(root),
+    dir = dir,
+    ids = ids,
+    names = names,
+    branch = "main",
+    env = env,
+    cleanup = function()
+      vim.fn.delete(dir, "rf")
+    end,
+  }
+end
+
 ---Build a git repository that holds a pull request.
 ---
 --- The fixture makes three directories:

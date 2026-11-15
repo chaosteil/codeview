@@ -287,7 +287,7 @@ describe("codeview lsp keys", function()
       end, "the window shows other.lua")
       assert.are.same({ 2, 7 }, api.nvim_win_get_cursor(0))
       local buf = api.nvim_get_current_buf()
-      assert.are.same({ path = "main.lua", line = 4 }, vim.b[buf].codeview_origin)
+      assert.are.same({ path = "main.lua", line = 4, side = "new" }, vim.b[buf].codeview_origin)
       assert.is_nil(vim.b[buf].codeview_file)
 
       local back

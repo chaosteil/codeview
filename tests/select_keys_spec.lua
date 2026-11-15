@@ -258,6 +258,32 @@ describe("codeview comment keys on the selection", function()
     assert.is_nil((text:find("first box", 1, true)))
   end)
 
+  it("shows only the selected box with the show-comment key of lsp.enabled", function()
+    -- With the option, `K` is the hover key. The comment float takes the key
+    -- of `keymaps.show_comment_lsp`, with the same selection.
+    assert(config.setup({
+      commit_message = false,
+      quit = "never",
+      comments = { dir = dir, start_insert = false },
+      lsp = { enabled = true },
+    }))
+    add_comment(2, { body = "first box" })
+    local second = add_comment(2, { body = "second box" })
+    open_diff(2)
+    select.set(open_session(), { kind = "local", id = second.id, file = "call.lua" })
+    press("<leader>ck")
+    local text
+    for _, win in ipairs(api.nvim_list_wins()) do
+      if api.nvim_win_get_config(win).relative ~= "" then
+        text = table.concat(api.nvim_buf_get_lines(api.nvim_win_get_buf(win), 0, -1, false), "\n")
+        pcall(api.nvim_win_close, win, true)
+      end
+    end
+    assert.is_not_nil(text)
+    assert.is_truthy((text:find("second box", 1, true)))
+    assert.is_nil((text:find("first box", 1, true)))
+  end)
+
   it("edits the selected draft reply of a thread with i", function()
     remote.attach(open_session(), { remote_comment() })
     add_comment(2, { reply_to = "501", body = "a draft", created_at = 5 })

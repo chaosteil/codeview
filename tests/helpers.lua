@@ -157,16 +157,18 @@ function M.fake_lsp(opts)
         id = id + 1
         local request_id = id
         server.requests[#server.requests + 1] = { method = method, params = params }
-        local result
+        -- A handler can give an error as its second value. The client then
+        -- gets the error and no result.
+        local result, err
         if method == "initialize" then
           result = { capabilities = server.capabilities }
         elseif method == "shutdown" then
           result = vim.NIL
         elseif server.handlers[method] then
-          result = server.handlers[method](params, server)
+          result, err = server.handlers[method](params, server)
         end
         vim.schedule(function()
-          callback(nil, result)
+          callback(err, result)
           if notify_reply then
             notify_reply(request_id)
           end

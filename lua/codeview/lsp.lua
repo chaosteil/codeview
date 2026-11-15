@@ -176,6 +176,11 @@ release = function(session)
     return
   end
   for buf, owned in pairs(entry.owned) do
+    -- A buffer with changes stays. It becomes listed, so `:ls` shows it, and
+    -- the user finds the changes.
+    if api.nvim_buf_is_valid(buf) and vim.bo[buf].modified then
+      vim.bo[buf].buflisted = true
+    end
     if api.nvim_buf_is_valid(buf) and not vim.bo[buf].modified and not vim.bo[buf].buflisted and not shown(buf) then
       if owned.created then
         pcall(api.nvim_buf_delete, buf, {})
@@ -292,7 +297,10 @@ function M.sync(session, source)
   end
   source.tick = tick
 
-  local lines = api.nvim_buf_get_lines(source.buf, 0, -1, false)
+  -- A file with mixed line ends reads with 'fileformat' "unix", so a line of
+  -- the buffer can keep its carriage return. The compare drops it on both
+  -- texts.
+  local lines = vim.tbl_map(strip, api.nvim_buf_get_lines(source.buf, 0, -1, false))
   -- An empty buffer holds one empty line. The side of an empty file holds none.
   if #lines == 1 and lines[1] == "" and #source.lines == 0 then
     lines = {}
@@ -356,6 +364,8 @@ end
 ---@param line_text string Text of the line of the file.
 ---@return integer prefix
 function M.prefix(row_text, line_text)
+  -- The row of a CRLF file keeps the carriage return. The line does not.
+  row_text = strip(row_text)
   local width = #row_text - #line_text
   if width > 0 and row_text:sub(width + 1) == line_text then
     return width
@@ -545,13 +555,48 @@ end
 ---@param view codeview.view.State
 ---@return codeview.view.Origin
 local function origin_of(view)
-  return { path = view.path, line = require("codeview.view").cursor_line(view) }
+  local win = api.nvim_get_current_win()
+  local map = view.map
+  if view.old_win and win == view.old_win and view.old_map then
+    map = view.old_map
+  elseif win ~= view.win then
+    win = view.win
+  end
+  if api.nvim_win_is_valid(win) then
+    local record = map:row(api.nvim_win_get_cursor(win)[1])
+    -- A removed line has no line of the new side. The back key then goes to
+    -- the line of the old side.
+    if record and not record.new and record.old then
+      return { path = view.path, line = record.old, side = "old" }
+    end
+  end
+  return { path = view.path, line = require("codeview.view").cursor_line(view), side = "new" }
 end
 
 ---@class codeview.lsp.Answer
 ---@field client vim.lsp.Client
 ---@field result any Result of the request. Nil after an error.
 ---@field err table? Error of the request.
+
+---Clients of a source that support the method of an action.
+---@param source codeview.lsp.Source
+---@param action codeview.lsp.Action
+---@return vim.lsp.Client[]? clients Nil with a note when no client supports the method.
+local function clients_for(source, action)
+  local clients = vim.lsp.get_clients({ bufnr = source.buf, method = action.method })
+  if #clients == 0 then
+    if #vim.lsp.get_clients({ bufnr = source.buf }) == 0 then
+      notify.info("no language server is attached to " .. source.path)
+    else
+      notify.info(string.format("no language server of %s gives the %s", source.path, action.label))
+    end
+    return nil
+  end
+  if action.single then
+    clients = { clients[1] }
+  end
+  return clients
+end
 
 ---Send one request from the cursor of the view to the language servers.
 ---
@@ -562,25 +607,21 @@ end
 ---@param action codeview.lsp.Action
 ---@param extend fun(params: table, client: vim.lsp.Client, position: codeview.lsp.Position)? Adds fields to the parameters.
 ---@param cb fun(answers: codeview.lsp.Answer[], position: codeview.lsp.Position)
+---@param position codeview.lsp.Position? Position of the request. The cursor of the view by default.
 ---@return boolean sent False with a note when no request went out.
-function M.request(view, action, extend, cb)
-  local position, reason = M.locate(view, { note = notify.info })
+function M.request(view, action, extend, cb, position)
   if not position then
-    notify.info(reason or "no line of the working copy here")
-    return false
+    local reason
+    position, reason = M.locate(view, { note = notify.info })
+    if not position then
+      notify.info(reason or "no line of the working copy here")
+      return false
+    end
   end
   local source = position.source
-  local clients = vim.lsp.get_clients({ bufnr = source.buf, method = action.method })
-  if #clients == 0 then
-    if #vim.lsp.get_clients({ bufnr = source.buf }) == 0 then
-      notify.info("no language server is attached to " .. source.path)
-    else
-      notify.info(string.format("no language server of %s gives the %s", source.path, action.label))
-    end
+  local clients = clients_for(source, action)
+  if not clients then
     return false
-  end
-  if action.single then
-    clients = { clients[1] }
   end
 
   state_of(view.session).origin = origin_of(view)
@@ -952,21 +993,25 @@ local function after_edit(session, label, before)
 end
 
 ---Word around a byte column of a line.
+---
+--- The 'iskeyword' option of the buffer names the letters of a word, as for
+--- the <cword> of Neovim.
 ---@param text string
 ---@param col integer Byte column, from 0.
+---@param buf integer? Buffer whose 'iskeyword' applies. The current buffer by default.
 ---@return string word Empty when no word is there.
-function M.word_at(text, col)
-  local first, last = col + 1, col + 1
-  if not text:sub(first, first):match("[%w_]") then
-    return ""
+function M.word_at(text, col, buf)
+  local function find()
+    local rest = fn.matchstr(text:sub(col + 1), [[^\k\+]])
+    if rest == "" then
+      return ""
+    end
+    return fn.matchstr(text:sub(1, col), [[\k*$]]) .. rest
   end
-  while first > 1 and text:sub(first - 1, first - 1):match("[%w_]") do
-    first = first - 1
+  if buf and api.nvim_buf_is_valid(buf) then
+    return api.nvim_buf_call(buf, find)
   end
-  while last <= #text and text:sub(last, last):match("[%w_]") do
-    last = last + 1
-  end
-  return text:sub(first, last - 1)
+  return find()
 end
 
 ---Apply the edit of one answer.
@@ -989,23 +1034,30 @@ end
 ---@param new_name string? Name to take. Nil asks with |vim.ui.input()|.
 ---@return boolean asked False with a note when no request can go out.
 local function rename(view, action, new_name)
-  local position, reason = M.locate(view)
+  -- The position comes from the cursor at the time of the key. The prompt
+  -- can move the cursor, or take the focus.
+  local position, reason = M.locate(view, { note = notify.info })
   if not position then
     notify.info(reason or "no line of the working copy here")
     return false
   end
-  local text = api.nvim_buf_get_lines(position.source.buf, position.file_line - 1, position.file_line, false)[1] or ""
-  local word = M.word_at(text, position.col)
+  if not clients_for(position.source, action) then
+    return false
+  end
+  local source = position.source
+  local text = api.nvim_buf_get_lines(source.buf, position.file_line - 1, position.file_line, false)[1] or ""
+  local word = M.word_at(text, position.col, source.buf)
 
   ---@param name string?
+  ---@return boolean sent
   local function send(name)
     if not name or vim.trim(name) == "" or name == word then
-      return
+      return false
     end
     if require("codeview.view").current() ~= view then
-      return
+      return false
     end
-    M.request(view, action, function(params)
+    return M.request(view, action, function(params)
       params.newName = name
     end, function(answers)
       local answer = answers[1]
@@ -1020,12 +1072,11 @@ local function rename(view, action, new_name)
       local before = ticks()
       apply_edit(answer)
       after_edit(view.session, action.label, before)
-    end)
+    end, position)
   end
 
   if new_name then
-    send(new_name)
-    return true
+    return send(new_name)
   end
   vim.ui.input({ prompt = "New name: ", default = word }, send)
   return true
@@ -1146,6 +1197,10 @@ end
 ---@return boolean sent False with a note when no request went out.
 function M.run(name, opts)
   opts = opts or {}
+  if not M.enabled() then
+    notify.info("the lsp.enabled option is off")
+    return false
+  end
   local action = M.actions[name]
   local view = require("codeview.view").current()
   if not action then
@@ -1248,10 +1303,17 @@ function M.draw_diagnostics(view)
     end
   end
 
+  -- Both sides can read one buffer. Each side needs its own compare first,
+  -- because a diagnostic can sit on a line that only the old side holds.
+  local synced = {}
+  for _, side in ipairs({ "new", "old" }) do
+    local source = sources[side]
+    synced[side] = source ~= nil and M.sync(view.session, source)
+  end
   local seen = {}
   for _, side in ipairs({ "new", "old" }) do
     local source = sources[side]
-    if source and not seen[source.buf] and M.sync(view.session, source) then
+    if source and not seen[source.buf] and synced[side] then
       seen[source.buf] = true
       for _, diagnostic in ipairs(vim.diagnostic.get(source.buf)) do
         local found, row = row_of_file_line(view, sources, source.buf, diagnostic.lnum + 1)
@@ -1336,6 +1398,11 @@ function M.set_keymaps(session, buf)
       end, { buffer = buf, nowait = true, silent = true, desc = "codeview: LSP " .. M.actions[name].label })
     end
   end
+  vim.b[buf].codeview_lsp_keys = true
+  if vim.b[buf].codeview_lsp_leave then
+    return
+  end
+  vim.b[buf].codeview_lsp_leave = true
   -- A jump of the quickfix list leaves the diff. The place under the cursor
   -- is the way back.
   api.nvim_create_autocmd("BufLeave", {
@@ -1349,6 +1416,62 @@ function M.set_keymaps(session, buf)
       end
     end,
   })
+end
+
+---Remove the LSP keys and the show-comment keys of a diff buffer.
+---
+--- The view calls this after `setup()` turns the option off. It then maps the
+--- keys of the buffer again, so `K` shows the comment again.
+---@param buf integer
+function M.clear_keymaps(buf)
+  for _, map in ipairs(api.nvim_buf_get_keymap(buf, "n")) do
+    local desc = map.desc or ""
+    if vim.startswith(desc, "codeview: LSP ") or desc == "codeview: show the comment" then
+      pcall(vim.keymap.del, "n", map.lhs, { buffer = buf })
+    end
+  end
+  vim.b[buf].codeview_lsp_keys = false
+end
+
+---Report whether the current window came from the quickfix window of a codeview list.
+---@return boolean
+local function from_list()
+  local previous = fn.win_getid(fn.winnr("#"))
+  if previous == 0 or fn.win_gettype(previous) ~= "quickfix" then
+    return false
+  end
+  local title = fn.getqflist({ title = 1 }).title or ""
+  return vim.startswith(title, "codeview: ")
+end
+
+---Move a file that the quickfix window opened in a new window into the diff window.
+---
+--- The diff buffer is no file buffer, so Enter in the quickfix window opens a
+--- new window. The file goes to the window of the diff instead, the same as
+--- for `:cnext` from the diff, and the new window closes.
+---@param session codeview.Session
+---@param win integer New window of the file.
+---@param buf integer Buffer of the file.
+---@param origin codeview.view.Origin
+local function into_view(session, win, buf, origin)
+  local view_mod = require("codeview.view")
+  local view = view_mod.current()
+  if not view or view.session ~= session or not session:is_active() then
+    return
+  end
+  if not api.nvim_win_is_valid(win) or api.nvim_win_get_buf(win) ~= buf or not api.nvim_win_is_valid(view.win) then
+    return
+  end
+  local target = view.win
+  local cursor = api.nvim_win_get_cursor(win)
+  api.nvim_set_current_win(target)
+  api.nvim_win_set_buf(target, buf)
+  view_mod.release_window(target, buf, origin)
+  pcall(api.nvim_win_set_cursor, target, cursor)
+  pcall(api.nvim_win_close, win, false)
+  if api.nvim_win_is_valid(target) then
+    api.nvim_set_current_win(target)
+  end
 end
 
 ---Watch the windows of the view for a file that a jump opens there.
@@ -1373,7 +1496,16 @@ local function watch(session)
       if api.nvim_win_get_buf(win) ~= buf or not entry.origin then
         return
       end
-      require("codeview.view").release_window(win, buf, entry.origin)
+      local origin = entry.origin
+      if require("codeview.view").release_window(win, buf, origin) then
+        return
+      end
+      if from_list() then
+        -- The window is new. The move waits until Neovim ends the jump.
+        vim.schedule(function()
+          into_view(session, win, buf, origin)
+        end)
+      end
     end,
   })
 end

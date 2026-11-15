@@ -1035,6 +1035,10 @@ With the option, `K` is the hover key, as in a file buffer of Neovim. The
 comment float therefore moves to `keymaps.show_comment_lsp`. Without the
 option, `K` shows the comment, and the LSP keys do not exist.
 
+A setup() call that changes the option changes the keys of the next file
+that opens. The diff that is open takes the new keys at its next render, for
+example after `za`.
+
 Every client of the file that supports a request gets it. A request with no
 client gives a note, for example "no language server is attached to
 lua/foo.lua". A server that still starts has no client yet, so try again
@@ -1078,17 +1082,21 @@ A jump goes to one of three places:
 - A target in another file of the review opens the diff of that file, on
   the line of the target.
 - Every other target opens the file in the window of the diff, the same way
-  as `gf`. `<leader>cb` goes back to the line of the request. See
-  |codeview-edit-back|.
+  as `gf`. `<leader>cb` goes back to the line of the request, also to a
+  removed line. See |codeview-edit-back|.
 
 A target on a line that the working copy changed has no row in the diff. It
 opens the file of the working copy too.
 
 More than one target goes into the quickfix list, and the list opens. A
-file that the list opens in the window of the diff also takes the back key.
+file that the list opens in the window of the diff also takes the back key,
+for example after `:cnext`. The diff buffer is no file buffer, so Enter in
+the quickfix window opens a new window. codeview moves the file from that
+window into the window of the diff, and closes the new window.
 
 The hidden buffers go away when the session closes. A buffer stays when a
-window shows it, when it holds changes, or when it is listed.
+window shows it, when it holds changes, or when it is listed. A buffer with
+changes becomes listed, so `:ls` shows it.
 
                                                     *codeview-lsp-diagnostics*
 Set `lsp.diagnostics` to true to see the diagnostics of the working copy in
@@ -1115,7 +1123,10 @@ option.
 
                                                            *codeview-lsp-edit*
 `grn` and `gra` change the files of the working copy, not the review. `grn`
-asks for the new name, with the word under the cursor as the start. `gra`
+asks for the new name, with the word under the cursor as the start. The
+'iskeyword' option of the file names the letters of a word. The rename takes
+the place of the cursor at the time of the key, also when the prompt moves
+the cursor. `gra`
 lists the code actions of the line in |vim.ui.select()|, and runs the one
 that you choose: its edit first, then its command.
 

@@ -578,6 +578,24 @@ local function draw(view)
   set_filetype(view)
 end
 
+---Map the keys of the view again after `setup()` changed `lsp.enabled`.
+---
+--- A buffer keeps the keys of the configuration that made it. A render after
+--- a change of the option maps the LSP keys, or removes them, so the keys
+--- follow the hint row. Without a change the call does nothing.
+---@param view codeview.view.State
+local function sync_lsp_keys(view)
+  local on = config.get().lsp.enabled == true
+  for _, buf in ipairs({ view.buf, view.old_buf }) do
+    if buf and api.nvim_buf_is_valid(buf) and (vim.b[buf].codeview_lsp_keys == true) ~= on then
+      if not on then
+        require("codeview.lsp").clear_keymaps(buf)
+      end
+      set_keymaps(view.session, buf)
+    end
+  end
+end
+
 ---Render the diff of the view again.
 ---
 --- The cursor keeps its file line, so a collapse, an expand, or a change of
@@ -597,6 +615,7 @@ local function rerender(view, anchor)
   -- the buffer, so the line map of the render stays correct. One call draws
   -- the local comments and the comments of a pull request.
   require("codeview.stack").decorate(view)
+  sync_lsp_keys(view)
   if config.get().lsp.enabled then
     require("codeview.lsp").attach(view)
   end
@@ -1895,6 +1914,9 @@ function M.release_window(win, buf, origin)
     ---@cast view codeview.view.State
     session:remove_window(win)
     local other = win == view.win and view.old_win or view.win
+    -- The view lets go of the old window first. A later unmount closes the
+    -- old window of the view, and that window holds the file of the user now.
+    view.old_win = nil
     if other and other ~= win and api.nvim_win_is_valid(other) then
       local other_buf = api.nvim_win_get_buf(other)
       if other_buf == view.buf or other_buf == view.old_buf then
@@ -1913,7 +1935,8 @@ end
 
 ---@class codeview.view.Origin
 ---@field path string Path of the file of the review.
----@field line integer Line of the new side.
+---@field line integer Line of the side.
+---@field side codeview.linemap.Side? Side of the line. "new" by default.
 
 ---@class codeview.view.EditOpts
 ---@field path string? Path of a file of the review. The file of the view by default.
@@ -1989,6 +2012,7 @@ function M.back(opts, cb)
   local root = session.repo.root
   local path = vim.b[buf].codeview_file
   local line = opts.line
+  local side = "new"
   if not path then
     local full = vim.fs.normalize(name)
     local prefix = vim.fs.normalize(root) .. "/"
@@ -2000,6 +2024,7 @@ function M.back(opts, cb)
     if origin and not (candidate and session:index_of(candidate)) then
       path = origin.path
       line = line or origin.line
+      side = origin.side == "old" and "old" or "new"
     elseif not candidate then
       notify.info("the file is outside " .. root)
       return done(cb, false)
@@ -2034,7 +2059,7 @@ function M.back(opts, cb)
         notify.error(tostring(err))
         return false
       end
-      M.go_to_line(line, "new")
+      M.go_to_line(line, side)
       return true
     end
     load(session, index, { win = win }, function(state_view, err)
@@ -2043,7 +2068,7 @@ function M.back(opts, cb)
         cb(false)
         return
       end
-      M.go_to_line(line, "new")
+      M.go_to_line(line, side)
       cb(true)
     end, function()
       cb(false)
