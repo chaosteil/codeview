@@ -27,7 +27,7 @@ describe("codeview lsp edits", function()
   ---@param path string
   ---@return string uri
   local function uri_of(fixture, path)
-    return vim.uri_from_fname(vim.fs.joinpath(fixture.root, path))
+    return helpers.real_uri(vim.fs.joinpath(fixture.root, path))
   end
 
   ---Text edit that replaces part of one line.

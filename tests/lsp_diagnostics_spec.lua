@@ -18,7 +18,7 @@ describe("codeview lsp diagnostics", function()
   ---@param path string
   ---@return string uri
   local function uri_of(path)
-    return vim.uri_from_fname(vim.fs.joinpath(fixture.root, path))
+    return helpers.real_uri(vim.fs.joinpath(fixture.root, path))
   end
 
   ---LSP diagnostic on one line.
@@ -196,7 +196,7 @@ describe("codeview lsp diagnostics", function()
     assert.is_true(vim.diagnostic.is_enabled({ bufnr = state.buf }))
     local buf = assert(lsp.sources(state).new).buf
     assert.is_true(files_server.wait(buf))
-    files_server.publish(vim.uri_from_fname(file), { diagnostic(2, 7, 11, "plan line") })
+    files_server.publish(helpers.real_uri(file), { diagnostic(2, 7, 11, "plan line") })
     assert.is_true(vim.wait(2000, function()
       return #vim.diagnostic.get(state.buf, { namespace = lsp.ns }) == 1
     end, 10))

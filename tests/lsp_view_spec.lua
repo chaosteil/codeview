@@ -28,7 +28,7 @@ describe("codeview lsp keys", function()
   ---@param path string
   ---@return string uri
   local function uri_of(path)
-    return vim.uri_from_fname(vim.fs.joinpath(fixture.root, path))
+    return helpers.real_uri(vim.fs.joinpath(fixture.root, path))
   end
 
   ---Location in a file of the fixture.

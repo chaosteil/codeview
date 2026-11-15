@@ -141,7 +141,7 @@ describe("codeview lsp edge cases", function()
   ---@param path string
   ---@return string uri
   local function uri_of(fixture, path)
-    return vim.uri_from_fname(file_of(fixture, path))
+    return helpers.real_uri(file_of(fixture, path))
   end
 
   ---Location in a file of a fixture.
@@ -1235,14 +1235,14 @@ describe("codeview lsp edge cases", function()
     ---@return table location
     local function at(path, line, character)
       local position = { line = line - 1, character = character }
-      return { uri = vim.uri_from_fname(vim.fs.joinpath(dir, path)), range = { start = position, ["end"] = position } }
+      return { uri = helpers.real_uri(vim.fs.joinpath(dir, path)), range = { start = position, ["end"] = position } }
     end
 
     it("sends the column of a row with no marker", function()
       local state = open_plan({ "plan.lua" })
       put(state, 3, "new", "plan")
       local params = request(server, "lsp_definition")
-      assert.are.equal(vim.uri_from_fname(vim.fs.joinpath(dir, "plan.lua")), params.textDocument.uri)
+      assert.are.equal(helpers.real_uri(vim.fs.joinpath(dir, "plan.lua")), params.textDocument.uri)
       assert.are.same({ line = 2, character = 7 }, params.position)
     end)
 
@@ -1307,7 +1307,7 @@ describe("codeview lsp edge cases", function()
       local state = open_plan({ "plan.lua" })
       put(state, 1, "new", "plan")
       answers["textDocument/rename"] = {
-        changes = { [vim.uri_from_fname(vim.fs.joinpath(dir, "plan.lua"))] = { edit(1, 6, 10, "idea") } },
+        changes = { [helpers.real_uri(vim.fs.joinpath(dir, "plan.lua"))] = { edit(1, 6, 10, "idea") } },
       }
       request(server, "lsp_rename", { name = "idea" })
       wait_for(function()

@@ -88,6 +88,18 @@ function M.captures_at(buf, row, col)
   return vim.treesitter.get_captures_at_pos(buf, row, col)
 end
 
+---URI of a file by its real path.
+---
+--- The temporary directory of macOS is below /var, and /var is a link to
+--- /private/var. codeview names a file through the root of the review, and
+--- that root can be the real path. A test that builds a URI from the
+--- temporary path then names the same file with another text.
+---@param path string
+---@return string uri
+function M.real_uri(path)
+  return vim.uri_from_fname(vim.uv.fs_realpath(path) or path)
+end
+
 ---Number of fake language servers of this test process.
 ---@type integer
 local fake_count = 0
