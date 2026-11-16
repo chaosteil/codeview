@@ -97,6 +97,13 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the background. When GitHub reports a new head, the review reads its data
   again and stays open. `codeview.open_pr()` takes the same data as `info`.
   See `:help codeview-github-env`.
+- `<leader>cD` clears all the local comments of the review, after one
+  question. The clear also takes the resolved comments and the local copies
+  of sent comments. The comments on GitHub stay. The key works in the diff
+  view, in the sidebar, and in the comment overview. The
+  `keymaps.clear_comments` option sets the key, and
+  `codeview.clear_comments()` clears from Lua. See
+  `:help codeview-comments-clear`.
 
 ### Changed
 

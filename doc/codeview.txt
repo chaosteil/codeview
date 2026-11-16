@@ -1247,13 +1247,20 @@ it, or give a list of keys for one action: >lua
     })
 <
                                                      *codeview-comments-clear*
-`<leader>cD` clears all saved local comments in the current review, including
-resolved comments and local copies of comments sent to GitHub. It works in
-the diff view, the changed-files sidebar, and the comment overview. The
-question shows the number of comments and defaults to No. Confirming saves
-the empty comment store and updates the panels and diff decorations. A write
-failure keeps the comments. Other reviews and comments on GitHub stay intact.
-Set `keymaps.clear_comments` to another key, or to false to disable the map.
+`<leader>cD` clears all the local comments of the review: the open ones, the
+resolved ones, and the local copies of sent comments. The key works in the
+diff view, in the sidebar, and in the comment overview. First a question
+shows the number of comments. The default answer is No.
+
+The clear writes the empty session file, and the panels and the diff show no
+comment boxes. A failed write keeps the comments. The comments of other
+reviews stay. The comments on GitHub stay too: unlike `<leader>cd`, the clear
+never deletes a comment on GitHub. In a pull request review, the comments of
+GitHub load again, so a sent comment shows in its thread of GitHub.
+
+An open editor of a cleared comment closes. An editor of a new comment stays
+open. Set `keymaps.clear_comments` to another key, or to false to remove the
+map.
 
                                                    *codeview-comments-editor*
 The editor is a floating window with its own markdown buffer. This buffer is
@@ -1573,7 +1580,6 @@ also runs a |User| autocmd: >
     CodeViewCommentDeleted    a comment left the store
     CodeViewReviewSubmitted   a submit or a send posted comments to GitHub
 <
-Clearing comments sends CodeViewCommentDeleted once per local comment removed.
 The payload holds the id of the comment, the file, the id of the session, and
 the state: >lua
 
@@ -1584,6 +1590,8 @@ the state: >lua
       end,
     })
 <
+A clear of all comments sends one CodeViewCommentDeleted for each comment.
+See |codeview-comments-clear|.
 ==============================================================================
 10. EXPORT                                                     *codeview-export*
 
@@ -2770,11 +2778,11 @@ codeview.delete_comment({opts})
 
                                                    *codeview.clear_comments()*
 codeview.clear_comments({opts})
-    Clear all saved local comments in the current review, including resolved
-    and synced comments, after one question that defaults to No.
-    `opts.confirm = false` skips the question. Return false after cancellation,
-    an empty review, or an error. A write failure keeps the local comments.
-    Comments on GitHub stay intact. See |codeview-comments-clear|.
+    Clear all the local comments of the review, the resolved and the sent
+    ones too, after one question. The default answer is No. `opts.confirm =
+    false` skips the question. Return false after a No, for a review without
+    comments, or after an error. A failed write keeps the comments. Comments
+    on GitHub stay. See |codeview-comments-clear|.
 
                                                   *codeview.resolve_comment()*
 codeview.resolve_comment({opts})
