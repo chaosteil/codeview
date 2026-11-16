@@ -100,6 +100,10 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- A file that opens from the sidebar takes the focus. Before, the cursor
+  stayed in the sidebar. The cursor goes to the diff, and in the split style
+  to the new side. Set `sidebar.focus_on_open = false` to keep the cursor in
+  the sidebar. See `:help codeview-sidebar-focus`.
 - The comment keys act on the selected comment box while the cursor is on
   it: `i`, `a`, `<leader>ce`, `<leader>cd`, `<leader>cr`, `K`, `r`,
   `<leader>cz`, `<leader>c+`, and `gx`. A line with two comments asks no
