@@ -1096,12 +1096,12 @@ function M.clear(opts)
   opts = opts or {}
   local ctx, ctx_err = context(opts)
   if not ctx then
-    notify(tostring(ctx_err), vim.log.levels.WARN)
+    notify.warn(tostring(ctx_err))
     return false
   end
   local count = ctx.store:count()
   if count == 0 then
-    notify("no local comments to clear")
+    notify.warn("no local comments to clear")
     return false
   end
 
@@ -1119,7 +1119,7 @@ function M.clear(opts)
 
   local removed, err = ctx.store:clear()
   if not removed then
-    notify(tostring(err), vim.log.levels.ERROR)
+    notify.error(tostring(err))
     return false
   end
   for _, comment in ipairs(removed) do

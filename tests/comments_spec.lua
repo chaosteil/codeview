@@ -202,6 +202,10 @@ describe("codeview.comments", function()
   after_each(function()
     vim.fn.confirm = original_confirm
     editor.cancel()
+    -- The clear tests open the sidebar and the overview. Close them before
+    -- the diff, so that the last window is no panel window.
+    require("codeview.overview").close()
+    require("codeview.sidebar").close()
     view.close()
     if opened then
       opened:close()
