@@ -435,6 +435,8 @@ function M.delete_comment(opts)
 end
 
 ---Clear all saved local comments of the review, after one question.
+---
+--- Unstable: the call can change before version 1.0.
 ---@param opts? { confirm?: boolean } `confirm = false` skips the question.
 ---@return boolean cleared False after cancellation, an empty review, or an error.
 function M.clear_comments(opts)
