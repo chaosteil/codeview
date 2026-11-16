@@ -1135,6 +1135,78 @@ describe("codeview.comments", function()
     it("needs an active review", function()
       assert.is_false(require("codeview").clear_comments({ confirm = false }))
     end)
+
+    it("closes the editor of a cleared comment", function()
+      local state = open_diff()
+      comment_on(4, "the text in the editor")
+      api.nvim_set_current_win(state.win)
+      api.nvim_win_set_cursor(state.win, { 4, 0 })
+      assert.is_true(comments.edit())
+      assert.is_truthy(assert(editor.current()).id)
+
+      assert.is_true(require("codeview").clear_comments({ confirm = false }))
+
+      assert.is_nil(editor.current())
+      assert.are.equal(0, assert(comments.store()):count())
+    end)
+
+    it("keeps the editor of a new comment", function()
+      local state = open_diff()
+      comment_on(4, "an old note")
+      api.nvim_set_current_win(state.win)
+      api.nvim_win_set_cursor(state.win, { 2, 0 })
+      assert.is_true(comments.add())
+      local ed = assert(editor.current())
+      assert.is_nil(ed.id)
+
+      assert.is_true(require("codeview").clear_comments({ confirm = false }))
+
+      assert.are.equal(ed, editor.current())
+      write_comment("a new note")
+      local store = assert(comments.store())
+      assert.are.equal(1, store:count())
+      assert.are.equal("a new note", store.comments[1].body)
+    end)
+
+    it("reads the comments of GitHub again after a clear of a sent comment", function()
+      open_diff()
+      local store = assert(comments.store())
+      local sent = assert(store:add({ file = "call.lua", start_line = 2, body = "sent note" }))
+      assert(store:mark_synced(sent.id, { remote_id = 900 }))
+      assert(store:save())
+      local remote = require("codeview.remote")
+      local loads = {}
+      remote.load = function(session, opts)
+        loads[#loads + 1] = { session = session, opts = opts }
+        return true
+      end
+      require("codeview.submit").is_remote_copy = function()
+        return true
+      end
+      local prompts = {}
+      vim.fn.confirm = function(message)
+        prompts[#prompts + 1] = message
+        return 1
+      end
+
+      assert.is_true(require("codeview").clear_comments())
+
+      assert.are.same({ "Clear all 1 local comment in this review? The comments on GitHub stay." }, prompts)
+      assert.are.same({ { session = opened, opts = { silent = true } } }, loads)
+    end)
+
+    it("does not read the comments of GitHub again without a sent comment", function()
+      open_diff()
+      comment_on(4, "a local note")
+      local loads = 0
+      require("codeview.remote").load = function()
+        loads = loads + 1
+        return true
+      end
+
+      assert.is_true(require("codeview").clear_comments({ confirm = false }))
+      assert.are.equal(0, loads)
+    end)
   end)
 
   describe("edit and delete", function()

@@ -1090,6 +1090,11 @@ end
 ---
 --- Resolved and synced local comments are included. Comments on GitHub stay
 --- on GitHub. A write failure keeps the local comments.
+---
+--- An open editor of a cleared comment closes without a question, the same
+--- as after |codeview.comments.remove()|. A sent comment was the local copy
+--- of a comment on GitHub, so the GitHub comments load again after the
+--- clear. The comment then shows in its thread of GitHub.
 ---@param opts? { confirm?: boolean, session?: codeview.Session } `confirm = false` skips the question.
 ---@return boolean cleared False after cancellation, an empty review, or an error.
 function M.clear(opts)
@@ -1105,9 +1110,21 @@ function M.clear(opts)
     return false
   end
 
+  local submit = require("codeview.submit")
+  local sent, on_github = false, false
+  for _, comment in ipairs(ctx.store.comments) do
+    sent = sent or store_mod.is_synced(comment)
+    on_github = on_github or submit.is_remote_copy(ctx.session, comment)
+  end
+
   if opts.confirm ~= false then
     local answer = vim.fn.confirm(
-      string.format("Clear all %d local %s in this review?", count, count == 1 and "comment" or "comments"),
+      string.format(
+        on_github and "Clear all %d local %s in this review? The comments on GitHub stay."
+          or "Clear all %d local %s in this review?",
+        count,
+        count == 1 and "comment" or "comments"
+      ),
       "&Yes\n&No",
       2,
       "Question"
@@ -1122,8 +1139,31 @@ function M.clear(opts)
     notify.error(tostring(err))
     return false
   end
+
+  -- An editor of a cleared comment can save nothing after the clear. A new
+  -- comment that has no id yet stays in its editor.
+  local editor = require("codeview.editor")
+  local open = editor.current()
+  local closed = false
+  if open and open.id then
+    for _, comment in ipairs(removed) do
+      if comment.id == open.id then
+        closed = editor.cancel()
+        break
+      end
+    end
+  end
+
   for _, comment in ipairs(removed) do
     announce("comment_deleted", ctx.session, comment)
+  end
+  if closed then
+    notify.warn("the open editor of a cleared comment closed")
+  end
+  if sent then
+    -- The remote comments drop the copies of local comments. Without the
+    -- local copies, the comments of GitHub must show again.
+    require("codeview.remote").load(ctx.session, { silent = true })
   end
   return true
 end
