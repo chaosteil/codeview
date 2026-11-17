@@ -217,8 +217,8 @@ names, write the revision as a range, for example `:Codeview close^..close`.
     asks for it. See |codeview-submit|.
 
 :Codeview! submit [{event}]
-    Post with the default text of the review. The command asks no question
-    about the text.
+    Post without a question about the text of the review. The review then
+    has no text of its own.
 
                                                                *codeview-quit*
 Neovim quits when a review that the command line of Neovim started ends: >sh
@@ -2211,9 +2211,12 @@ line "into the text of the review".
     approve           the review approves the pull request
     request-changes   the review asks for changes
 <
-`:Codeview! submit` skips the question about the text of the review. GitHub
-needs a text for the comment event and for the request-changes event, so the
-review then holds one default line.
+`:Codeview! submit` skips the question about the text of the review. The
+review then holds only the comments on the pull request document as its text,
+or no text. codeview never adds a text that you did not write. GitHub needs a
+text for a review of the comment event or of the request-changes event that
+holds no comment on a line. Such a review stops with the error "the review
+needs a message", and nothing goes out.
 
                                                         *codeview-submit-send*
 The send key of the comment editor, `<leader>cs` by default, saves the
@@ -2385,14 +2388,15 @@ chosen comment that went out already does not go out again.
                                                        *codeview-bridge-older*
 The comments of an older push go out first. GitHub takes one commit for each
 review. As a result, each older push gets its own review of the comment
-event, on the head commit of that push, with the text "Comments on an older
-push (<sha>)." The call maps these comments on the diff of that commit, so
-each comment stays on the lines that it was written for. GitHub shows such a
-comment as outdated when a later push changed its lines. The repository must
-hold the commit of the push. If it does not, the comments of that push stay
-local, with the reason. If GitHub refuses the review of an older push, for
-example after a force push, the call stops with an error. The review with the
-event then does not go out.
+event, on the head commit of that push. That review holds the comments and
+no text, because codeview never adds a text that you did not write. The call
+maps these comments on the diff of that commit, so each comment stays on the
+lines that it was written for. GitHub shows such a comment as outdated when a
+later push changed its lines. The repository must hold the commit of the
+push. If it does not, the comments of that push stay local, with the reason.
+If GitHub refuses the review of an older push, for example after a force
+push, the call stops with an error. The review with the event then does not
+go out.
 
 The comments of the current head then go out in the review with the event
 and the text. When that review did not go out, but other comments did, the

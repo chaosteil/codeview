@@ -29,10 +29,11 @@
 ---
 --- The comments of an older push go out first. GitHub takes one commit for
 --- each review, so each older push gets its own review of the comment event,
---- on the head commit of that push. Each comment then stays on the lines
---- that it was written for, and GitHub shows it as outdated when a later push
---- changed these lines. When GitHub refuses such a review, the call stops, and
---- the review with the event does not go out.
+--- on the head commit of that push. That review has no text, because the
+--- call adds no text that the user did not write. Each comment then stays on
+--- the lines that it was written for, and GitHub shows it as outdated when a
+--- later push changed these lines. When GitHub refuses such a review, the
+--- call stops, and the review with the event does not go out.
 ---
 --- The comments of the current head then go out with |codeview.submit.run()|,
 --- in the review with the event and the text. When that review did not go
@@ -198,15 +199,6 @@ end
 ---@return string
 local function short(sha)
   return sha:sub(1, 7)
-end
-
----Text of the review of an older push.
----
---- GitHub needs a text for a review of the comment event.
----@param head string Head commit of the push.
----@return string body
-function M.older_body(head)
-  return string.format("Comments on an older push (%s).", short(head))
 end
 
 ---`1 comment` or `N comments`.
@@ -507,7 +499,9 @@ function M.submit_file(request_path)
                   session = old_session,
                   ids = push.ids,
                   event = "comment",
-                  body = M.older_body(push.head),
+                  -- The review holds the comments only. The call adds no
+                  -- text that the user did not write.
+                  body = "",
                   confirm = false,
                   notify = false,
                 },

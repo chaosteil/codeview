@@ -85,13 +85,14 @@ M.events = {
 ---@type string[]
 M.event_names = { "comment", "approve", "request-changes" }
 
----Events that GitHub rejects without a review body.
+---Events that GitHub rejects without a review body, when the review holds no
+---comment on a line.
 ---@type table<string, boolean>
 M.needs_body = { comment = true, ["request-changes"] = true }
 
----Body of a review that needs one and got none.
+---Error of a review that needs a text and has none.
 ---@type string
-M.fallback_body = "Review from codeview."
+M.needs_body_message = "the review needs a message"
 
 ---Number of unchanged lines that the diff of GitHub keeps around a hunk.
 ---
@@ -600,10 +601,8 @@ end
 ---Text of the review itself.
 ---
 --- The text of the review holds the text of the user and every comment on the
---- pull request document, one after the other.
----
---- GitHub rejects a review without a body for the comment event and for the
---- request-changes event. A plan without a body then takes the fallback text.
+--- pull request document, one after the other. The call adds no text of its
+--- own. Without such a text, the body is empty.
 ---@param plan codeview.submit.Plan
 ---@return string body
 function M.body(plan)
@@ -615,11 +614,7 @@ function M.body(plan)
   for _, note in ipairs(plan.notes or {}) do
     parts[#parts + 1] = vim.trim(note.body or "")
   end
-  local body = table.concat(parts, "\n\n")
-  if body == "" and M.needs_body[plan.event] then
-    return M.fallback_body
-  end
-  return body
+  return table.concat(parts, "\n\n")
 end
 
 ---Build the request body of one review.
@@ -765,8 +760,14 @@ function M.post(plan, cb)
   if type(plan) ~= "table" or type(plan.pr) ~= "table" then
     return done(cb, nil, errors.new(errors.codes.INVALID_ARG, "the call needs a submit plan"))
   end
+  local payload = M.payload(plan)
+  -- GitHub rejects a comment review or a change request without a text and
+  -- without a comment on a line. The call adds no text of its own, so it stops.
+  if payload.body == "" and not payload.comments and M.needs_body[plan.event] then
+    return done(cb, nil, errors.new(errors.codes.INVALID_ARG, M.needs_body_message))
+  end
   local path = string.format("repos/%s/pulls/%d/reviews", plan.pr.repo, math.floor(plan.pr.number))
-  return gh.api(path, api_opts(plan.pr, plan.dir, "POST", M.payload(plan)), cb)
+  return gh.api(path, api_opts(plan.pr, plan.dir, "POST", payload), cb)
 end
 
 ---Text of a comment body, for a comparison.

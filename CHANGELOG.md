@@ -152,6 +152,12 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- codeview adds no text that you did not write to a review. Before, a review
+  without a text got the text "Review from codeview.", and a review of the
+  comments of an older push got the text "Comments on an older push
+  (<sha>)." A review without a text now has an empty body. GitHub needs a
+  text for a comment review or a change request without a comment on a line.
+  Such a review now stops with the error "the review needs a message".
 - The bridge sends the chosen comments of an older push of the head. Before,
   a comment that you wrote before a new push could not go out through
   another tool. Version 2 of the request names the comments per push. Each

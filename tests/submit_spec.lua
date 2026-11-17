@@ -209,6 +209,9 @@ describe("codeview.submit", function()
   ---@type string[]
   local messages
   local real_notify
+  ---Head commit that the pull request reports. The fixture head by default.
+  ---@type string?
+  local head_oid
 
   ---Answer of `gh pr view --json`, built from the fixture.
   ---@return string json
@@ -222,7 +225,7 @@ describe("codeview.submit", function()
       author = { login = "ada" },
       headRefName = "pr",
       baseRefName = "main",
-      headRefOid = fixture.ids.pr_two,
+      headRefOid = head_oid or fixture.ids.pr_two,
       baseRefOid = fixture.ids.main_two,
       headRepository = { name = "demo", nameWithOwner = "ada/demo" },
       headRepositoryOwner = { login = "ada" },
@@ -432,6 +435,7 @@ describe("codeview.submit", function()
     answer = default_answer
     reviews = {}
     posted = nil
+    head_oid = nil
     local real = exec.capture
     exec.capture = function(cmd, opts, cb) ---@diagnostic disable-line: duplicate-set-field
       if cmd[1] ~= "gh" then
@@ -642,11 +646,30 @@ describe("codeview.submit", function()
       end
     end)
 
-    it("takes the fallback text for an event that needs a body", function()
+    it("adds no text of its own to a comment review without a text", function()
       local session = open_session()
       add(store_of(session))
       local plan = assert(plan_of({ session = session, event = "comment", body = "" }))
-      assert.are.equal(submit.fallback_body, submit.payload(plan).body)
+      local payload = submit.payload(plan)
+      assert.are.equal("", payload.body)
+      assert.are.equal(1, #payload.comments)
+    end)
+
+    it("posts no review that needs a text and has no text and no comment", function()
+      local session = open_session()
+      for _, event in ipairs({ "comment", "request-changes" }) do
+        local plan = assert(plan_of({ session = session, event = event, body = "" }))
+        local out, finished = {}, false
+        submit.post(plan, function(review, err)
+          out.review, out.err, finished = review, err, true
+        end)
+        wait_for(function()
+          return finished
+        end, "the post did not answer")
+        assert.is_nil(out.review)
+        assert.are.equal(submit.needs_body_message, assert(out.err).message)
+      end
+      assert.are.equal(0, #api_calls())
     end)
 
     it("keeps an empty body for an approval", function()
@@ -2090,7 +2113,7 @@ describe("codeview.submit", function()
       assert.are.equal(2, #posts)
       assert.are.equal(fixture.ids.pr_one, posts[1].commit_id)
       assert.are.equal("COMMENT", posts[1].event)
-      assert.are.equal(bridge.older_body(fixture.ids.pr_one), posts[1].body)
+      assert.are.equal("", posts[1].body)
       assert.are.same({ { path = "feature.txt", line = 1, side = "RIGHT", body = "an old note" } }, posts[1].comments)
       assert.are.equal(fixture.ids.pr_two, posts[2].commit_id)
       assert.are.equal("APPROVE", posts[2].event)
