@@ -2343,18 +2343,20 @@ the repository as the working directory: >
 
     nvim --headless -c "lua require('codeview.bridge').submit_file('<path>')"
 <
-codeview then maps the comments to the lines of the diff, posts one review,
+codeview then maps the comments to the lines of the diff, posts the review,
 and marks the comments as sent. The lock and the sent marks of
 |codeview-submit-guard| cover this send too.
 
 The file at `<path>` holds the request, as JSON: >json
 
     {
-      "version": 1,
+      "version": 2,
       "repo": "owner/name",
       "number": 14,
-      "head": "<sha>",
-      "ids": ["68a1c2f30b7a"],
+      "pushes": [
+        { "head": "<sha of the head>", "ids": ["68a1c2f30b7a"] },
+        { "head": "<sha of an older head>", "ids": ["68a1c2f30b7d"] }
+      ],
       "event": "comment",
       "body": "",
       "out": "/tmp/result.json"
@@ -2362,27 +2364,49 @@ The file at `<path>` holds the request, as JSON: >json
 <
 The fields hold: >
 
-    version       1
+    version       2, or 1
     repo          repository of the pull request, as owner/name
     number        number of the pull request
-    head          head commit that the comments belong to
-    ids           ids of the comments to send
+    pushes        the comments to send, per push of the head: the head
+                  commit of the push, and the ids of the comments of the
+                  session file of that push
     event         "comment", "approve", or "request-changes"
     body          text of the review, "" when it is not given
     out           path of the result file
 <
-The call opens the pull request session without the layout. When the head of
-the pull request is not `head`, the call stops with an error, because the
-comments belong to another push. It then sends the chosen comments, without
-questions: the tool asked the user already. A chosen comment that went out
-already does not go out again.
+Version 1 has the fields `head` and `ids` of one push in place of `pushes`.
+With version 1, the call stops with an error when the head of the pull
+request is not `head`, because the comments belong to another push.
+
+The call opens the pull request session without the layout. It then sends
+the chosen comments, without questions: the tool asked the user already. A
+chosen comment that went out already does not go out again.
+
+                                                       *codeview-bridge-older*
+The comments of an older push go out first. GitHub takes one commit for each
+review. As a result, each older push gets its own review of the comment
+event, on the head commit of that push, with the text "Comments on an older
+push (<sha>)." The call maps these comments on the diff of that commit, so
+each comment stays on the lines that it was written for. GitHub shows such a
+comment as outdated when a later push changed its lines. The repository must
+hold the commit of the push. If it does not, the comments of that push stay
+local, with the reason. If GitHub refuses the review of an older push, for
+example after a force push, the call stops with an error. The review with the
+event then does not go out.
+
+The comments of the current head then go out in the review with the event
+and the text. When that review did not go out, but other comments did, the
+call posts the review with only the event and the text. This occurs when the
+chosen comments of the current head are draft replies only, or when only
+comments of older pushes are chosen.
 
 The call writes the result atomically to `out`, as JSON: >json
 
     {
-      "version": 1,
+      "version": 2,
       "ok": true,
       "posted": 3,
+      "older": 1,
       "skipped": [{ "id": "68a1c2f30b7b", "reason": "..." }],
       "already_sent": ["68a1c2f30b7c"],
       "url": "https://github.com/owner/name/pull/14#pullrequestreview-1",
@@ -2391,9 +2415,10 @@ The call writes the result atomically to `out`, as JSON: >json
 <
 The fields hold: >
 
-    version       1
+    version       version of the request
     ok            true when the send ran without an error
     posted        number of comments that GitHub took
+    older         the part of posted that went out on older pushes
     skipped       comments that stay local, with the reason
     already_sent  chosen comments that went out already
     url           address of the review, "" when GitHub sent none
@@ -2401,7 +2426,8 @@ The fields hold: >
 <
 When every chosen comment went out already, the call posts nothing. The
 result then has `ok` true and `posted` 0. When another Neovim holds the lock,
-the result has `ok` false and the error of the lock.
+the result has `ok` false and the error of the lock. After an error, `posted`
+counts the comments that went out before the error.
 
 The call then closes the session and quits Neovim. The exit codes are: >
 

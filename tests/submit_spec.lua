@@ -2028,6 +2028,186 @@ describe("codeview.submit", function()
       assert.is_false(store_mod.is_synced(reloaded.comments[1]))
     end)
 
+    ---Write comments to the session file of an older push.
+    ---@param head string Head commit of the push.
+    ---@param list table[] Fields of the comments.
+    ---@return codeview.store.Comment[] comments
+    local function prepare_older(head, list)
+      local store = assert(store_mod.load({ repo = fixture.root, range = "pr-12-" .. head }))
+      local out = {}
+      for _, fields in ipairs(list) do
+        out[#out + 1] = add(store, vim.tbl_extend("force", { commit = head }, fields))
+      end
+      assert(store:save())
+      return out
+    end
+
+    ---Request bodies of the review posts, in order.
+    ---@return table[] payloads
+    local function review_posts()
+      local out = {}
+      for _, call in ipairs(api_calls()) do
+        if call.cmd[3]:find("/pulls/12/reviews$") then
+          out[#out + 1] = vim.json.decode(call.opts.stdin)
+        end
+      end
+      return out
+    end
+
+    ---Report whether a comment of a push went out.
+    ---@param head string
+    ---@param id string
+    ---@return boolean
+    local function synced(head, id)
+      local reloaded = assert(store_mod.load({ repo = fixture.root, range = "pr-12-" .. head }))
+      return store_mod.is_synced(assert(reloaded:get(id)))
+    end
+
+    it("posts the comments of an older push on its head commit, before the review", function()
+      local current = prepare({ {} })
+      local older = prepare_older(fixture.ids.pr_one, {
+        { file = "feature.txt", start_line = 1, end_line = 1, body = "an old note" },
+      })
+      local result = submit_file({
+        version = 2,
+        head = nil,
+        ids = nil,
+        pushes = {
+          { head = fixture.ids.pr_two, ids = { current[1].id } },
+          { head = fixture.ids.pr_one, ids = { older[1].id } },
+        },
+        event = "approve",
+        body = "looks good",
+      })
+      assert.are.equal(0, code, result.error)
+      assert.is_true(result.ok)
+      assert.are.equal(2, result.version)
+      assert.are.equal(2, result.posted)
+      assert.are.equal(1, result.older)
+      assert.are.same({}, result.skipped)
+
+      local posts = review_posts()
+      assert.are.equal(2, #posts)
+      assert.are.equal(fixture.ids.pr_one, posts[1].commit_id)
+      assert.are.equal("COMMENT", posts[1].event)
+      assert.are.equal(bridge.older_body(fixture.ids.pr_one), posts[1].body)
+      assert.are.same({ { path = "feature.txt", line = 1, side = "RIGHT", body = "an old note" } }, posts[1].comments)
+      assert.are.equal(fixture.ids.pr_two, posts[2].commit_id)
+      assert.are.equal("APPROVE", posts[2].event)
+      assert.are.equal("looks good", posts[2].body)
+      assert.are.equal(1, #posts[2].comments)
+      assert.is_true(synced(fixture.ids.pr_one, older[1].id))
+      assert.is_true(synced(fixture.ids.pr_two, current[1].id))
+      assert.is_nil(session_mod.current())
+    end)
+
+    it("approves when only comments of an older push are chosen", function()
+      prepare({})
+      local older = prepare_older(fixture.ids.pr_one, {
+        { file = "feature.txt", start_line = 2, end_line = 2, body = "an old note" },
+      })
+      local result = submit_file({
+        version = 2,
+        pushes = { { head = fixture.ids.pr_one, ids = { older[1].id } } },
+        event = "approve",
+      })
+      assert.are.equal(0, code, result.error)
+      assert.are.equal(1, result.posted)
+      assert.are.equal(1, result.older)
+      local posts = review_posts()
+      assert.are.equal(2, #posts)
+      assert.are.equal(fixture.ids.pr_one, posts[1].commit_id)
+      assert.are.equal(fixture.ids.pr_two, posts[2].commit_id)
+      assert.are.equal("APPROVE", posts[2].event)
+      assert.is_nil(posts[2].comments)
+    end)
+
+    it("posts no other review for a comment review of an older push without a text", function()
+      prepare({})
+      local older = prepare_older(fixture.ids.pr_one, {
+        { file = "feature.txt", start_line = 1, end_line = 1 },
+      })
+      local result = submit_file({
+        version = 2,
+        pushes = { { head = fixture.ids.pr_one, ids = { older[1].id } } },
+      })
+      assert.are.equal(0, code, result.error)
+      assert.are.equal(1, result.posted)
+      assert.are.equal(1, #review_posts())
+    end)
+
+    it("stops before the review when GitHub refuses an older push", function()
+      local current = prepare({ {} })
+      local older = prepare_older(fixture.ids.pr_one, {
+        { file = "feature.txt", start_line = 1, end_line = 1 },
+      })
+      answer = function(cmd, opts)
+        if not vim.tbl_contains(cmd, "--method") then
+          return default_answer(cmd, opts)
+        end
+        return { code = 1, stderr = "HTTP 422: Validation Failed" }
+      end
+      local result = submit_file({
+        version = 2,
+        pushes = {
+          { head = fixture.ids.pr_two, ids = { current[1].id } },
+          { head = fixture.ids.pr_one, ids = { older[1].id } },
+        },
+        event = "approve",
+      })
+      assert.are.equal(1, code)
+      assert.is_false(result.ok)
+      assert.are.equal(0, result.posted)
+      assert.is_truthy(result.error:find("older push " .. fixture.ids.pr_one:sub(1, 7), 1, true), result.error)
+      assert.is_truthy(result.error:find("The review did not go out", 1, true), result.error)
+      assert.are.equal(1, #api_calls())
+      assert.is_false(synced(fixture.ids.pr_one, older[1].id))
+      assert.is_false(synced(fixture.ids.pr_two, current[1].id))
+      assert.is_nil(session_mod.current())
+    end)
+
+    it("keeps the comments of an older push local when the repository lacks its commit", function()
+      local current = prepare({ {} })
+      local missing = string.rep("0123456789", 4)
+      local result = submit_file({
+        version = 2,
+        pushes = {
+          { head = missing, ids = { "lost1" } },
+          { head = fixture.ids.pr_two, ids = { current[1].id } },
+        },
+        event = "approve",
+      })
+      assert.are.equal(0, code, result.error)
+      assert.are.equal(1, result.posted)
+      assert.are.equal(0, result.older)
+      assert.are.equal(1, #result.skipped)
+      assert.are.equal("lost1", result.skipped[1].id)
+      assert.is_truthy(result.skipped[1].reason:find("older push 0123456", 1, true), result.skipped[1].reason)
+      local posts = review_posts()
+      assert.are.equal(1, #posts)
+      assert.are.equal("APPROVE", posts[1].event)
+    end)
+
+    it("posts the approval after a chosen reply alone", function()
+      local list = prepare({ { reply_to = "501", body = "a reply of mine" } })
+      local result = submit_file({ ids = { list[1].id }, event = "approve" })
+      assert.are.equal(0, code, result.error)
+      assert.are.equal(1, result.posted)
+      local calls = api_calls()
+      assert.are.equal("repos/ada/demo/pulls/12/comments/501/replies", calls[1].cmd[3])
+      local posts = review_posts()
+      assert.are.equal(1, #posts)
+      assert.are.equal("APPROVE", posts[1].event)
+      assert.are.equal(fixture.ids.pr_two, posts[1].commit_id)
+    end)
+
+    it("refuses a request of an unknown version", function()
+      local result = submit_file({ version = 3 })
+      assert.are.equal(1, code)
+      assert.is_false(result.ok)
+      assert.is_truthy(result.error:find("version 3", 1, true), result.error)
+    end)
+
     it("writes a failed result for a Lua error", function()
       local list = prepare({ {} })
       local real_run = submit.run

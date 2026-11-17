@@ -152,6 +152,15 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The bridge sends the chosen comments of an older push of the head. Before,
+  a comment that you wrote before a new push could not go out through
+  another tool. Version 2 of the request names the comments per push. Each
+  older push gets its own review of the comment event, on the head commit of
+  that push, so each comment stays on its lines. Version 1 still works. See
+  `:help codeview-bridge-older`.
+- The bridge posts the review with the event when the chosen comments of the
+  head are draft replies only. Before, an approval with only draft replies
+  did not go out.
 - The keys that you type right after a visual comment key (`I`, `A`, `c`)
   go into the comment editor. Before, keys that came in one read with the
   visual key ran in the diff, and the editor opened without them.
