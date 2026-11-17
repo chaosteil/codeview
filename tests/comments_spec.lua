@@ -719,6 +719,46 @@ describe("codeview.comments", function()
       assert.are.same({ 5, 5, 5, 6, 6, 6 }, sign_rows(state.buf))
     end)
 
+    -- A slow terminal or a busy Neovim can give the visual key and the first
+    -- keys of the comment in one read. These keys must go to the editor.
+    it("gives the keys that follow the visual key to the editor", function()
+      local state = open_diff()
+      for _, key in ipairs({ "I", "A", "c" }) do
+        api.nvim_set_current_win(state.win)
+        api.nvim_win_set_cursor(state.win, { 5, 0 })
+        press("Vj" .. key .. "I think")
+        assert.is_true(editor.is_open(), "the key " .. key .. " opens the editor")
+        assert.are.equal("I think", editor.body(), "the key " .. key .. " keeps the typed text")
+        assert.are.same({ 6, 0 }, api.nvim_win_get_cursor(state.win), "the typed text does not move the diff cursor")
+        assert.is_true(editor.submit())
+
+        local store = assert(comments.store())
+        local comment = store.comments[#store.comments]
+        assert.are.equal(3, comment.start_line, "the key " .. key .. " takes the first line")
+        assert.are.equal(4, comment.end_line, "the key " .. key .. " takes the last line")
+        assert.are.equal("I think", comment.body)
+      end
+    end)
+
+    it("gives the keys that follow the visual key to the editor in the side-by-side style", function()
+      open_diff()
+      assert.are.equal("split", view.set_style("split"))
+      local state = assert(view.current())
+      -- In the split, rows 3 and 4 of the new side hold lines 2 and 3.
+      api.nvim_set_current_win(state.win)
+      api.nvim_win_set_cursor(state.win, { 3, 0 })
+      press("VjII think")
+      assert.is_true(editor.is_open())
+      assert.are.equal("I think", editor.body())
+      assert.is_true(editor.submit())
+
+      local comment = assert(comments.store()).comments[1]
+      assert.are.equal("new", comment.side)
+      assert.are.equal(2, comment.start_line)
+      assert.are.equal(3, comment.end_line)
+      assert.are.equal("I think", comment.body)
+    end)
+
     it("comments on the selected lines with the explicit key", function()
       local state = open_diff()
       api.nvim_win_set_cursor(state.win, { 5, 0 })

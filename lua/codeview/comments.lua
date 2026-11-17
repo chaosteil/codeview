@@ -1496,12 +1496,17 @@ function M.set_keymaps(session, buf)
   end
 
   ---Leave visual mode and comment on the lines of the selection.
+  ---
+  --- `:normal!` runs only its own <Esc>. A feedkeys() with the "x" flag also
+  --- runs the keys that wait in the typeahead. When the visual key and the
+  --- first keys of the comment came in one read, these keys then ran in the
+  --- diff, and the editor did not get them.
   local function visual()
     local first, last = vim.fn.line("v"), vim.fn.line(".")
     if first > last then
       first, last = last, first
     end
-    api.nvim_feedkeys(api.nvim_replace_termcodes("<Esc>", true, false, true), "nx", false)
+    vim.cmd("normal! " .. api.nvim_replace_termcodes("<Esc>", true, false, true))
     M.add({ first = first, last = last, view = view_of(session) })
   end
 

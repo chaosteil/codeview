@@ -152,6 +152,9 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The keys that you type right after a visual comment key (`I`, `A`, `c`)
+  go into the comment editor. Before, keys that came in one read with the
+  visual key ran in the diff, and the editor opened without them.
 - The messages of background work show in a popup, never on the command line,
   so they never ask you to press Enter: the check of a pull request, the
   update to the new base, a deleted base branch, and a comment file that does
