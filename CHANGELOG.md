@@ -158,6 +158,18 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (<sha>)." A review without a text now has an empty body. GitHub needs a
   text for a comment review or a change request without a comment on a line.
   Such a review now stops with the error "the review needs a message".
+- A comment that went out does not go out a second time. Before, the
+  session file could lose a sent mark, for example when a tool stopped the
+  headless codeview after the post. A later send then posted the comment
+  again, in a new review. A submit now compares each comment with the
+  review comments of GitHub. A comment of your login on the same commit, on
+  the same lines, and with the same text gets the sent mark, and it does
+  not go out again. See `:help codeview-submit-guard`.
+- The bridge gives no comment with a sent mark to the submit, and it posts
+  the review with the event alone when every chosen comment went out
+  already. Before, such an approval did not go out. The result has the new
+  field `reviewed`. A write error of the sent marks after a post is now an
+  error of the result. Before, the bridge did not report it.
 - The bridge sends the chosen comments of an older push of the head. Before,
   a comment that you wrote before a new push could not go out through
   another tool. Version 2 of the request names the comments per push. Each

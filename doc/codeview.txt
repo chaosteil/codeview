@@ -2308,6 +2308,13 @@ your login, on the same commit, with the same text and the same comments, is
 the review of an earlier try. The submit then marks the comments as sent and
 posts nothing. The `existing` field of the result is true in that case.
 
+The submit also compares each comment with the review comments of the pull
+request, because a review with another text can hold it. A comment of your
+login, on the same commit, on the same lines, and with the same text, is on
+GitHub already. The submit marks it as sent, with the ids of GitHub, and does
+not post it again. Its id goes into the `already_sent` field of the result.
+When the submit cannot read the review comments, it posts nothing.
+
 One session runs one submit or one send at a time. A second call while the
 first one runs gives an error, so no comment goes out twice.
 
@@ -2383,7 +2390,10 @@ request is not `head`, because the comments belong to another push.
 
 The call opens the pull request session without the layout. It then sends
 the chosen comments, without questions: the tool asked the user already. A
-chosen comment that went out already does not go out again.
+chosen comment that went out already does not go out again. Before each push,
+the call reads the session file of that push, and a comment with a sent mark
+does not reach the submit. The submit also finds a comment that GitHub holds
+already, see |codeview-submit-guard|.
 
                                                        *codeview-bridge-older*
 The comments of an older push go out first. GitHub takes one commit for each
@@ -2402,7 +2412,9 @@ The comments of the current head then go out in the review with the event
 and the text. When that review did not go out, but other comments did, the
 call posts the review with only the event and the text. This occurs when the
 chosen comments of the current head are draft replies only, or when only
-comments of older pushes are chosen.
+comments of older pushes are chosen. It also occurs when no chosen comment
+goes out because every one went out already, and no chosen comment stays
+local. An approval then goes out without the comments a second time.
 
 The call writes the result atomically to `out`, as JSON: >json
 
@@ -2413,6 +2425,7 @@ The call writes the result atomically to `out`, as JSON: >json
       "older": 1,
       "skipped": [{ "id": "68a1c2f30b7b", "reason": "..." }],
       "already_sent": ["68a1c2f30b7c"],
+      "reviewed": true,
       "url": "https://github.com/owner/name/pull/14#pullrequestreview-1",
       "error": ""
     }
@@ -2425,11 +2438,13 @@ The fields hold: >
     older         the part of posted that went out on older pushes
     skipped       comments that stay local, with the reason
     already_sent  chosen comments that went out already
+    reviewed      true when the review with the event went out
     url           address of the review, "" when GitHub sent none
     error         text of the error, "" when ok is true
 <
-When every chosen comment went out already, the call posts nothing. The
-result then has `ok` true and `posted` 0. When another Neovim holds the lock,
+When every chosen comment went out already, the call posts no comment. The
+result then has `ok` true and `posted` 0. A review of the comment event
+without a text then does not go out, and `reviewed` is false. When another Neovim holds the lock,
 the result has `ok` false and the error of the lock. After an error, `posted`
 counts the comments that went out before the error.
 

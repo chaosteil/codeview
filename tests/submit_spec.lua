@@ -212,6 +212,9 @@ describe("codeview.submit", function()
   ---Head commit that the pull request reports. The fixture head by default.
   ---@type string?
   local head_oid
+  ---Review comments of the pull request that GitHub holds.
+  ---@type table[]
+  local remote_comments
 
   ---Answer of `gh pr view --json`, built from the fixture.
   ---@return string json
@@ -283,6 +286,9 @@ describe("codeview.submit", function()
           end
         end
         return { stdout = "[]" }
+      end
+      if not write and path:find("/pulls/12/comments?", 1, true) then
+        return { stdout = vim.json.encode(remote_comments) }
       end
       if path:find("/pulls/12/comments$") or path:find("/pulls/12/comments/%d+/replies$") then
         return { stdout = fixtures.gh_text("pr-comment.json") }
@@ -436,6 +442,7 @@ describe("codeview.submit", function()
     reviews = {}
     posted = nil
     head_oid = nil
+    remote_comments = {}
     local real = exec.capture
     exec.capture = function(cmd, opts, cb) ---@diagnostic disable-line: duplicate-set-field
       if cmd[1] ~= "gh" then
@@ -1050,6 +1057,87 @@ describe("codeview.submit", function()
       assert.are.equal("555", held.review_id)
       assert.are.equal("777", held.remote_id)
       assert.is_truthy(said():find("holds this review already", 1, true), said())
+    end)
+
+    ---A review comment of GitHub on line 2 of a.txt.
+    ---@param fields? table
+    ---@return table comment
+    local function remote_comment(fields)
+      return vim.tbl_extend("force", {
+        id = 777,
+        pull_request_review_id = 555,
+        user = { login = "ada" },
+        commit_id = string.rep("f", 40),
+        original_commit_id = fixture.ids.pr_two,
+        path = "a.txt",
+        line = vim.NIL,
+        original_line = 2,
+        side = "RIGHT",
+        body = "this line needs a test",
+      }, fields or {})
+    end
+
+    it("posts no comment that GitHub holds already in a review with another text", function()
+      local session = open_session()
+      local store = store_of(session)
+      local held = add(store)
+      local fresh = add(store, { file = "feature.txt", start_line = 1, end_line = 1, body = "a new note" })
+      remote_comments = { remote_comment() }
+
+      local result = assert(run({ session = session, event = "comment", body = "hello" }))
+      assert.are.equal(1, result.posted)
+      assert.are.same({ held.id }, result.already_sent)
+      local sent = vim.json.decode(api_calls()[1].opts.stdin)
+      assert.are.same({ { path = "feature.txt", line = 1, side = "RIGHT", body = "a new note" } }, sent.comments)
+
+      local reloaded = assert(store_mod.load({ repo = fixture.root, range = "pr-12-" .. fixture.ids.pr_two }))
+      local marked = assert(reloaded:get(held.id))
+      assert.is_true(store_mod.is_synced(marked))
+      assert.are.equal("555", marked.review_id)
+      assert.are.equal("777", marked.remote_id)
+      assert.is_true(store_mod.is_synced(assert(reloaded:get(fresh.id))))
+    end)
+
+    it("posts no review when GitHub holds every comment already", function()
+      local session = open_session()
+      add(store_of(session))
+      remote_comments = { remote_comment() }
+      local result = assert(run({ session = session, event = "comment", body = "hello" }))
+      assert.are.equal(0, result.posted)
+      assert.are.equal(1, #result.already_sent)
+      assert.is_nil(result.review)
+      assert.are.equal(0, #api_calls())
+    end)
+
+    it("posts a comment that GitHub holds for another user or on another commit", function()
+      local session = open_session()
+      add(store_of(session))
+      remote_comments = {
+        remote_comment({ user = { login = "bob" } }),
+        remote_comment({ original_commit_id = fixture.ids.pr_one }),
+        remote_comment({ body = "another text" }),
+        remote_comment({ original_line = 3 }),
+      }
+      local result = assert(run({ session = session, event = "comment", body = "hello" }))
+      assert.are.equal(1, result.posted)
+      assert.are.same({}, result.already_sent)
+      assert.are.equal(1, #vim.json.decode(api_calls()[1].opts.stdin).comments)
+    end)
+
+    it("posts nothing when it cannot read the review comments of GitHub", function()
+      local session = open_session()
+      local comment = add(store_of(session))
+      answer = function(cmd, opts)
+        if cmd[2] == "api" and (cmd[3] or ""):find("/pulls/12/comments?", 1, true) then
+          return { code = 1, stderr = "HTTP 502: Bad Gateway" }
+        end
+        return default_answer(cmd, opts)
+      end
+      local result, err = run({ session = session, event = "comment", body = "hello" })
+      assert.is_nil(result)
+      assert.is_truthy(submit.error_text(assert(err)):find("502", 1, true))
+      assert.are.equal(0, #api_calls())
+      assert.is_false(store_mod.is_synced(assert(store_of(session):get(comment.id))))
     end)
 
     it("posts when the review of the same text belongs to another user", function()
@@ -2209,6 +2297,121 @@ describe("codeview.submit", function()
       local posts = review_posts()
       assert.are.equal(1, #posts)
       assert.are.equal("APPROVE", posts[1].event)
+    end)
+
+    ---Push a new head commit to the pull request.
+    ---
+    --- The new commit has the tree of the fixture head. The call returns a
+    --- function that moves the head back.
+    ---@return string head
+    ---@return fun() restore
+    local function push_again()
+      local env = vim.tbl_extend("force", vim.fn.environ(), fixture.env)
+      ---@param cmd string[]
+      ---@return string
+      local function git(cmd)
+        local res = vim.system(cmd, { cwd = fixture.dir, text = true, env = env }):wait(30000)
+        assert(res.code == 0, table.concat(cmd, " ") .. ": " .. (res.stderr or ""))
+        return vim.trim(res.stdout or "")
+      end
+      local tree = git({ "git", "rev-parse", fixture.ids.pr_two .. "^{tree}" })
+      local head = git({ "git", "commit-tree", tree, "-p", fixture.ids.pr_two, "-m", "pr: push again" })
+      git({ "git", "push", "--quiet", "--force", "origin", head .. ":refs/pull/12/head" })
+      head_oid = head
+      return head,
+        function()
+          git({ "git", "push", "--quiet", "--force", "origin", fixture.ids.pr_two .. ":refs/pull/12/head" })
+          head_oid = nil
+        end
+    end
+
+    it("sends no comment again after a new push", function()
+      local list = prepare({ {}, { file = "feature.txt", start_line = 1, end_line = 1, body = "an old note" } })
+      local ids = { list[1].id, list[2].id }
+      local first = submit_file({ version = 2, pushes = { { head = fixture.ids.pr_two, ids = ids } } })
+      assert.are.equal(0, code, first.error)
+      assert.are.equal(2, first.posted)
+      assert.are.equal(1, #review_posts())
+
+      local new_head, restore = push_again()
+      gh_calls, code = {}, nil
+      local ok, result = pcall(submit_file, {
+        version = 2,
+        pushes = { { head = fixture.ids.pr_two, ids = ids } },
+        event = "approve",
+      })
+      restore()
+      assert(ok, result)
+      assert.are.equal(0, code, result.error)
+      assert.are.equal(0, result.posted)
+      assert.are.same(ids, result.already_sent)
+      assert.is_true(result.reviewed)
+      local posts = review_posts()
+      assert.are.equal(1, #posts)
+      assert.are.equal("APPROVE", posts[1].event)
+      assert.are.equal(new_head, posts[1].commit_id)
+      assert.is_nil(posts[1].comments)
+    end)
+
+    ---A review comment of GitHub on line 2 of a.txt, on the fixture head.
+    ---@return table comment
+    local function remote_comment()
+      return {
+        id = 777,
+        pull_request_review_id = 555,
+        user = { login = "ada" },
+        commit_id = fixture.ids.pr_two,
+        original_commit_id = fixture.ids.pr_two,
+        path = "a.txt",
+        line = vim.NIL,
+        original_line = 2,
+        side = "RIGHT",
+        body = "this line needs a test",
+      }
+    end
+
+    it("sends the approval alone when GitHub holds the comments of an older push", function()
+      -- The first send posted the comments, but the session file lost the
+      -- sent marks. A review with another text holds them on GitHub.
+      local list = prepare({ {} })
+      remote_comments = { remote_comment() }
+      local _, restore = push_again()
+      local ok, result = pcall(submit_file, {
+        version = 2,
+        pushes = { { head = fixture.ids.pr_two, ids = { list[1].id } } },
+        event = "approve",
+      })
+      restore()
+      assert(ok, result)
+      assert.are.equal(0, code, result.error)
+      assert.are.equal(0, result.posted)
+      assert.is_true(result.reviewed)
+      assert.are.same({ list[1].id }, result.already_sent)
+      local posts = review_posts()
+      assert.are.equal(1, #posts)
+      assert.are.equal("APPROVE", posts[1].event)
+      assert.is_nil(posts[1].comments)
+      assert.is_true(synced(fixture.ids.pr_two, list[1].id))
+    end)
+
+    it("gives no comment with a sent mark to the submit", function()
+      local list = prepare({ {}, { file = "feature.txt", start_line = 1, end_line = 1, body = "an old note" } })
+      local store = assert(store_mod.load({ repo = fixture.root, range = "pr-12-" .. fixture.ids.pr_two }))
+      assert(store:mark_synced(list[1].id, { review_id = "555" }))
+      assert(store:save())
+      local real_run = submit.run
+      local given = {}
+      submit.run = function(opts, cb) ---@diagnostic disable-line: duplicate-set-field
+        vim.list_extend(given, opts.ids)
+        return real_run(opts, cb)
+      end
+      local result =
+        submit_file({ version = 2, pushes = { { head = fixture.ids.pr_two, ids = { list[1].id, list[2].id } } } })
+      submit.run = real_run
+      assert.are.equal(0, code, result.error)
+      assert.are.same({ list[2].id }, given)
+      assert.are.equal(1, result.posted)
+      assert.are.same({ list[1].id }, result.already_sent)
     end)
 
     it("posts the approval after a chosen reply alone", function()

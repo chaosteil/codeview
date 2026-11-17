@@ -54,6 +54,12 @@
 --- comments, is the review of an earlier try. The call then marks the
 --- comments as sent and posts nothing.
 ---
+--- The call also compares each comment with the review comments of the pull
+--- request. A comment of the user that is logged in, on the same commit, on
+--- the same lines, and with the same text, is on GitHub already. The call
+--- marks it as sent and does not post it again, also when the review that
+--- holds it has another text.
+---
 --- One session runs one submit or one send at a time. A second call during
 --- the first one reports an error, so no comment goes out twice.
 
@@ -151,8 +157,9 @@ M.diff_opts = mapper.diff_opts
 ---@field review table? Review object of the answer of GitHub.
 ---@field url string Address of the review. Empty when GitHub sent none.
 ---@field existing boolean? True when GitHub held the review already, so the call posted nothing.
----@field already_sent string[]? Ids of the chosen comments that went out already.
+---@field already_sent string[]? Ids of the chosen comments that went out already. A comment that GitHub holds already counts too.
 ---@field stays_local { id: string, reason: string }[]? Comments that stay local, with the reason.
+---@field unsaved string? Error of the write of the sent marks. The comments are on GitHub, but the session file does not show them as sent.
 
 ---Sessions with a submit or a send that runs, by session id.
 ---@type table<integer, boolean>
@@ -892,6 +899,103 @@ local function find_review(plan, cb)
   end)
 end
 
+---Report whether a review comment of GitHub holds one comment of a payload.
+---
+--- The call compares the place on the commit of the review, so a later push
+--- that moved the lines does not matter.
+---@param item table Comment of the payload of |codeview.submit.payload()|.
+---@param remote table Comment of `GET /pulls/{n}/comments`.
+---@return boolean same
+local function same_sent(item, remote)
+  if type(remote) ~= "table" or remote.path ~= item.path or (remote.side or "RIGHT") ~= item.side then
+    return false
+  end
+  if (tonumber(remote.original_line) or tonumber(remote.line)) ~= item.line then
+    return false
+  end
+  if (tonumber(remote.original_start_line) or tonumber(remote.start_line)) ~= item.start_line then
+    return false
+  end
+  return body_key(remote.body) == body_key(item.body)
+end
+
+---Take out the comments of a plan that GitHub holds already.
+---
+--- The session file can lose a sent mark, for example when a process stops
+--- after the post and before the write of the file. The check of an earlier
+--- try compares whole reviews, so it does not find such a comment in a review
+--- with another text. This call compares each comment: a review comment of
+--- the user that is logged in, on the same commit, on the same lines, and with
+--- the same text, is the comment. The call marks such a comment as sent, with
+--- the ids of GitHub, writes the session file, and takes the comment out of
+--- the plan. Its id goes into `already_sent`.
+---@param plan codeview.submit.Plan
+---@param cb fun(count: integer?, err: codeview.Error?, save_err: codeview.Error?) `count` is nil when the call cannot read GitHub.
+local function drop_sent(plan, cb)
+  if #plan.entries == 0 then
+    cb(0, nil)
+    return
+  end
+  local opts = api_opts(plan.pr, plan.dir)
+  gh.api("user", opts, function(user, user_err)
+    if type(user) ~= "table" then
+      cb(nil, user_err)
+      return
+    end
+    local path = string.format("repos/%s/pulls/%d/comments", plan.pr.repo, math.floor(plan.pr.number))
+    gh.api_list(path, opts, function(remotes, err)
+      if not remotes then
+        cb(nil, err)
+        return
+      end
+      local head = tostring(plan.pr.head_sha or ""):lower()
+      local mine = {}
+      for _, remote in ipairs(remotes) do
+        local commit = type(remote) == "table" and (remote.original_commit_id or remote.commit_id) or nil
+        if
+          type(commit) == "string"
+          and commit:lower() == head
+          and type(remote.user) == "table"
+          and remote.user.login == user.login
+        then
+          mine[#mine + 1] = remote
+        end
+      end
+      local items = M.payload(plan).comments or {}
+      local keep, used, count = {}, {}, 0
+      local remote_mod = require("codeview.remote")
+      for index, entry in ipairs(plan.entries) do
+        local found
+        for at, remote in ipairs(mine) do
+          if not used[at] and same_sent(items[index], remote) then
+            found = at
+            break
+          end
+        end
+        if found then
+          used[found] = true
+          plan.store:mark_synced(entry.comment.id, {
+            review_id = remote_mod.review_id(mine[found].pull_request_review_id),
+            remote_id = id_of(mine[found]),
+          })
+          plan.already_sent[#plan.already_sent + 1] = entry.comment.id
+          count = count + 1
+        else
+          keep[#keep + 1] = entry
+        end
+      end
+      plan.entries = keep
+      if count == 0 then
+        cb(0, nil)
+        return
+      end
+      local ok, save_err = plan.store:save()
+      events.emit("review_submitted", { session = plan.session.id, count = count, review = "" })
+      cb(count, nil, not ok and save_err or nil)
+    end)
+  end)
+end
+
 ---Mark the comments of a plan as sent, and write the session file.
 ---
 --- The call runs only after GitHub confirmed the post. A write error leaves
@@ -1122,10 +1226,16 @@ function M.run(opts, cb)
   local lock_file
   ---@type codeview.submit.Plan?
   local planned
+  ---Error of the last failed write of the sent marks.
+  ---@type codeview.Error?
+  local unsaved
 
   ---@param result codeview.submit.Result?
   ---@param err codeview.Error?
   local function finish(result, err)
+    if result and unsaved then
+      result.unsaved = M.error_text(unsaved)
+    end
     if result and planned then
       result.already_sent = planned.already_sent
       result.stays_local = {}
@@ -1214,8 +1324,11 @@ function M.run(opts, cb)
     end, function()
       if count > 0 then
         local ok, save_err = plan.store:save()
-        if not ok and loud then
-          report_save(save_err --[[@as codeview.Error]], "the new text")
+        if not ok then
+          unsaved = save_err
+          if loud then
+            report_save(save_err --[[@as codeview.Error]], "the new text")
+          end
         end
         events.emit("review_submitted", { session = plan.session.id, count = count, review = "" })
       end
@@ -1257,8 +1370,11 @@ function M.run(opts, cb)
     end, function()
       if count > 0 then
         local ok, save_err = plan.store:save()
-        if not ok and loud then
-          report_save(save_err --[[@as codeview.Error]], "the reply")
+        if not ok then
+          unsaved = save_err
+          if loud then
+            report_save(save_err --[[@as codeview.Error]], "the reply")
+          end
         end
         events.emit("review_submitted", { session = plan.session.id, count = count, review = "" })
         remote.load(plan.session, { silent = true })
@@ -1330,29 +1446,63 @@ function M.run(opts, cb)
       end
       if found then
         local count, save_err = M.apply(plan, found.review, found.comments)
-        if save_err and loud then
-          report_save(save_err, "the review")
+        if save_err then
+          unsaved = save_err
+          if loud then
+            report_save(save_err, "the review")
+          end
         end
         after_review(plan, found.review, true, count)
         return
       end
-      M.post(plan, function(review, err)
-        if not review then
-          -- The call marks nothing, so every comment stays local and a later
-          -- submit sends it again. The comments that do not map stay local too,
-          -- and the report names them next to the error.
+      drop_sent(plan, function(dropped, drop_err, drop_save_err)
+        if not dropped then
+          -- The call cannot tell which comments GitHub holds, so it posts
+          -- nothing.
           report_skipped(plan)
-          finish(nil, err)
+          finish(nil, drop_err)
           return
         end
-        -- The ids of the new review comments let a later edit change them. A
-        -- failed read only loses the ids.
-        review_comments(plan, id_of(review), function(remotes)
-          local count, save_err = M.apply(plan, review, remotes)
-          if save_err and loud then
-            report_save(save_err, "the review")
+        if drop_save_err then
+          unsaved = drop_save_err
+          if loud then
+            report_save(drop_save_err, "the comments on GitHub")
           end
-          after_review(plan, review, false, count)
+        end
+        if dropped > 0 and loud then
+          notify.info(
+            string.format(
+              "%s of PR #%d went out before, so it does not go out again",
+              comment_count(dropped),
+              plan.pr.number
+            )
+          )
+        end
+        if #plan.entries + #plan.notes == 0 then
+          after_review(plan, nil, false, 0)
+          return
+        end
+        M.post(plan, function(review, err)
+          if not review then
+            -- The call marks nothing, so every comment stays local and a later
+            -- submit sends it again. The comments that do not map stay local too,
+            -- and the report names them next to the error.
+            report_skipped(plan)
+            finish(nil, err)
+            return
+          end
+          -- The ids of the new review comments let a later edit change them. A
+          -- failed read only loses the ids.
+          review_comments(plan, id_of(review), function(remotes)
+            local count, save_err = M.apply(plan, review, remotes)
+            if save_err then
+              unsaved = save_err
+              if loud then
+                report_save(save_err, "the review")
+              end
+            end
+            after_review(plan, review, false, count)
+          end)
         end)
       end)
     end)

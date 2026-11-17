@@ -40,6 +40,13 @@
 --- out, but other comments did, the call posts the review with only the
 --- event and the text. So an approval never stays behind.
 ---
+--- A comment goes out once. Before each push, the call reads the session file
+--- of the push and keeps every chosen comment with a sent mark out of the
+--- send. |codeview.submit.run()| also finds a comment that GitHub holds
+--- already. When no chosen comment goes out because every one went out
+--- already, the call posts the review with only the event and the text, the
+--- same as above.
+---
 --- The call writes the result atomically to `out`, as JSON: >json
 ---
 ---     {
@@ -49,6 +56,7 @@
 ---       "older": 1,
 ---       "skipped": [{ "id": "...", "reason": "..." }],
 ---       "already_sent": ["..."],
+---       "reviewed": true,
 ---       "url": "...",
 ---       "error": ""
 ---     }
@@ -57,8 +65,9 @@
 --- thread on GitHub, and `posted` counts it. `older` is the part of `posted`
 --- that went out on older pushes. `skipped` holds the comments that stay
 --- local, with the reason. `already_sent` holds the chosen comments that went
---- out already. When every chosen comment went out already, the call posts
---- nothing, and the result has `ok = true` and `posted = 0`. When another
+--- out already. `reviewed` is true when the review with the event went out.
+--- When every chosen comment went out already, the call posts no comment, and
+--- the result has `ok = true` and `posted = 0`. When another
 --- codeview holds the lock of the comments, the result has `ok = false` and
 --- the error of the lock.
 ---
@@ -67,6 +76,7 @@
 --- `ok = false` and the text of the error.
 
 local fsutil = require("codeview.fsutil")
+local store_mod = require("codeview.store")
 
 local M = {}
 
@@ -201,6 +211,29 @@ local function short(sha)
   return sha:sub(1, 7)
 end
 
+---Split the chosen ids of a push into the ids to send and the ids that went
+---out already.
+---
+--- A comment with a sent mark in the session file never goes out again. An id
+--- that the store does not hold stays in the ids to send, so that the submit
+--- reports it.
+---@param store codeview.store.Store? Comment store of the push. Nil sends every id.
+---@param ids string[]
+---@return string[] unsent
+---@return string[] sent
+local function split_sent(store, ids)
+  local unsent, sent = {}, {}
+  for _, id in ipairs(ids) do
+    local comment = store and store:get(id)
+    if comment and store_mod.is_synced(comment) then
+      sent[#sent + 1] = id
+    else
+      unsent[#unsent + 1] = id
+    end
+  end
+  return unsent, sent
+end
+
 ---`1 comment` or `N comments`.
 ---@param count integer
 ---@return string
@@ -249,6 +282,7 @@ function M.submit_file(request_path)
       older = sums.older,
       skipped = sums.skipped,
       already_sent = sums.already_sent,
+      reviewed = fields.reviewed == true,
       url = fields.url or "",
       error = fields.error or "",
     }
@@ -328,15 +362,27 @@ function M.submit_file(request_path)
       local function after(result)
         if result then
           add(result, false)
+          if result.unsaved then
+            fail(
+              string.format(
+                "%s went out, but codeview did not mark them as sent: %s",
+                comments_text(sums.posted),
+                result.unsaved
+              )
+            )
+            return
+          end
         end
         local reviewed = result ~= nil and result.review ~= nil
         local wanted = event ~= "comment" or vim.trim(body) ~= ""
-        if reviewed or not wanted or sums.posted == 0 then
-          finish({ ok = true, url = result and result.url or "" })
+        -- No chosen comment went out, because every one went out already.
+        local all_sent = sums.posted == 0 and #sums.already_sent > 0 and #sums.skipped == 0
+        if reviewed or not wanted or (sums.posted == 0 and not all_sent) then
+          finish({ ok = true, reviewed = reviewed, url = result and result.url or "" })
           return
         end
-        -- Comments went out, but no review with the event. A post of the
-        -- event and the text alone completes the review.
+        -- Comments went out, or went out before, but no review with the
+        -- event. A post of the event and the text alone completes the review.
         submit.post(
           {
             pr = info,
@@ -358,19 +404,22 @@ function M.submit_file(request_path)
               )
               return
             end
-            finish({ ok = true, url = type(review.html_url) == "string" and review.html_url or "" })
+            finish({ ok = true, reviewed = true, url = type(review.html_url) == "string" and review.html_url or "" })
           end)
         )
       end
 
-      if #ids == 0 then
+      local store = require("codeview.comments").store(current)
+      local unsent, sent = split_sent(store, ids)
+      vim.list_extend(sums.already_sent, sent)
+      if #unsent == 0 then
         after(nil)
         return
       end
       submit.run(
         {
           session = current,
-          ids = ids,
+          ids = unsent,
           event = event,
           body = body,
           confirm = false,
@@ -468,10 +517,17 @@ function M.submit_file(request_path)
           end
 
           local old_info = vim.tbl_extend("force", info, { head_sha = push.head })
+          local unsent, sent =
+            split_sent(store_mod.load({ repo = current_opts.repo.root, range = pr.store_key(old_info) }), push.ids)
+          vim.list_extend(sums.already_sent, sent)
+          if #unsent == 0 then
+            next_push()
+            return
+          end
           ---Keep every comment of the push local, with one reason.
           ---@param reason string
           local function skip_push(reason)
-            for _, id in ipairs(push.ids) do
+            for _, id in ipairs(unsent) do
               sums.skipped[#sums.skipped + 1] = { id = id, reason = reason }
             end
             next_push()
@@ -497,7 +553,7 @@ function M.submit_file(request_path)
               submit.run(
                 {
                   session = old_session,
-                  ids = push.ids,
+                  ids = unsent,
                   event = "comment",
                   -- The review holds the comments only. The call adds no
                   -- text that the user did not write.
@@ -521,6 +577,16 @@ function M.submit_file(request_path)
                     return
                   end
                   add(result, true)
+                  if result.unsaved then
+                    fail(
+                      string.format(
+                        "%s went out, but codeview did not mark them as sent: %s. The review did not go out",
+                        comments_text(sums.posted),
+                        result.unsaved
+                      )
+                    )
+                    return
+                  end
                   next_push()
                 end)
               )
