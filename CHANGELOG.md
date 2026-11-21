@@ -152,6 +152,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Closing the comment overview returns focus to the previous window and
+  keeps its cursor position.
 - codeview adds no text that you did not write to a review. Before, a review
   without a text got the text "Review from codeview.", and a review of the
   comments of an older push got the text "Comments on an older push
