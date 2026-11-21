@@ -1003,10 +1003,14 @@ end
 
 ---Close the overview. The session stays open.
 ---
+--- If the overview has focus, return to the previous window.
 --- The close deletes the autocmds and the event handlers of the overview. See
 --- |codeview.panel.singleton()|.
 ---@return boolean closed
 function Overview:close()
+  if self.panel:window() == api.nvim_get_current_win() and fn.winnr("#") ~= 0 then
+    vim.cmd.wincmd("p")
+  end
   return self.panel:close()
 end
 
@@ -1195,7 +1199,8 @@ end
 ---Close the overview. The session stays open.
 ---@return boolean closed False when no overview is open.
 function M.close()
-  return life.close()
+  local overview = M.get()
+  return overview ~= nil and overview:close()
 end
 
 ---Render the overview again.
@@ -1208,7 +1213,11 @@ end
 ---@param opts? { session?: codeview.Session, focus?: boolean }
 ---@return boolean open State after the call.
 function M.toggle(opts)
-  return life.toggle(opts)
+  if M.is_open() then
+    M.close()
+    return false
+  end
+  return M.open(opts) ~= nil
 end
 
 return M

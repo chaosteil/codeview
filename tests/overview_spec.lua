@@ -824,6 +824,22 @@ describe("codeview.overview", function()
       assert.is_false(overview.is_open())
     end)
 
+    it("returns to the diff cursor after toggling the overview twice", function()
+      local session = open_session()
+      assert(require("codeview.sidebar").open({ session = session }))
+      assert(require("codeview.hints").open({ session = session }))
+      local diff = open_diff("call.lua")
+      api.nvim_win_set_cursor(diff.win, { 3, 4 })
+
+      press("<leader>co")
+      assert.are.equal(assert(overview.get()).panel:window(), api.nvim_get_current_win())
+      press("<leader>co")
+
+      assert.is_false(overview.is_open())
+      assert.are.equal(diff.win, api.nvim_get_current_win())
+      assert.are.same({ 3, 4 }, api.nvim_win_get_cursor(diff.win))
+    end)
+
     it("closes the overview with q", function()
       local bar = open_overview({ focus = true })
       press("q")
